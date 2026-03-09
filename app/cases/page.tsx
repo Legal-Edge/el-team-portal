@@ -198,7 +198,11 @@ function CasesContent() {
               </thead>
               <tbody>
                 {cases.map(c => (
-                  <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors">
+                  <tr
+                    key={c.id}
+                    onClick={() => router.push(`/cases/${c.hubspot_deal_id}` as never)}
+                    className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
+                  >
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">
                         {[c.client_first_name, c.client_last_name].filter(Boolean).join(' ') || <span className="text-gray-400 italic">Unknown</span>}
