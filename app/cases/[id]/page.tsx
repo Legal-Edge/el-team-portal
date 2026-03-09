@@ -128,6 +128,7 @@ const STATUS_COLORS: Record<string, string> = {
   unknown:             'bg-gray-100 text-gray-500',
 }
 
+// ─── Shared field component ────────────────────────────────────────────────
 function Field({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div>
@@ -139,10 +140,11 @@ function Field({ label, value, mono = false }: { label: string; value: React.Rea
   )
 }
 
+// ─── Standard section card ─────────────────────────────────────────────────
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">{title}</h2>
+      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-5">{title}</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
         {children}
       </div>
@@ -150,62 +152,70 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+// ─── Accordion section — same card language as Section ────────────────────
 function IntakeSection({
-  title, icon, accentColor, defaultOpen = false, children
+  title, icon, defaultOpen = false, children
 }: {
   title: string
   icon: string
-  accentColor: string
   defaultOpen?: boolean
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden border-l-4 ${accentColor}`}>
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <button
         className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
         onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
       >
-        <div className="flex items-center gap-3">
-          <span className="text-base">{icon}</span>
-          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{title}</span>
+        <div className="flex items-center gap-2.5">
+          <span className="text-base leading-none">{icon}</span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{title}</span>
         </div>
-        <span className="text-xs text-gray-400">{open ? '▲' : '▼'}</span>
+        {/* Chevron: right when closed, rotates down when open */}
+        <span
+          className={`text-gray-400 text-lg leading-none select-none inline-block transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+          aria-hidden="true"
+        >
+          ›
+        </span>
       </button>
+
       {open && (
-        <div className="px-6 pb-6 pt-1">
-          {children}
-        </div>
+        <>
+          <div className="border-t border-gray-100" />
+          <div className="px-6 py-5">
+            {children}
+          </div>
+        </>
       )}
     </div>
   )
 }
 
-function IntakeField({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="py-2 border-b border-gray-50 last:border-0">
-      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
-      <p className="text-sm text-gray-800">{value ?? <span className="text-gray-300 italic">—</span>}</p>
-    </div>
-  )
-}
-
+// ─── Problem card inside Issues & Repair History ──────────────────────────
 function IntakeProblem({ n, category, notes, attempts }: {
   n: number; category: string | null; notes: string | null; attempts: string | null
 }) {
   if (!category && !notes) return null
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-1.5">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Problem {n}</p>
-      {category && <p className="text-sm font-medium text-gray-800">{category}</p>}
-      {notes && <p className="text-sm text-gray-600 whitespace-pre-wrap">{notes}</p>}
-      {attempts && (
-        <p className="text-xs text-gray-400">Repair attempts: <span className="text-gray-600">{attempts}</span></p>
-      )}
+    <div className="rounded-lg border border-gray-200 p-4">
+      <div className="flex items-start justify-between gap-4 mb-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Problem {n}</p>
+        {attempts && (
+          <span className="text-xs text-gray-500 shrink-0 whitespace-nowrap">
+            {attempts} repair attempt{attempts !== '1' ? 's' : ''}
+          </span>
+        )}
+      </div>
+      {category && <p className="text-sm font-medium text-gray-900 mb-1">{category}</p>}
+      {notes && <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{notes}</p>}
     </div>
   )
 }
 
+// ─── Communications ────────────────────────────────────────────────────────
 const CHANNEL_ICON: Record<string, string> = {
   call: '📞', sms: '💬', email: '✉️', note: '📝', meeting: '📅', task: '✅', other: '•'
 }
@@ -226,15 +236,14 @@ function CommRow({ comm }: { comm: Comm }) {
       : `${comm.duration_seconds}s`
     : null
 
-  // Full content: use body if available, fall back to snippet
   const fullContent = comm.body || comm.snippet
   const hasContent = !!fullContent
 
   return (
     <div className={`px-6 py-4 transition-colors ${comm.needs_review ? 'border-l-4 border-l-yellow-400' : ''}`}>
-      {/* Header row — always visible */}
+      {/* Header row */}
       <div
-        className="flex items-start justify-between gap-4 hover:bg-gray-50 -mx-6 px-6 py-1 rounded cursor-pointer"
+        className="flex items-start justify-between gap-4 cursor-pointer"
         onClick={() => hasContent && setExpanded(e => !e)}
       >
         <div className="flex items-start gap-3 min-w-0">
@@ -256,7 +265,6 @@ function CommRow({ comm }: { comm: Comm }) {
               )}
             </div>
 
-            {/* Sender/recipient metadata */}
             {(comm.sender_email || comm.recipient_emails?.length > 0) && (
               <div className="flex gap-3 mt-0.5 text-xs text-gray-400">
                 {comm.sender_email && <span>From: {comm.sender_name ? `${comm.sender_name} <${comm.sender_email}>` : comm.sender_email}</span>}
@@ -269,7 +277,6 @@ function CommRow({ comm }: { comm: Comm }) {
               </div>
             )}
 
-            {/* Collapsed preview */}
             {!expanded && comm.snippet && (
               <p className="text-xs text-gray-500 mt-1 line-clamp-2 max-w-2xl">{comm.snippet}</p>
             )}
@@ -277,14 +284,14 @@ function CommRow({ comm }: { comm: Comm }) {
         </div>
 
         <div className="text-right shrink-0 flex flex-col items-end gap-1">
-          <p className="text-xs text-gray-400">{time}</p>
+          <p className="text-xs text-gray-400 whitespace-nowrap">{time}</p>
           {hasContent && (
-            <span className="text-xs text-blue-500">{expanded ? '▲ collapse' : '▼ expand'}</span>
+            <span className={`text-xs text-gray-400 inline-block transition-transform duration-200 leading-none select-none ${expanded ? 'rotate-90' : ''}`}>›</span>
           )}
         </div>
       </div>
 
-      {/* Expanded full content */}
+      {/* Expanded content */}
       {expanded && (
         <div className="mt-3 ml-9 space-y-3">
           {fullContent && (
@@ -292,7 +299,7 @@ function CommRow({ comm }: { comm: Comm }) {
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
                 {comm.channel === 'call' ? 'Call Notes' : comm.channel === 'email' ? 'Email Body' : 'Content'}
               </p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{fullContent}</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{fullContent}</p>
             </div>
           )}
           {comm.recording_url && (
@@ -317,6 +324,7 @@ function CommRow({ comm }: { comm: Comm }) {
   )
 }
 
+// ─── Page ──────────────────────────────────────────────────────────────────
 export default function CaseDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -359,12 +367,12 @@ export default function CaseDetailPage() {
     setCommsLoading(false)
   }, [params.id])
 
-  useEffect(() => { loadComms(commChannel) }, [commChannel])
+  useEffect(() => { loadComms(commChannel) }, [commChannel, loadComms])
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-400 text-sm">Loading case...</p>
+        <p className="text-gray-400 text-sm">Loading case…</p>
       </div>
     )
   }
@@ -386,17 +394,20 @@ export default function CaseDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-8 py-4">
-        <div className="max-w-5xl mx-auto flex justify-between items-start">
+
+      {/* ── Header ── */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-5xl mx-auto px-8 py-5 flex justify-between items-start">
           <div>
-            <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
-              <a href="/dashboard" className="hover:text-gray-700">Dashboard</a>
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
+              <a href="/dashboard" className="hover:text-gray-600 transition-colors">Dashboard</a>
               <span>/</span>
-              <a href="/cases" className="hover:text-gray-700">Cases</a>
+              <a href="/cases" className="hover:text-gray-600 transition-colors">Cases</a>
               <span>/</span>
               <span className="text-gray-600">{clientName}</span>
             </div>
+            {/* Title row */}
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold text-gray-900">{clientName}</h1>
               <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown}`}>
@@ -405,26 +416,30 @@ export default function CaseDetailPage() {
             </div>
             <p className="text-sm text-gray-500 mt-0.5">{vehicle}</p>
           </div>
-          <div className="flex items-center gap-3 mt-1">
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 mt-1">
             <a
               href={`https://app.hubspot.com/contacts/47931752/deal/${c.hubspot_deal_id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-orange-500 hover:text-orange-700 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
             >
-              View in HubSpot ↗
+              HubSpot ↗
             </a>
             <button
               onClick={() => router.push('/cases' as never)}
-              className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              ← Back to queue
+              ← Cases
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-8 py-6 space-y-4">
+      {/* ── Main content ── */}
+      <main className="max-w-5xl mx-auto px-8 py-6 space-y-3">
+
         {/* Client */}
         <Section title="Client">
           <Field label="First Name"  value={c.client_first_name} />
@@ -473,18 +488,18 @@ export default function CaseDetailPage() {
 
         {/* Notes */}
         {(c.case_notes || c.internal_notes) && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Notes</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</h2>
             {c.case_notes && (
               <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Case Notes</p>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.case_notes}</p>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Case Notes</p>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.case_notes}</p>
               </div>
             )}
             {c.internal_notes && (
               <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Internal Notes</p>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.internal_notes}</p>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Internal Notes</p>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.internal_notes}</p>
               </div>
             )}
           </div>
@@ -493,7 +508,7 @@ export default function CaseDetailPage() {
         {/* Tags */}
         {c.tags && c.tags.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Tags</h2>
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Tags</h2>
             <div className="flex flex-wrap gap-2">
               {c.tags.map(tag => (
                 <span key={tag} className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">{tag}</span>
@@ -502,92 +517,129 @@ export default function CaseDetailPage() {
           </div>
         )}
 
-        {/* ── Intake Sections ── */}
-        <IntakeSection title="Intake Submission" icon="📋" accentColor="border-l-blue-400">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-            <IntakeField label="ELA Intake Status"     value={intake?.ela_intake} />
-            <IntakeField label="Intake Management"     value={intake?.intake_management} />
-            <IntakeField label="HubSpot Qualifier"     value={intake?.intake_hubspot_qualifier} />
-            <IntakeField label="Intake Associate"      value={intake?.intake_associate} />
-            <IntakeField label="Had Repairs"           value={intake?.had_repairs == null ? null : intake.had_repairs ? 'Yes' : 'No'} />
-            <IntakeField label="Paid for Repairs"      value={intake?.paid_for_repairs} />
-            <IntakeField label="Number of Repairs"     value={intake?.repair_count} />
+        {/* ── Intake Accordions ── */}
+
+        {/* Intake Submission */}
+        <IntakeSection title="Intake Submission" icon="📋">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
+            <Field label="ELA Intake Status"  value={intake?.ela_intake} />
+            <Field label="Intake Management"  value={intake?.intake_management} />
+            <Field label="HubSpot Qualifier"  value={intake?.intake_hubspot_qualifier} />
+            <Field label="Intake Associate"   value={intake?.intake_associate} />
+            <Field label="Had Repairs"        value={intake?.had_repairs == null ? null : intake.had_repairs ? 'Yes' : 'No'} />
+            <Field label="Paid for Repairs"   value={intake?.paid_for_repairs} />
+            <Field label="Number of Repairs"  value={intake?.repair_count} />
           </div>
         </IntakeSection>
 
-        <IntakeSection title="Vehicle Information" icon="🚗" accentColor="border-l-indigo-400">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-            <IntakeField label="Purchase or Lease"  value={intake?.purchase_or_lease} />
-            <IntakeField label="How Purchased"      value={intake?.how_purchased} />
-            <IntakeField label="Vehicle Status"     value={intake?.vehicle_status} />
+        {/* Vehicle Information */}
+        <IntakeSection title="Vehicle Information" icon="🚗">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
+            <Field label="Purchase or Lease"  value={intake?.purchase_or_lease} />
+            <Field label="How Purchased"      value={intake?.how_purchased} />
+            <Field label="Vehicle Status"     value={intake?.vehicle_status} />
           </div>
         </IntakeSection>
 
-        <IntakeSection title="Issues & Repair History" icon="🔧" accentColor="border-l-orange-400">
-          <div className="space-y-3 mb-4">
-            <IntakeProblem n={1} category={intake?.problem_1_category ?? null} notes={intake?.problem_1_notes ?? null} attempts={intake?.problem_1_repair_attempts ?? null} />
-            <IntakeProblem n={2} category={intake?.problem_2_category ?? null} notes={intake?.problem_2_notes ?? null} attempts={intake?.problem_2_repair_attempts ?? null} />
-            <IntakeProblem n={3} category={intake?.problem_3_category ?? null} notes={intake?.problem_3_notes ?? null} attempts={intake?.problem_3_repair_attempts ?? null} />
-            <IntakeProblem n={4} category={intake?.problem_4_category ?? null} notes={intake?.problem_4_notes ?? null} attempts={intake?.problem_4_repair_attempts ?? null} />
+        {/* Issues & Repair History */}
+        <IntakeSection title="Issues & Repair History" icon="🔧">
+          {/* Problem cards — 2-column grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+            <IntakeProblem
+              n={1}
+              category={intake?.problem_1_category ?? null}
+              notes={intake?.problem_1_notes ?? null}
+              attempts={intake?.problem_1_repair_attempts ?? null}
+            />
+            <IntakeProblem
+              n={2}
+              category={intake?.problem_2_category ?? null}
+              notes={intake?.problem_2_notes ?? null}
+              attempts={intake?.problem_2_repair_attempts ?? null}
+            />
+            <IntakeProblem
+              n={3}
+              category={intake?.problem_3_category ?? null}
+              notes={intake?.problem_3_notes ?? null}
+              attempts={intake?.problem_3_repair_attempts ?? null}
+            />
+            <IntakeProblem
+              n={4}
+              category={intake?.problem_4_category ?? null}
+              notes={intake?.problem_4_notes ?? null}
+              attempts={intake?.problem_4_repair_attempts ?? null}
+            />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-            <IntakeField label="Total Repair Attempts"      value={intake?.repair_attempts} />
-            <IntakeField label="Last Repair Attempt Date"   value={intake?.last_repair_attempt_date} />
+
+          {/* Summary fields */}
+          {(intake?.repair_attempts || intake?.last_repair_attempt_date) && (
+            <>
+              <div className="border-t border-gray-100 mb-5" />
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
+                <Field label="Total Repair Attempts"    value={intake?.repair_attempts} />
+                <Field label="Last Repair Attempt Date" value={intake?.last_repair_attempt_date} />
+              </div>
+            </>
+          )}
+        </IntakeSection>
+
+        {/* Additional Information */}
+        <IntakeSection title="Additional Information" icon="📄">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
+            <Field label="Car in Shop 30+ Days"     value={intake?.in_shop_30_days} />
+            <Field label="Contacted Manufacturer"   value={intake?.contacted_manufacturer} />
+            <Field label="Manufacturer Offer"       value={intake?.manufacturer_offer} />
+            <Field label="Has Repair Documents"     value={intake?.has_repair_documents} />
+            <Field label="Refund Preference"        value={intake?.refund_preference} />
           </div>
         </IntakeSection>
 
-        <IntakeSection title="Additional Information" icon="📄" accentColor="border-l-emerald-400">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-            <IntakeField label="Car in Shop 30+ Days"       value={intake?.in_shop_30_days} />
-            <IntakeField label="Contacted Manufacturer"     value={intake?.contacted_manufacturer} />
-            <IntakeField label="Manufacturer Offer"        value={intake?.manufacturer_offer} />
-            <IntakeField label="Has Repair Documents"       value={intake?.has_repair_documents} />
-            <IntakeField label="Refund Preference"          value={intake?.refund_preference} />
-          </div>
-        </IntakeSection>
-
-        {/* Communications */}
+        {/* ── Communications ── */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          {/* Comm header */}
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Communications</h2>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Communications</h2>
               {commTotal > 0 && (
-                <span className="text-xs text-gray-400">{commTotal} total</span>
+                <span className="text-xs text-gray-400 tabular-nums">{commTotal} total</span>
               )}
             </div>
+
             {/* Channel filter */}
             {commTotal > 0 && (
-              <div className="flex gap-1">
+              <div className="flex gap-1 flex-wrap">
                 {[
-                  { key: '', label: 'All' },
-                  { key: 'call', label: `Calls${commCounts.call ? ` (${commCounts.call})` : ''}` },
-                  { key: 'sms', label: `SMS${commCounts.sms ? ` (${commCounts.sms})` : ''}` },
+                  { key: '',      label: 'All' },
+                  { key: 'call',  label: `Calls${commCounts.call  ? ` (${commCounts.call})`  : ''}` },
+                  { key: 'sms',   label: `SMS${commCounts.sms    ? ` (${commCounts.sms})`    : ''}` },
                   { key: 'email', label: `Email${commCounts.email ? ` (${commCounts.email})` : ''}` },
-                  { key: 'note', label: `Notes${commCounts.note ? ` (${commCounts.note})` : ''}` },
-                ].filter(t => t.key === '' || commCounts[t.key])
-                 .map(tab => (
-                  <button
-                    key={tab.key}
-                    onClick={() => setCommChannel(tab.key)}
-                    className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${
-                      commChannel === tab.key
-                        ? 'bg-gray-900 text-white'
-                        : 'text-gray-500 hover:text-gray-900'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+                  { key: 'note',  label: `Notes${commCounts.note  ? ` (${commCounts.note})`  : ''}` },
+                ]
+                  .filter(t => t.key === '' || commCounts[t.key])
+                  .map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setCommChannel(tab.key)}
+                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                        commChannel === tab.key
+                          ? 'bg-gray-900 text-white'
+                          : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
               </div>
             )}
           </div>
 
+          {/* Comm list */}
           {commsLoading ? (
-            <div className="py-10 text-center text-gray-400 text-sm">Loading communications...</div>
+            <div className="py-12 text-center text-gray-400 text-sm">Loading communications…</div>
           ) : comms.length === 0 ? (
-            <div className="py-10 text-center">
+            <div className="py-12 text-center space-y-1">
               <p className="text-gray-400 text-sm">No communications synced yet</p>
-              <p className="text-gray-300 text-xs mt-1">Run sync-hubspot-comms.mjs --deal-id={c.hubspot_deal_id}</p>
+              <p className="text-gray-300 text-xs font-mono">sync-hubspot-comms.mjs --deal-id={c.hubspot_deal_id}</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -597,6 +649,7 @@ export default function CaseDetailPage() {
             </div>
           )}
         </div>
+
       </main>
     </div>
   )
