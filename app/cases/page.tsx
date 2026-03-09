@@ -200,7 +200,7 @@ function CasesContent() {
                 {cases.map(c => (
                   <tr
                     key={c.id}
-                    onClick={() => router.push(`/cases/${c.hubspot_deal_id}` as never)}
+                    onClick={() => { window.location.href = `/cases/${c.hubspot_deal_id}` }}
                     className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
                   >
                     <td className="px-4 py-3">
