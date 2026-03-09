@@ -1,19 +1,22 @@
-import NextAuth from "next-auth"
+import { DefaultSession } from "next-auth"
 
 declare module "next-auth" {
   interface Session {
     user: {
-      id: string
-      name?: string | null
-      email?: string | null
-      image?: string | null
+      staffId?: string
+      displayName?: string
       role?: string
-      active?: boolean
-    }
-  }
-
-  interface User {
-    role?: string
-    active?: boolean
+      roleLevel?: number
+      timeZone?: string
+      permissions?: {
+        canCreateCases: boolean
+        canEditAllCases: boolean
+        canDeleteCases: boolean
+        canAccessFinancials: boolean
+        canManageStaff: boolean
+        canAccessAiTools: boolean
+        canApproveSettlements: boolean
+      }
+    } & DefaultSession["user"]
   }
 }

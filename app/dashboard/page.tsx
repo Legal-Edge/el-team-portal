@@ -89,9 +89,19 @@ export default async function DashboardPage() {
             <div className="flex items-center gap-4">
               <div className="text-sm">
                 <span className="text-gray-600">Welcome, </span>
-                <span className="font-semibold text-gray-900">{session.user.name}</span>
+                <span className="font-semibold text-gray-900">
+                  {session.user.displayName ?? session.user.name}
+                </span>
                 {session.user.role && (
-                  <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                  <span className={`ml-2 text-xs px-2 py-0.5 rounded-full font-medium ${
+                    session.user.role === 'admin'
+                      ? 'bg-red-100 text-red-700'
+                      : session.user.role === 'attorney'
+                      ? 'bg-purple-100 text-purple-700'
+                      : session.user.role === 'manager'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-gray-100 text-gray-600'
+                  }`}>
                     {session.user.role}
                   </span>
                 )}
