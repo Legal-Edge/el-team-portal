@@ -87,6 +87,14 @@ export default async function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-4">
+              {session.user.role === 'admin' && (
+                <a
+                  href="/admin/integrations/hubspot"
+                  className="text-sm text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1"
+                >
+                  <span>⚙️</span> Integrations
+                </a>
+              )}
               <div className="text-sm">
                 <span className="text-gray-600">Welcome, </span>
                 <span className="font-semibold text-gray-900">
