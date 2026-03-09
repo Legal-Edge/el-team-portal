@@ -28,5 +28,18 @@ export async function GET(
 
   if (error || !data) return NextResponse.json({ error: 'Case not found' }, { status: 404 })
 
-  return NextResponse.json({ case: data })
+  // Fetch intake data (non-fatal if table doesn't exist yet)
+  let intake = null
+  try {
+    const { data: intakeData } = await db
+      .from('case_intake')
+      .select('*')
+      .eq('case_id', data.id)
+      .single()
+    intake = intakeData ?? null
+  } catch {
+    // Table may not exist yet
+  }
+
+  return NextResponse.json({ case: data, intake })
 }

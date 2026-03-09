@@ -3,6 +3,44 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
+interface CaseIntake {
+  id: string
+  case_id: string
+  // Submission
+  ela_intake: string | null
+  intake_management: string | null
+  intake_hubspot_qualifier: string | null
+  intake_associate: string | null
+  had_repairs: boolean | null
+  paid_for_repairs: string | null
+  repair_count: string | null
+  // Vehicle supplement
+  purchase_or_lease: string | null
+  how_purchased: string | null
+  vehicle_status: string | null
+  // Problems
+  problem_1_category: string | null
+  problem_1_notes: string | null
+  problem_1_repair_attempts: string | null
+  problem_2_category: string | null
+  problem_2_notes: string | null
+  problem_2_repair_attempts: string | null
+  problem_3_category: string | null
+  problem_3_notes: string | null
+  problem_3_repair_attempts: string | null
+  problem_4_category: string | null
+  problem_4_notes: string | null
+  problem_4_repair_attempts: string | null
+  repair_attempts: string | null
+  last_repair_attempt_date: string | null
+  // Additional
+  in_shop_30_days: string | null
+  contacted_manufacturer: string | null
+  manufacturer_offer: string | null
+  has_repair_documents: string | null
+  refund_preference: string | null
+}
+
 interface Comm {
   id: string
   channel: string
@@ -108,6 +146,62 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
         {children}
       </div>
+    </div>
+  )
+}
+
+function IntakeSection({
+  title, icon, accentColor, defaultOpen = false, children
+}: {
+  title: string
+  icon: string
+  accentColor: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden border-l-4 ${accentColor}`}>
+      <button
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-base">{icon}</span>
+          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{title}</span>
+        </div>
+        <span className="text-xs text-gray-400">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-6 pb-6 pt-1">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IntakeField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="py-2 border-b border-gray-50 last:border-0">
+      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
+      <p className="text-sm text-gray-800">{value ?? <span className="text-gray-300 italic">—</span>}</p>
+    </div>
+  )
+}
+
+function IntakeProblem({ n, category, notes, attempts }: {
+  n: number; category: string | null; notes: string | null; attempts: string | null
+}) {
+  if (!category && !notes) return null
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-1.5">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Problem {n}</p>
+      {category && <p className="text-sm font-medium text-gray-800">{category}</p>}
+      {notes && <p className="text-sm text-gray-600 whitespace-pre-wrap">{notes}</p>}
+      {attempts && (
+        <p className="text-xs text-gray-400">Repair attempts: <span className="text-gray-600">{attempts}</span></p>
+      )}
     </div>
   )
 }
@@ -227,6 +321,7 @@ export default function CaseDetailPage() {
   const params = useParams()
   const router = useRouter()
   const [caseData, setCaseData] = useState<CaseDetail | null>(null)
+  const [intake, setIntake] = useState<CaseIntake | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [comms, setComms] = useState<Comm[]>([])
@@ -242,6 +337,7 @@ export default function CaseDetailPage() {
       if (res.ok) {
         const data = await res.json()
         setCaseData(data.case)
+        setIntake(data.intake ?? null)
       }
       setLoading(false)
     }
@@ -405,6 +501,50 @@ export default function CaseDetailPage() {
             </div>
           </div>
         )}
+
+        {/* ── Intake Sections ── */}
+        <IntakeSection title="Intake Submission" icon="📋" accentColor="border-l-blue-400">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+            <IntakeField label="ELA Intake Status"     value={intake?.ela_intake} />
+            <IntakeField label="Intake Management"     value={intake?.intake_management} />
+            <IntakeField label="HubSpot Qualifier"     value={intake?.intake_hubspot_qualifier} />
+            <IntakeField label="Intake Associate"      value={intake?.intake_associate} />
+            <IntakeField label="Had Repairs"           value={intake?.had_repairs == null ? null : intake.had_repairs ? 'Yes' : 'No'} />
+            <IntakeField label="Paid for Repairs"      value={intake?.paid_for_repairs} />
+            <IntakeField label="Number of Repairs"     value={intake?.repair_count} />
+          </div>
+        </IntakeSection>
+
+        <IntakeSection title="Vehicle Information" icon="🚗" accentColor="border-l-indigo-400">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+            <IntakeField label="Purchase or Lease"  value={intake?.purchase_or_lease} />
+            <IntakeField label="How Purchased"      value={intake?.how_purchased} />
+            <IntakeField label="Vehicle Status"     value={intake?.vehicle_status} />
+          </div>
+        </IntakeSection>
+
+        <IntakeSection title="Issues & Repair History" icon="🔧" accentColor="border-l-orange-400">
+          <div className="space-y-3 mb-4">
+            <IntakeProblem n={1} category={intake?.problem_1_category ?? null} notes={intake?.problem_1_notes ?? null} attempts={intake?.problem_1_repair_attempts ?? null} />
+            <IntakeProblem n={2} category={intake?.problem_2_category ?? null} notes={intake?.problem_2_notes ?? null} attempts={intake?.problem_2_repair_attempts ?? null} />
+            <IntakeProblem n={3} category={intake?.problem_3_category ?? null} notes={intake?.problem_3_notes ?? null} attempts={intake?.problem_3_repair_attempts ?? null} />
+            <IntakeProblem n={4} category={intake?.problem_4_category ?? null} notes={intake?.problem_4_notes ?? null} attempts={intake?.problem_4_repair_attempts ?? null} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+            <IntakeField label="Total Repair Attempts"      value={intake?.repair_attempts} />
+            <IntakeField label="Last Repair Attempt Date"   value={intake?.last_repair_attempt_date} />
+          </div>
+        </IntakeSection>
+
+        <IntakeSection title="Additional Information" icon="📄" accentColor="border-l-emerald-400">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+            <IntakeField label="Car in Shop 30+ Days"       value={intake?.in_shop_30_days} />
+            <IntakeField label="Contacted Manufacturer"     value={intake?.contacted_manufacturer} />
+            <IntakeField label="Manufacturer Offer"        value={intake?.manufacturer_offer} />
+            <IntakeField label="Has Repair Documents"       value={intake?.has_repair_documents} />
+            <IntakeField label="Refund Preference"          value={intake?.refund_preference} />
+          </div>
+        </IntakeSection>
 
         {/* Communications */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
