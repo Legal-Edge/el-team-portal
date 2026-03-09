@@ -1,40 +1,19 @@
 import { auth, signOut } from '@/auth'
 import { redirect } from 'next/navigation'
-import { supabaseAdmin } from '@/lib/supabase'
 import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card'
 
 async function getDashboardStats() {
   try {
-    // Get total cases
-    const { count: totalCases } = await supabaseAdmin
-      .from('deals')
-      .select('*', { count: 'exact', head: true })
-
-    // Get active cases (not closed)
-    const { count: activeCases } = await supabaseAdmin
-      .from('deals')
-      .select('*', { count: 'exact', head: true })
-      .not('dealstage', 'in', '(closedwon,closedlost)')
-
-    // Get cases in review
-    const { count: reviewCases } = await supabaseAdmin
-      .from('deals')
-      .select('*', { count: 'exact', head: true })
-      .eq('el_app_status', 'intake_attorney_review')
-
-    // Get recent cases
-    const { data: recentCases } = await supabaseAdmin
-      .from('deals')
-      .select('dealname, el_app_status, createdate, phone, email')
-      .order('createdate', { ascending: false })
-      .limit(5)
-
-    return {
-      totalCases: totalCases || 0,
-      activeCases: activeCases || 0,
-      reviewCases: reviewCases || 0,
-      recentCases: recentCases || []
+    const response = await fetch(process.env.NEXTAUTH_URL + '/api/dashboard', {
+      cache: 'no-store'
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch dashboard stats')
     }
+    
+    const stats = await response.json()
+    return stats
   } catch (error) {
     console.error('Error fetching dashboard stats:', error)
     return {

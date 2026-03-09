@@ -9,7 +9,10 @@ export const supabase = createClient(
 // Create Supabase client with service role for server-side operations
 export const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder'
+  process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder',
+  {
+    db: { schema: 'core' } // Try core schema first, fall back to public
+  }
 )
 
 // Type definitions for our database tables
