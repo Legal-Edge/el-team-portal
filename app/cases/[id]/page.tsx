@@ -327,6 +327,295 @@ function CommRow({ comm }: { comm: Comm }) {
 }
 
 // ─── Page ──────────────────────────────────────────────────────────────────
+// ── Document layer types ──────────────────────────────────────
+
+interface DocType {
+  code: string
+  label: string
+  description: string | null
+  is_required_default: boolean
+  sort_order: number
+}
+
+interface ChecklistItem {
+  id: string
+  document_type_code: string
+  status: 'required' | 'requested' | 'received' | 'under_review' | 'approved' | 'rejected' | 'waived'
+  is_required: boolean
+  requested_at: string | null
+  received_at: string | null
+  approved_at: string | null
+  notes: string | null
+  type: DocType | null
+  files: CaseFile[]
+}
+
+interface CaseFile {
+  id: string
+  name: string
+  file_extension: string | null
+  size_bytes: number | null
+  web_url: string | null
+  document_type_code: string | null
+  checklist_item_id: string | null
+  is_classified: boolean
+  classified_by: string | null
+  classified_at: string | null
+  classification_source: string | null
+  created_at_source: string | null
+  created_by: string | null
+}
+
+interface DocumentStats {
+  total: number
+  required: number
+  requested: number
+  received: number
+  approved: number
+  waived: number
+  unclassified: number
+}
+
+const STATUS_ICON: Record<string, string> = {
+  required:     '❌',
+  requested:    '⏳',
+  received:     '📄',
+  under_review: '🔍',
+  approved:     '✅',
+  rejected:     '⚠️',
+  waived:       '—',
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  required:     'bg-red-50 text-red-600',
+  requested:    'bg-yellow-50 text-yellow-700',
+  received:     'bg-blue-50 text-blue-700',
+  under_review: 'bg-purple-50 text-purple-700',
+  approved:     'bg-green-50 text-green-700',
+  rejected:     'bg-orange-50 text-orange-700',
+  waived:       'bg-gray-50 text-gray-400',
+}
+
+function formatBytes(bytes: number | null) {
+  if (!bytes) return null
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function DocumentsSection({
+  caseId, sharePointUrl
+}: {
+  caseId: string
+  sharePointUrl: string | null
+}) {
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([])
+  const [unclassified, setUnclassified] = useState<CaseFile[]>([])
+  const [docTypes, setDocTypes] = useState<DocType[]>([])
+  const [stats, setStats] = useState<DocumentStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [classifying, setClassifying] = useState<string | null>(null) // file id being classified
+  const [classifyType, setClassifyType] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const res = await fetch(`/api/cases/${caseId}/documents`)
+    if (res.ok) {
+      const data = await res.json()
+      setChecklist(data.checklist ?? [])
+      setUnclassified(data.unclassified ?? [])
+      setDocTypes(data.docTypes ?? [])
+      setStats(data.stats ?? null)
+    }
+    setLoading(false)
+  }, [caseId])
+
+  useEffect(() => { load() }, [load])
+
+  async function classify(fileId: string, typeCode: string) {
+    setSaving(true)
+    const res = await fetch(`/api/cases/${caseId}/documents/classify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: fileId, document_type_code: typeCode }),
+    })
+    setSaving(false)
+    if (res.ok) {
+      setClassifying(null)
+      setClassifyType('')
+      load()
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <p className="text-sm text-gray-400">Loading documents…</p>
+      </div>
+    )
+  }
+
+  const noData = checklist.length === 0 && unclassified.length === 0
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Documents</h2>
+          {stats && (
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              {stats.approved > 0   && <span className="text-green-600">✅ {stats.approved} approved</span>}
+              {stats.received > 0   && <span className="text-blue-600">📄 {stats.received} received</span>}
+              {stats.required > 0   && <span className="text-red-500">❌ {stats.required} missing</span>}
+              {stats.unclassified > 0 && <span className="text-yellow-600">📎 {stats.unclassified} unclassified</span>}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {sharePointUrl && (
+            <a
+              href={sharePointUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Open folder ↗
+            </a>
+          )}
+          <button
+            onClick={load}
+            className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+          >
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
+
+      {noData ? (
+        <div className="py-10 text-center">
+          <p className="text-gray-400 text-sm">No document data yet</p>
+          {sharePointUrl
+            ? <p className="text-gray-300 text-xs mt-1">Run init-case-checklist + sync-sharepoint-docs to populate</p>
+            : <p className="text-gray-300 text-xs mt-1">No SharePoint folder linked — check HubSpot deal</p>
+          }
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-50">
+          {/* Checklist items */}
+          {checklist.map(item => (
+            <div key={item.id} className="px-6 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className="text-base mt-0.5 shrink-0">{STATUS_ICON[item.status] ?? '•'}</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-gray-800">
+                        {item.type?.label ?? item.document_type_code}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[item.status]}`}>
+                        {item.status.replace('_', ' ')}
+                      </span>
+                      {item.is_required && item.status === 'required' && (
+                        <span className="text-xs text-red-400">required</span>
+                      )}
+                    </div>
+                    {item.type?.description && (
+                      <p className="text-xs text-gray-400 mt-0.5">{item.type.description}</p>
+                    )}
+                    {/* Linked files */}
+                    {item.files.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {item.files.map(f => (
+                          <div key={f.id} className="flex items-center gap-2 text-xs text-gray-500">
+                            <span>📎</span>
+                            <span className="truncate max-w-xs">{f.name}</span>
+                            {f.size_bytes && <span className="text-gray-300">{formatBytes(f.size_bytes)}</span>}
+                            {f.web_url && (
+                              <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-500 hover:underline shrink-0">
+                                Open ↗
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {item.notes && (
+                      <p className="text-xs text-gray-400 mt-1 italic">{item.notes}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right shrink-0 text-xs text-gray-300">
+                  {item.received_at && <p>Received {new Date(item.received_at).toLocaleDateString()}</p>}
+                  {item.approved_at && <p>Approved {new Date(item.approved_at).toLocaleDateString()}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Unclassified files */}
+          {unclassified.length > 0 && (
+            <div className="px-6 py-4 bg-yellow-50/40">
+              <p className="text-xs font-semibold text-yellow-700 uppercase tracking-wide mb-3">
+                Unclassified Files ({unclassified.length})
+              </p>
+              <div className="space-y-3">
+                {unclassified.map(f => (
+                  <div key={f.id} className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm text-gray-700 font-medium min-w-0 truncate max-w-xs">{f.name}</span>
+                    {f.size_bytes && <span className="text-xs text-gray-400">{formatBytes(f.size_bytes)}</span>}
+                    {f.web_url && (
+                      <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-blue-500 hover:underline">Open ↗</a>
+                    )}
+                    {/* Classify action */}
+                    {classifying === f.id ? (
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="text-xs border border-gray-200 rounded px-2 py-1 bg-white"
+                          value={classifyType}
+                          onChange={e => setClassifyType(e.target.value)}
+                        >
+                          <option value="">Select type…</option>
+                          {docTypes.map(t => (
+                            <option key={t.code} value={t.code}>{t.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => classifyType && classify(f.id, classifyType)}
+                          disabled={!classifyType || saving}
+                          className="text-xs px-2 py-1 bg-blue-600 text-white rounded disabled:opacity-40"
+                        >
+                          {saving ? '…' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => { setClassifying(null); setClassifyType('') }}
+                          className="text-xs text-gray-400 hover:text-gray-600"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setClassifying(f.id); setClassifyType('') }}
+                        className="text-xs text-gray-500 border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                      >
+                        Classify ▾
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function CaseDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -606,6 +895,12 @@ export default function CaseDetailPage() {
             <Field label="Refund Preference"        value={intake?.refund_preference} />
           </div>
         </IntakeSection>
+
+        {/* ── Documents ── */}
+        <DocumentsSection
+          caseId={params.id as string}
+          sharePointUrl={c.sharepoint_folder_url}
+        />
 
         {/* ── Communications ── */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
