@@ -1,7 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+
+interface Comm {
+  id: string
+  channel: string
+  direction: string | null
+  subject: string | null
+  snippet: string | null
+  occurred_at: string | null
+  duration_seconds: number | null
+  outcome: string | null
+  resolution_method: string | null
+  needs_review: boolean
+  review_reason: string | null
+  hubspot_engagement_id: string
+}
 
 interface CaseDetail {
   id: string
@@ -90,12 +105,82 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+const CHANNEL_ICON: Record<string, string> = {
+  call: '📞', sms: '💬', email: '✉️', note: '📝', meeting: '📅', task: '✅', other: '•'
+}
+const DIRECTION_COLOR: Record<string, string> = {
+  inbound: 'text-green-600', outbound: 'text-blue-600', unknown: 'text-gray-400'
+}
+
+function CommRow({ comm }: { comm: Comm }) {
+  const [expanded, setExpanded] = useState(false)
+  const icon = CHANNEL_ICON[comm.channel] ?? '•'
+  const dirColor = DIRECTION_COLOR[comm.direction ?? 'unknown'] ?? 'text-gray-400'
+  const time = comm.occurred_at
+    ? new Date(comm.occurred_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '—'
+  const duration = comm.duration_seconds
+    ? comm.duration_seconds >= 60
+      ? `${Math.floor(comm.duration_seconds / 60)}m ${comm.duration_seconds % 60}s`
+      : `${comm.duration_seconds}s`
+    : null
+
+  return (
+    <div
+      className={`px-6 py-4 hover:bg-gray-50 transition-colors ${comm.needs_review ? 'border-l-4 border-l-yellow-400' : ''}`}
+      onClick={() => comm.snippet && setExpanded(e => !e)}
+      style={{ cursor: comm.snippet ? 'pointer' : 'default' }}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <span className="text-lg mt-0.5 shrink-0">{icon}</span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs font-medium uppercase ${dirColor}`}>
+                {comm.direction ?? 'unknown'}
+              </span>
+              <span className="text-xs text-gray-400 capitalize">{comm.channel}</span>
+              {comm.subject && (
+                <span className="text-sm text-gray-800 font-medium truncate">{comm.subject}</span>
+              )}
+              {comm.outcome && (
+                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{comm.outcome}</span>
+              )}
+              {comm.needs_review && (
+                <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">⚠ Review</span>
+              )}
+            </div>
+            {comm.snippet && !expanded && (
+              <p className="text-xs text-gray-500 mt-0.5 truncate max-w-lg">{comm.snippet}</p>
+            )}
+            {comm.snippet && expanded && (
+              <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap max-w-2xl">{comm.snippet}</p>
+            )}
+            {comm.review_reason && (
+              <p className="text-xs text-yellow-600 mt-0.5">{comm.review_reason}</p>
+            )}
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-xs text-gray-400">{time}</p>
+          {duration && <p className="text-xs text-gray-400 mt-0.5">{duration}</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CaseDetailPage() {
   const params = useParams()
   const router = useRouter()
   const [caseData, setCaseData] = useState<CaseDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [comms, setComms] = useState<Comm[]>([])
+  const [commCounts, setCommCounts] = useState<Record<string, number>>({})
+  const [commTotal, setCommTotal] = useState(0)
+  const [commChannel, setCommChannel] = useState('')
+  const [commsLoading, setCommsLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
@@ -109,6 +194,23 @@ export default function CaseDetailPage() {
     }
     load()
   }, [params.id])
+
+  const loadComms = useCallback(async (channel: string) => {
+    setCommsLoading(true)
+    const url = channel
+      ? `/api/cases/${params.id}/comms?channel=${channel}`
+      : `/api/cases/${params.id}/comms`
+    const res = await fetch(url)
+    if (res.ok) {
+      const data = await res.json()
+      setComms(data.comms)
+      setCommCounts(data.counts)
+      setCommTotal(data.total)
+    }
+    setCommsLoading(false)
+  }, [params.id])
+
+  useEffect(() => { loadComms(commChannel) }, [commChannel])
 
   if (loading) {
     return (
@@ -250,6 +352,58 @@ export default function CaseDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Communications */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Communications</h2>
+              {commTotal > 0 && (
+                <span className="text-xs text-gray-400">{commTotal} total</span>
+              )}
+            </div>
+            {/* Channel filter */}
+            {commTotal > 0 && (
+              <div className="flex gap-1">
+                {[
+                  { key: '', label: 'All' },
+                  { key: 'call', label: `Calls${commCounts.call ? ` (${commCounts.call})` : ''}` },
+                  { key: 'sms', label: `SMS${commCounts.sms ? ` (${commCounts.sms})` : ''}` },
+                  { key: 'email', label: `Email${commCounts.email ? ` (${commCounts.email})` : ''}` },
+                  { key: 'note', label: `Notes${commCounts.note ? ` (${commCounts.note})` : ''}` },
+                ].filter(t => t.key === '' || commCounts[t.key])
+                 .map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setCommChannel(tab.key)}
+                    className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${
+                      commChannel === tab.key
+                        ? 'bg-gray-900 text-white'
+                        : 'text-gray-500 hover:text-gray-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {commsLoading ? (
+            <div className="py-10 text-center text-gray-400 text-sm">Loading communications...</div>
+          ) : comms.length === 0 ? (
+            <div className="py-10 text-center">
+              <p className="text-gray-400 text-sm">No communications synced yet</p>
+              <p className="text-gray-300 text-xs mt-1">Run sync-hubspot-comms.mjs --deal-id={c.hubspot_deal_id}</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {comms.map(comm => (
+                <CommRow key={comm.id} comm={comm} />
+              ))}
+            </div>
+          )}
+        </div>
       </main>
     </div>
   )
