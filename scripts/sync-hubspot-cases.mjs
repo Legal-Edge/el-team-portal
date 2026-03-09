@@ -35,6 +35,19 @@ const STAGE_MAP = {
 }
 const CLOSED_STATUSES = new Set(['settled', 'dropped'])
 
+const STATE_ABBREVIATIONS = {
+  'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA',
+  'colorado':'CO','connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA',
+  'hawaii':'HI','idaho':'ID','illinois':'IL','indiana':'IN','iowa':'IA','kansas':'KS',
+  'kentucky':'KY','louisiana':'LA','maine':'ME','maryland':'MD','massachusetts':'MA',
+  'michigan':'MI','minnesota':'MN','mississippi':'MS','missouri':'MO','montana':'MT',
+  'nebraska':'NE','nevada':'NV','new hampshire':'NH','new jersey':'NJ','new mexico':'NM',
+  'new york':'NY','north carolina':'NC','north dakota':'ND','ohio':'OH','oklahoma':'OK',
+  'oregon':'OR','pennsylvania':'PA','rhode island':'RI','south carolina':'SC',
+  'south dakota':'SD','tennessee':'TN','texas':'TX','utah':'UT','vermont':'VT',
+  'virginia':'VA','washington':'WA','west virginia':'WV','wisconsin':'WI','wyoming':'WY'
+}
+
 // ─── Load mappings from DB ─────────────────────────────────
 
 async function loadMappings() {
@@ -108,6 +121,11 @@ function applyTransform(value, transform, mapping) {
       return null
     case 'stage_map':
       return STAGE_MAP[value] ?? 'unknown'
+    case 'state_abbreviate': {
+      const v = String(value).trim()
+      if (v.length === 2) return v.toUpperCase()
+      return STATE_ABBREVIATIONS[v.toLowerCase()] ?? v.slice(0, 2).toUpperCase()
+    }
     default:
       return value
   }
@@ -126,10 +144,13 @@ function getValue(mapping, dealProps, contactProps) {
 
   // Try fallback property if primary is null
   if ((value === null || value === '') && mapping.fallback_hs_property) {
-    const fallbackSource = mapping.fallback_hs_property === 'mobilephone' || mapping.fallback_hs_property === 'state'
-      ? contactProps
-      : source
+    const contactFallbacks = new Set(['mobilephone', 'state'])
+    const fallbackSource = contactFallbacks.has(mapping.fallback_hs_property) ? contactProps : source
     value = fallbackSource?.[mapping.fallback_hs_property] ?? null
+    // Fallback deal state enum returns full name — abbreviate it
+    if (value && mapping.case_column === 'state_jurisdiction' && mapping.fallback_hs_property !== 'state') {
+      value = applyTransform(value, 'state_abbreviate', mapping)
+    }
   }
 
   // Apply transform
