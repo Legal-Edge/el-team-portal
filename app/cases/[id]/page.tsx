@@ -403,6 +403,95 @@ function formatBytes(bytes: number | null) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+// ─── Collapsible checklist row ─────────────────────────────────────────────
+function ChecklistRow({ item }: { item: ChecklistItem }) {
+  // Auto-expand rows that already have files linked
+  const [expanded, setExpanded] = useState(item.files.length > 0)
+  const hasFiles = item.files.length > 0
+  const canToggle = hasFiles
+
+  return (
+    <div className="px-6 py-4">
+      {/* Header row — clickable when files exist */}
+      <div
+        className={`flex items-center justify-between gap-4 ${canToggle ? 'cursor-pointer select-none' : ''}`}
+        onClick={() => canToggle && setExpanded(e => !e)}
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-wrap">
+          <span className="text-base shrink-0">{STATUS_ICON[item.status] ?? '•'}</span>
+
+          <span className="text-sm font-medium text-gray-800">
+            {item.type?.label ?? item.document_type_code}
+          </span>
+
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[item.status]}`}>
+            {item.status.replace('_', ' ')}
+          </span>
+
+          {/* File count chip — the key clarity signal */}
+          {hasFiles && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+              {item.files.length} file{item.files.length !== 1 ? 's' : ''}
+            </span>
+          )}
+
+          {item.is_required && item.status === 'required' && (
+            <span className="text-xs text-red-400">required</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right text-xs text-gray-300">
+            {item.received_at && <p>Received {new Date(item.received_at).toLocaleDateString()}</p>}
+            {item.approved_at && <p>Approved {new Date(item.approved_at).toLocaleDateString()}</p>}
+          </div>
+          {canToggle && (
+            <span
+              className={`text-gray-400 text-lg leading-none inline-block transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+              aria-hidden="true"
+            >
+              ›
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Description — only when collapsed and no files */}
+      {!hasFiles && item.type?.description && (
+        <p className="text-xs text-gray-400 mt-0.5 ml-8">{item.type.description}</p>
+      )}
+
+      {/* Expanded file list */}
+      {expanded && hasFiles && (
+        <div className="mt-3 ml-8 space-y-1.5">
+          {item.files.map(f => (
+            <div key={f.id} className="flex items-center gap-2 text-xs text-gray-500">
+              <span className="shrink-0">📎</span>
+              <span className="truncate max-w-sm">{f.name}</span>
+              {f.size_bytes && <span className="text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
+              {f.web_url && (
+                <a
+                  href={f.web_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 hover:underline shrink-0"
+                  onClick={e => e.stopPropagation()}
+                >
+                  Open ↗
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {item.notes && (
+        <p className="text-xs text-gray-400 mt-1 ml-8 italic">{item.notes}</p>
+      )}
+    </div>
+  )
+}
+
 function DocumentsSection({
   caseId, sharePointUrl
 }: {
@@ -414,7 +503,7 @@ function DocumentsSection({
   const [docTypes, setDocTypes] = useState<DocType[]>([])
   const [stats, setStats] = useState<DocumentStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const [classifying, setClassifying] = useState<string | null>(null) // file id being classified
+  const [classifying, setClassifying] = useState<string | null>(null)
   const [classifyType, setClassifyType] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -458,6 +547,18 @@ function DocumentsSection({
 
   const noData = checklist.length === 0 && unclassified.length === 0
 
+  // Build a map of doc type → how many files are already linked (for classify dropdown hints)
+  const fileCountByType: Record<string, number> = {}
+  checklist.forEach(item => {
+    if (item.files.length > 0) fileCountByType[item.document_type_code] = item.files.length
+  })
+
+  // The type label the user is about to classify into (for the inline hint)
+  const selectedTypeItem = classifyType
+    ? checklist.find(i => i.document_type_code === classifyType)
+    : null
+  const selectedTypeExistingCount = selectedTypeItem?.files.length ?? 0
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       {/* Header */}
@@ -466,28 +567,21 @@ function DocumentsSection({
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Documents</h2>
           {stats && (
             <div className="flex items-center gap-3 text-xs text-gray-400">
-              {stats.approved > 0   && <span className="text-green-600">✅ {stats.approved} approved</span>}
-              {stats.received > 0   && <span className="text-blue-600">📄 {stats.received} received</span>}
-              {stats.required > 0   && <span className="text-red-500">❌ {stats.required} missing</span>}
+              {stats.approved > 0     && <span className="text-green-600">✅ {stats.approved} approved</span>}
+              {stats.received > 0     && <span className="text-blue-600">📄 {stats.received} received</span>}
+              {stats.required > 0     && <span className="text-red-500">❌ {stats.required} missing</span>}
               {stats.unclassified > 0 && <span className="text-yellow-600">📎 {stats.unclassified} unclassified</span>}
             </div>
           )}
         </div>
         <div className="flex items-center gap-2">
           {sharePointUrl && (
-            <a
-              href={sharePointUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-600 hover:underline"
-            >
+            <a href={sharePointUrl} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:underline">
               Open folder ↗
             </a>
           )}
-          <button
-            onClick={load}
-            className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
-          >
+          <button onClick={load} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">
             ↻ Refresh
           </button>
         </div>
@@ -502,105 +596,85 @@ function DocumentsSection({
           }
         </div>
       ) : (
-        <div className="divide-y divide-gray-50">
+        <div className="divide-y divide-gray-100">
+
           {/* Checklist items */}
           {checklist.map(item => (
-            <div key={item.id} className="px-6 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 min-w-0">
-                  <span className="text-base mt-0.5 shrink-0">{STATUS_ICON[item.status] ?? '•'}</span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-gray-800">
-                        {item.type?.label ?? item.document_type_code}
-                      </span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[item.status]}`}>
-                        {item.status.replace('_', ' ')}
-                      </span>
-                      {item.is_required && item.status === 'required' && (
-                        <span className="text-xs text-red-400">required</span>
-                      )}
-                    </div>
-                    {item.type?.description && (
-                      <p className="text-xs text-gray-400 mt-0.5">{item.type.description}</p>
-                    )}
-                    {/* Linked files */}
-                    {item.files.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {item.files.map(f => (
-                          <div key={f.id} className="flex items-center gap-2 text-xs text-gray-500">
-                            <span>📎</span>
-                            <span className="truncate max-w-xs">{f.name}</span>
-                            {f.size_bytes && <span className="text-gray-300">{formatBytes(f.size_bytes)}</span>}
-                            {f.web_url && (
-                              <a href={f.web_url} target="_blank" rel="noopener noreferrer"
-                                className="text-blue-500 hover:underline shrink-0">
-                                Open ↗
-                              </a>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {item.notes && (
-                      <p className="text-xs text-gray-400 mt-1 italic">{item.notes}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right shrink-0 text-xs text-gray-300">
-                  {item.received_at && <p>Received {new Date(item.received_at).toLocaleDateString()}</p>}
-                  {item.approved_at && <p>Approved {new Date(item.approved_at).toLocaleDateString()}</p>}
-                </div>
-              </div>
-            </div>
+            <ChecklistRow key={item.id} item={item} />
           ))}
 
           {/* Unclassified files */}
           {unclassified.length > 0 && (
-            <div className="px-6 py-4 bg-yellow-50/40">
-              <p className="text-xs font-semibold text-yellow-700 uppercase tracking-wide mb-3">
-                Unclassified Files ({unclassified.length})
-              </p>
+            <div className="px-6 py-5 bg-amber-50/50">
+              {/* Section header with explanation */}
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                  Unclassified Files ({unclassified.length})
+                </p>
+                <p className="text-xs text-amber-600/80 mt-0.5">
+                  Link each file to a document type. Multiple files can belong to the same type — e.g. several repair orders all link to Repair Orders.
+                </p>
+              </div>
+
               <div className="space-y-3">
                 {unclassified.map(f => (
-                  <div key={f.id} className="flex items-center gap-3 flex-wrap">
-                    <span className="text-sm text-gray-700 font-medium min-w-0 truncate max-w-xs">{f.name}</span>
-                    {f.size_bytes && <span className="text-xs text-gray-400">{formatBytes(f.size_bytes)}</span>}
-                    {f.web_url && (
-                      <a href={f.web_url} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-blue-500 hover:underline">Open ↗</a>
-                    )}
+                  <div key={f.id} className="rounded-lg bg-white border border-amber-100 px-4 py-3">
+                    {/* File info row */}
+                    <div className="flex items-center gap-3 flex-wrap mb-2">
+                      <span className="text-sm text-gray-800 font-medium min-w-0 truncate max-w-sm">{f.name}</span>
+                      {f.size_bytes && <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.size_bytes)}</span>}
+                      {f.web_url && (
+                        <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-blue-500 hover:underline shrink-0">
+                          Open ↗
+                        </a>
+                      )}
+                    </div>
+
                     {/* Classify action */}
                     {classifying === f.id ? (
-                      <div className="flex items-center gap-2">
-                        <select
-                          className="text-xs border border-gray-200 rounded px-2 py-1 bg-white"
-                          value={classifyType}
-                          onChange={e => setClassifyType(e.target.value)}
-                        >
-                          <option value="">Select type…</option>
-                          {docTypes.map(t => (
-                            <option key={t.code} value={t.code}>{t.label}</option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => classifyType && classify(f.id, classifyType)}
-                          disabled={!classifyType || saving}
-                          className="text-xs px-2 py-1 bg-blue-600 text-white rounded disabled:opacity-40"
-                        >
-                          {saving ? '…' : 'Save'}
-                        </button>
-                        <button
-                          onClick={() => { setClassifying(null); setClassifyType('') }}
-                          className="text-xs text-gray-400 hover:text-gray-600"
-                        >
-                          Cancel
-                        </button>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <select
+                            className="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white flex-1 min-w-[180px]"
+                            value={classifyType}
+                            onChange={e => setClassifyType(e.target.value)}
+                          >
+                            <option value="">Select document type…</option>
+                            {docTypes.map(t => {
+                              const existing = fileCountByType[t.code] ?? 0
+                              return (
+                                <option key={t.code} value={t.code}>
+                                  {t.label}{existing > 0 ? ` (${existing} already linked)` : ''}
+                                </option>
+                              )
+                            })}
+                          </select>
+                          <button
+                            onClick={() => classifyType && classify(f.id, classifyType)}
+                            disabled={!classifyType || saving}
+                            className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg disabled:opacity-40 shrink-0"
+                          >
+                            {saving ? 'Saving…' : 'Link file'}
+                          </button>
+                          <button
+                            onClick={() => { setClassifying(null); setClassifyType('') }}
+                            className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        {/* Contextual hint when an already-linked type is selected */}
+                        {selectedTypeExistingCount > 0 && classifyType && (
+                          <p className="text-xs text-blue-600">
+                            ↳ Will add to {selectedTypeItem?.type?.label ?? classifyType} — already has {selectedTypeExistingCount} file{selectedTypeExistingCount !== 1 ? 's' : ''}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <button
                         onClick={() => { setClassifying(f.id); setClassifyType('') }}
-                        className="text-xs text-gray-500 border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                        className="text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
                       >
                         Classify ▾
                       </button>
