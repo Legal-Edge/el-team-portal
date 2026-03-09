@@ -30,7 +30,7 @@ export async function GET(
 
   let query = db
     .from('communications')
-    .select('id, channel, direction, subject, snippet, occurred_at, duration_seconds, outcome, resolution_method, needs_review, review_reason, hubspot_engagement_id, hubspot_contact_id')
+    .select('id, channel, direction, subject, snippet, body, occurred_at, duration_seconds, outcome, resolution_method, needs_review, review_reason, hubspot_engagement_id, hubspot_contact_id, sender_email, sender_name, recipient_emails, from_number, to_number, recording_url, has_attachments, thread_id')
     .eq('case_id', caseRow.id)
     .eq('is_deleted', false)
     .order('occurred_at', { ascending: false })

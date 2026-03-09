@@ -9,6 +9,7 @@ interface Comm {
   direction: string | null
   subject: string | null
   snippet: string | null
+  body: string | null
   occurred_at: string | null
   duration_seconds: number | null
   outcome: string | null
@@ -16,6 +17,12 @@ interface Comm {
   needs_review: boolean
   review_reason: string | null
   hubspot_engagement_id: string
+  sender_email: string | null
+  sender_name: string | null
+  recipient_emails: string[]
+  from_number: string | null
+  to_number: string | null
+  recording_url: string | null
 }
 
 interface CaseDetail {
@@ -125,47 +132,93 @@ function CommRow({ comm }: { comm: Comm }) {
       : `${comm.duration_seconds}s`
     : null
 
+  // Full content: use body if available, fall back to snippet
+  const fullContent = comm.body || comm.snippet
+  const hasContent = !!fullContent
+
   return (
-    <div
-      className={`px-6 py-4 hover:bg-gray-50 transition-colors ${comm.needs_review ? 'border-l-4 border-l-yellow-400' : ''}`}
-      onClick={() => comm.snippet && setExpanded(e => !e)}
-      style={{ cursor: comm.snippet ? 'pointer' : 'default' }}
-    >
-      <div className="flex items-start justify-between gap-4">
+    <div className={`px-6 py-4 transition-colors ${comm.needs_review ? 'border-l-4 border-l-yellow-400' : ''}`}>
+      {/* Header row — always visible */}
+      <div
+        className="flex items-start justify-between gap-4 hover:bg-gray-50 -mx-6 px-6 py-1 rounded cursor-pointer"
+        onClick={() => hasContent && setExpanded(e => !e)}
+      >
         <div className="flex items-start gap-3 min-w-0">
           <span className="text-lg mt-0.5 shrink-0">{icon}</span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`text-xs font-medium uppercase ${dirColor}`}>
                 {comm.direction ?? 'unknown'}
               </span>
               <span className="text-xs text-gray-400 capitalize">{comm.channel}</span>
               {comm.subject && (
-                <span className="text-sm text-gray-800 font-medium truncate">{comm.subject}</span>
+                <span className="text-sm text-gray-800 font-medium">{comm.subject}</span>
               )}
-              {comm.outcome && (
-                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{comm.outcome}</span>
+              {duration && (
+                <span className="text-xs text-gray-400">{duration}</span>
               )}
               {comm.needs_review && (
                 <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">⚠ Review</span>
               )}
             </div>
-            {comm.snippet && !expanded && (
-              <p className="text-xs text-gray-500 mt-0.5 truncate max-w-lg">{comm.snippet}</p>
+
+            {/* Sender/recipient metadata */}
+            {(comm.sender_email || comm.recipient_emails?.length > 0) && (
+              <div className="flex gap-3 mt-0.5 text-xs text-gray-400">
+                {comm.sender_email && <span>From: {comm.sender_name ? `${comm.sender_name} <${comm.sender_email}>` : comm.sender_email}</span>}
+                {comm.recipient_emails?.length > 0 && <span>To: {comm.recipient_emails.join(', ')}</span>}
+              </div>
             )}
-            {comm.snippet && expanded && (
-              <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap max-w-2xl">{comm.snippet}</p>
+            {(comm.from_number || comm.to_number) && (
+              <div className="text-xs text-gray-400 mt-0.5">
+                {comm.from_number} → {comm.to_number}
+              </div>
             )}
-            {comm.review_reason && (
-              <p className="text-xs text-yellow-600 mt-0.5">{comm.review_reason}</p>
+
+            {/* Collapsed preview */}
+            {!expanded && comm.snippet && (
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2 max-w-2xl">{comm.snippet}</p>
             )}
           </div>
         </div>
-        <div className="text-right shrink-0">
+
+        <div className="text-right shrink-0 flex flex-col items-end gap-1">
           <p className="text-xs text-gray-400">{time}</p>
-          {duration && <p className="text-xs text-gray-400 mt-0.5">{duration}</p>}
+          {hasContent && (
+            <span className="text-xs text-blue-500">{expanded ? '▲ collapse' : '▼ expand'}</span>
+          )}
         </div>
       </div>
+
+      {/* Expanded full content */}
+      {expanded && (
+        <div className="mt-3 ml-9 space-y-3">
+          {fullContent && (
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
+                {comm.channel === 'call' ? 'Call Notes' : comm.channel === 'email' ? 'Email Body' : 'Content'}
+              </p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{fullContent}</p>
+            </div>
+          )}
+          {comm.recording_url && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Recording:</span>
+              <a
+                href={comm.recording_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Listen ↗
+              </a>
+            </div>
+          )}
+          {comm.review_reason && (
+            <p className="text-xs text-yellow-600">{comm.review_reason}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
