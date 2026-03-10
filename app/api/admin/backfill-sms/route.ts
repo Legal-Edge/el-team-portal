@@ -1,5 +1,5 @@
 /**
- * POST /api/admin/backfill-sms
+ * POST /api/webhooks/backfill-sms
  *
  * One-time endpoint to receive batches of pre-processed Aloware SMS records
  * and insert them into core.communications.
@@ -34,20 +34,18 @@ interface BackfillRecord {
   raw_metadata: Record<string, unknown>
 }
 
-interface CaseContact {
-  case_id: string
-  phone:   string
-}
-
-// Cache case contacts in module scope (survives warm lambda invocations)
+// Cache case contacts across warm invocations
 let _phoneMap: Record<string, string[]> | null = null
 
-async function getPhoneMap(coreDb: ReturnType<typeof createClient>) {
+async function getPhoneMap(): Promise<Record<string, string[]>> {
   if (_phoneMap) return _phoneMap
 
-  const { data, error } = await coreDb
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+
+  const { data, error } = await supabase
+    .schema('core')
     .from('case_contacts')
-    .select('case_id, phone') as { data: CaseContact[] | null, error: unknown }
+    .select('case_id, phone')
 
   if (error || !data) {
     console.error('Failed to load case_contacts:', error)
@@ -55,7 +53,7 @@ async function getPhoneMap(coreDb: ReturnType<typeof createClient>) {
   }
 
   const map: Record<string, string[]> = {}
-  for (const c of data) {
+  for (const c of data as { case_id: string; phone: string }[]) {
     if (!c.phone) continue
     if (!map[c.phone]) map[c.phone] = []
     if (!map[c.phone].includes(c.case_id)) map[c.phone].push(c.case_id)
@@ -66,12 +64,12 @@ async function getPhoneMap(coreDb: ReturnType<typeof createClient>) {
 }
 
 function resolveCase(phoneMap: Record<string, string[]>, clientPhone: string | null) {
-  if (!clientPhone) return { caseId: null, needsReview: true, reviewReason: 'no_contact_phone' }
+  if (!clientPhone) return { caseId: null as string | null, needsReview: true, reviewReason: 'no_contact_phone' }
 
   const matches = phoneMap[clientPhone] ?? []
-  if (matches.length === 0) return { caseId: null, needsReview: true,  reviewReason: 'no_case_for_phone' }
-  if (matches.length > 1)  return { caseId: null, needsReview: true,  reviewReason: 'multiple_cases_for_phone' }
-  return { caseId: matches[0], needsReview: false, reviewReason: null }
+  if (matches.length === 0) return { caseId: null as string | null, needsReview: true,  reviewReason: 'no_case_for_phone' }
+  if (matches.length > 1)  return { caseId: null as string | null, needsReview: true,  reviewReason: 'multiple_cases_for_phone' }
+  return { caseId: matches[0] as string | null, needsReview: false, reviewReason: null as string | null }
 }
 
 export async function POST(req: NextRequest) {
@@ -97,45 +95,43 @@ export async function POST(req: NextRequest) {
 
   const { records, dryRun = false } = body
 
-  if (!Array.isArray(records) || records.length === 0) {
-    return NextResponse.json({ error: 'records must be a non-empty array' }, { status: 400 })
+  if (!Array.isArray(records)) {
+    return NextResponse.json({ error: 'records must be an array' }, { status: 400 })
   }
 
-  // ── Supabase client ─────────────────────────────────────────────────────────
-  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
-  const coreDb   = createClient(SUPABASE_URL, SUPABASE_KEY, { db: { schema: 'core' } })
+  // Empty batch — just acknowledge (used for connectivity tests)
+  if (records.length === 0) {
+    return NextResponse.json({ dry_run: dryRun, received: 0, inserted: 0, skipped: 0, needs_review: 0, errors: [] })
+  }
+
+  // ── Phone map ────────────────────────────────────────────────────────────────
+  const phoneMap = await getPhoneMap()
 
   // ── Load existing hashes for dedup ──────────────────────────────────────────
-  const incomingHashes = records
-    .map(r => r.raw_metadata?.import_hash as string)
-    .filter(Boolean)
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+  const coreDb   = supabase.schema('core')
 
   let existingHashes = new Set<string>()
 
-  if (incomingHashes.length > 0 && !dryRun) {
-    // Check which hashes already exist — use raw SQL via rpc to avoid ORM complexity
+  if (!dryRun) {
     const { data: existing } = await coreDb
       .from('communications')
       .select('raw_metadata')
       .eq('source_system', SOURCE_SYSTEM)
-      .not('raw_metadata', 'is', null)
 
-    for (const row of existing ?? []) {
-      const h = (row.raw_metadata as Record<string, string>)?.import_hash
+    for (const row of (existing ?? []) as { raw_metadata: Record<string, string> }[]) {
+      const h = row.raw_metadata?.import_hash
       if (h) existingHashes.add(h)
     }
   }
 
-  // ── Phone map ────────────────────────────────────────────────────────────────
-  const phoneMap = await getPhoneMap(coreDb)
-
   // ── Build insert records ─────────────────────────────────────────────────────
   const toInsert: Record<string, unknown>[] = []
-  let skipped       = 0
-  let needsReview   = 0
+  let skipped     = 0
+  let needsReview = 0
 
   for (const rec of records) {
-    const importHash = rec.raw_metadata?.import_hash as string
+    const importHash = rec.raw_metadata?.import_hash as string | undefined
 
     // Dedup check
     if (importHash && existingHashes.has(importHash)) {
@@ -148,19 +144,19 @@ export async function POST(req: NextRequest) {
     if (flag) needsReview++
 
     toInsert.push({
-      case_id:        caseId,
-      channel:        'sms',
-      direction:      rec.direction,
-      body:           rec.body,
-      snippet:        rec.snippet,
-      occurred_at:    rec.occurred_at,
-      from_number:    rec.from_number,
-      to_number:      rec.to_number,
-      thread_id:      rec.thread_id,
-      source_system:  SOURCE_SYSTEM,
-      needs_review:   flag,
-      review_reason:  reviewReason,
-      raw_metadata:   rec.raw_metadata,
+      case_id:       caseId,
+      channel:       'sms',
+      direction:     rec.direction,
+      body:          rec.body,
+      snippet:       rec.snippet,
+      occurred_at:   rec.occurred_at,
+      from_number:   rec.from_number,
+      to_number:     rec.to_number,
+      thread_id:     rec.thread_id,
+      source_system: SOURCE_SYSTEM,
+      needs_review:  flag,
+      review_reason: reviewReason,
+      raw_metadata:  rec.raw_metadata,
     })
   }
 
@@ -177,10 +173,10 @@ export async function POST(req: NextRequest) {
     if (error) {
       errors.push(error.message)
     } else {
-      inserted = data?.length ?? toInsert.length
+      inserted = (data as unknown[])?.length ?? toInsert.length
     }
   } else if (dryRun) {
-    inserted = toInsert.length  // report what would be inserted
+    inserted = toInsert.length
   }
 
   return NextResponse.json({
