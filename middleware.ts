@@ -9,7 +9,10 @@ export default auth((req: NextRequest & { auth: any }) => {
   const publicRoutes = ['/login']
   
   // API routes that don't require authentication
-  const publicApiRoutes = ['/api/auth']
+  const publicApiRoutes = [
+    '/api/auth',
+    '/api/webhooks',   // all inbound webhooks (Aloware, SharePoint, etc.)
+  ]
   
   // Check if current path is public
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
