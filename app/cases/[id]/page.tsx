@@ -225,6 +225,69 @@ const DIRECTION_COLOR: Record<string, string> = {
   inbound: 'text-green-600', outbound: 'text-blue-600', unknown: 'text-gray-400'
 }
 
+// ── SMS Compose box ────────────────────────────────────────────────────────
+function SmsCompose({ caseId, onSent }: { caseId: string; onSent: () => void }) {
+  const [text, setText]       = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError]     = useState<string | null>(null)
+  const MAX = 160
+
+  async function send() {
+    if (!text.trim() || sending) return
+    setSending(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/cases/${caseId}/sms`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: text.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? 'Send failed')
+      } else {
+        setText('')
+        // Webhook captures the outbound — refresh comms after short delay
+        setTimeout(onSent, 2500)
+      }
+    } catch {
+      setError('Network error')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+      <div className="flex items-end gap-3">
+        <div className="flex-1 relative">
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value.slice(0, MAX))}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder="Send an SMS to client…"
+            rows={2}
+            className="w-full text-sm rounded-xl border border-gray-200 bg-white px-4 py-2.5 pr-16 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400"
+          />
+          <span className={`absolute bottom-2.5 right-3 text-xs tabular-nums ${
+            text.length > MAX * 0.9 ? 'text-orange-400' : 'text-gray-300'
+          }`}>
+            {text.length}/{MAX}
+          </span>
+        </div>
+        <button
+          onClick={send}
+          disabled={!text.trim() || sending}
+          className="shrink-0 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {sending ? '…' : 'Send'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-500 mt-1.5">{error}</p>}
+    </div>
+  )
+}
+
 // ── SMS bubble renderer ────────────────────────────────────────────────────
 function SmsBubble({ comm }: { comm: Comm }) {
   const isOutbound = comm.direction === 'outbound'
@@ -1120,6 +1183,9 @@ export default function CaseDetailPage() {
               ))}
             </div>
           )}
+
+          {/* ── SMS Compose ── */}
+          <SmsCompose caseId={c.id} onSent={() => loadComms(commChannel)} />
         </div>
 
       </main>
