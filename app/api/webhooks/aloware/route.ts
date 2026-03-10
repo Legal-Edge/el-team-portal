@@ -109,6 +109,11 @@ async function resolveCase(
 }
 
 // ── Idempotency check ──────────────────────────────────────────────────────
+// hubspot_engagement_id stores the external message ID across all sources.
+// For Aloware, this is the Aloware communication ID (body.id).
+// The existing UNIQUE(hubspot_engagement_id, source_system) constraint
+// enforces dedup at the DB level; this is an application-level pre-check
+// to return a clean skip response rather than a constraint error.
 
 async function isDuplicate(
   db: ReturnType<typeof getDb>,
@@ -119,7 +124,7 @@ async function isDuplicate(
     .from('communications')
     .select('id')
     .eq('source_system', 'aloware')
-    .filter('raw_metadata->>aloware_id', 'eq', String(alowareId))
+    .eq('hubspot_engagement_id', String(alowareId))
     .limit(1)
 
   return (data?.length ?? 0) > 0
@@ -152,9 +157,13 @@ async function processInboundSms(
 
   const row = {
     // Case linkage
-    case_id:              resolution.resolved?.caseId        ?? null,
-    case_contact_id:      resolution.resolved?.caseContactId ?? null,
-    hubspot_deal_id:      resolution.resolved?.hubspotDealId ?? null,
+    case_id:                resolution.resolved?.caseId        ?? null,
+    case_contact_id:        resolution.resolved?.caseContactId ?? null,
+    hubspot_deal_id:        resolution.resolved?.hubspotDealId ?? null,
+
+    // External message ID — Aloware communication ID stored here
+    // (same field used by HubSpot for engagement IDs; unique per source_system)
+    hubspot_engagement_id:  String(b.id),
 
     // Communication fields
     channel:              'sms',
