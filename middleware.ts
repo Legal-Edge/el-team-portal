@@ -11,7 +11,8 @@ export default auth((req: NextRequest & { auth: any }) => {
   // API routes that don't require authentication
   const publicApiRoutes = [
     '/api/auth',
-    '/api/webhooks',   // all inbound webhooks (Aloware, SharePoint, etc.)
+    '/api/webhooks',        // all inbound webhooks (Aloware, SharePoint, etc.)
+    '/api/admin/backfill-sms',  // one-time SMS backfill (token-protected, remove after use)
   ]
   
   // Check if current path is public
