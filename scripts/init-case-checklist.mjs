@@ -71,27 +71,30 @@ async function initChecklist(caseRow) {
   const rows = types.map(t => ({
     case_id:            caseRow.id,
     document_type_code: t.code,
-    status:             'required',   // default workflow state; does NOT mean "alarmed"
+    status:             'required',   // only used when INSERTING new rows
     is_required:        required.has(t.code),
   }))
 
-  // Upsert:
-  //   - New rows: insert with correct is_required
-  //   - Existing rows: update is_required (stage may have changed) but preserve status
+  // Step 1: INSERT new rows only — ignoreDuplicates=true means existing rows
+  // are untouched entirely (status, received_at, notes all preserved).
   const { error } = await coreDb
     .from('case_document_checklist')
-    .upsert(rows, { onConflict: 'case_id,document_type_code', ignoreDuplicates: false })
+    .upsert(rows, { onConflict: 'case_id,document_type_code', ignoreDuplicates: true })
 
-  if (error) throw new Error(`Checklist upsert failed: ${error.message}`)
+  if (error) throw new Error(`Checklist insert failed: ${error.message}`)
 
-  // Restore status for rows that already had activity (upsert above would have reset status)
-  // — handled by Supabase upsert: ignoreDuplicates=false updates all columns,
-  //   so we only update is_required and leave status alone via a separate targeted update
-  await coreDb
-    .from('case_document_checklist')
-    .update({ is_required: false, updated_at: new Date().toISOString() })
-    .eq('case_id', caseRow.id)
-    .not('document_type_code', 'in', `(${[...required].map(c => `"${c}"`).join(',')})`)
+  // Step 2: Update is_required on ALL rows for this case based on current stage.
+  // This is the only column we ever touch on existing rows.
+  // Status, received_at, notes etc. are never modified here.
+  const nonRequired = types.map(t => t.code).filter(c => !required.has(c))
+
+  if (nonRequired.length > 0) {
+    await coreDb
+      .from('case_document_checklist')
+      .update({ is_required: false, updated_at: new Date().toISOString() })
+      .eq('case_id', caseRow.id)
+      .in('document_type_code', nonRequired)
+  }
 
   if (required.size > 0) {
     await coreDb
