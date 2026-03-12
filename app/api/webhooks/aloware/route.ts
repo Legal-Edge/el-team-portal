@@ -109,11 +109,14 @@ async function resolveCase(
 }
 
 // ── Idempotency check ──────────────────────────────────────────────────────
-// hubspot_engagement_id stores the external message ID across all sources.
-// For Aloware, this is the Aloware communication ID (body.id).
-// The existing UNIQUE(hubspot_engagement_id, source_system) constraint
-// enforces dedup at the DB level; this is an application-level pre-check
-// to return a clean skip response rather than a constraint error.
+// Dedup on source_record_id (= Aloware communication ID), which is the
+// canonical unique field under the new uq_communications_source constraint:
+//   UNIQUE (source_system, source_record_id)
+//
+// Application-level pre-check returns a clean skip response; the upsert
+// with ignoreDuplicates:true below provides atomic DB-level protection
+// against race conditions (two events for the same aloware_id arriving
+// simultaneously both pass the pre-check before either commits).
 
 async function isDuplicate(
   db: ReturnType<typeof getDb>,
@@ -124,7 +127,7 @@ async function isDuplicate(
     .from('communications')
     .select('id')
     .eq('source_system', 'aloware')
-    .eq('hubspot_engagement_id', String(alowareId))
+    .eq('source_record_id', String(alowareId))
     .limit(1)
 
   return (data?.length ?? 0) > 0
@@ -161,9 +164,11 @@ async function processInboundSms(
     case_contact_id:        resolution.resolved?.caseContactId ?? null,
     hubspot_deal_id:        resolution.resolved?.hubspotDealId ?? null,
 
-    // External message ID — Aloware communication ID stored here
-    // (same field used by HubSpot for engagement IDs; unique per source_system)
+    // External message ID — stored in both fields for backwards compatibility.
+    // source_record_id is the canonical dedup field (uq_communications_source).
+    // hubspot_engagement_id kept populated for existing queries.
     hubspot_engagement_id:  String(b.id),
+    source_record_id:       String(b.id),
 
     // Communication fields
     channel:              'sms',
@@ -196,16 +201,28 @@ async function processInboundSms(
     },
   }
 
+  // Upsert with ignoreDuplicates provides atomic DB-level dedup on
+  // (source_system, source_record_id) — eliminates race condition where
+  // two Aloware events for the same message arrive simultaneously.
   const { data, error } = await db
     .schema('core' as never)
     .from('communications')
-    .insert(row)
+    .upsert(row, {
+      onConflict:       'source_system,source_record_id',
+      ignoreDuplicates: true,
+    })
     .select('id')
-    .single()
+    .maybeSingle()
 
   if (error) {
     console.error('[aloware] Insert error:', error.message)
     return { ok: false, error: error.message }
+  }
+
+  if (!data) {
+    // Conflict resolved by ignoreDuplicates — already existed
+    console.log(`[aloware] Skipped (DB conflict) aloware_id=${b.id}`)
+    return { ok: true, skipped: true }
   }
 
   console.log(
@@ -277,6 +294,7 @@ export async function POST(req: NextRequest) {
       case_contact_id:       resolution.resolved?.caseContactId ?? null,
       hubspot_deal_id:       resolution.resolved?.hubspotDealId ?? null,
       hubspot_engagement_id: String(b.id),
+      source_record_id:      String(b.id),
 
       channel:               'sms',
       direction:             'outbound',
@@ -305,13 +323,21 @@ export async function POST(req: NextRequest) {
     const { data, error } = await db
       .schema('core' as never)
       .from('communications')
-      .insert(row)
+      .upsert(row, {
+        onConflict:       'source_system,source_record_id',
+        ignoreDuplicates: true,
+      })
       .select('id')
-      .single()
+      .maybeSingle()
 
     if (error) {
       console.error('[aloware] Outbound insert error:', error.message)
       return NextResponse.json({ ok: false, error: error.message }, { status: 200 })
+    }
+
+    if (!data) {
+      console.log(`[aloware] Outbound skipped (DB conflict) aloware_id=${b.id}`)
+      return NextResponse.json({ ok: true, skipped: true })
     }
 
     console.log(`[aloware] Outbound stored aloware_id=${b.id} → comms id=${data.id}`)
