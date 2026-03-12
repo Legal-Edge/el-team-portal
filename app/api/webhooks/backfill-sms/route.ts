@@ -15,23 +15,29 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createHash } from 'crypto'
 
 const IMPORT_TOKEN  = process.env.BACKFILL_IMPORT_TOKEN
 const SUPABASE_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const SOURCE_SYSTEM = 'aloware_backfill'
+
+// Historical backfill rows use the same source_system as live webhook rows.
+// This unifies all Aloware communications under one identity namespace.
+// Dedup key differs by origin:
+//   live webhook  → source_record_id = aloware_id (integer message ID from Aloware)
+//   Excel backfill → source_record_id = import_hash (SHA-256 of row content, stable synthetic key)
+// Both are unique within (source_system='aloware', source_record_id).
+const SOURCE_SYSTEM = 'aloware'
 
 interface BackfillRecord {
-  direction:    'inbound' | 'outbound'
-  body:         string | null
-  snippet:      string | null
-  occurred_at:  string | null
-  from_number:  string | null
-  to_number:    string | null
-  thread_id:    string
-  client_phone: string | null
-  raw_metadata: Record<string, unknown>
+  direction:      'inbound' | 'outbound'
+  body:           string | null
+  snippet:        string | null
+  occurred_at:    string | null
+  from_number:    string | null
+  to_number:      string | null
+  thread_id:      string
+  client_phone:   string | null
+  raw_metadata:   Record<string, unknown>
 }
 
 // Cache case contacts across warm invocations
@@ -41,7 +47,6 @@ async function getPhoneMap(): Promise<Record<string, string[]>> {
   if (_phoneMap) return _phoneMap
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
-
   const { data, error } = await supabase
     .schema('core')
     .from('case_contacts')
@@ -99,7 +104,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'records must be an array' }, { status: 400 })
   }
 
-  // Empty batch — just acknowledge (used for connectivity tests)
+  // Empty batch — just acknowledge
   if (records.length === 0) {
     return NextResponse.json({ dry_run: dryRun, received: 0, inserted: 0, skipped: 0, needs_review: 0, errors: [] })
   }
@@ -107,21 +112,21 @@ export async function POST(req: NextRequest) {
   // ── Phone map ────────────────────────────────────────────────────────────────
   const phoneMap = await getPhoneMap()
 
-  // ── Load existing hashes for dedup ──────────────────────────────────────────
+  // ── Load existing source_record_ids for dedup ────────────────────────────────
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
   const coreDb   = supabase.schema('core')
 
-  let existingHashes = new Set<string>()
+  const existingSourceRecordIds = new Set<string>()
 
   if (!dryRun) {
     const { data: existing } = await coreDb
       .from('communications')
-      .select('raw_metadata')
+      .select('source_record_id')
       .eq('source_system', SOURCE_SYSTEM)
+      .not('source_record_id', 'is', null)
 
-    for (const row of (existing ?? []) as { raw_metadata: Record<string, string> }[]) {
-      const h = row.raw_metadata?.import_hash
-      if (h) existingHashes.add(h)
+    for (const row of (existing ?? []) as { source_record_id: string }[]) {
+      if (row.source_record_id) existingSourceRecordIds.add(row.source_record_id)
     }
   }
 
@@ -131,32 +136,56 @@ export async function POST(req: NextRequest) {
   let needsReview = 0
 
   for (const rec of records) {
-    const importHash = rec.raw_metadata?.import_hash as string | undefined
+    const sourceRecordId = rec.raw_metadata?.import_hash as string | undefined
 
-    // Dedup check
-    if (importHash && existingHashes.has(importHash)) {
+    // Dedup check using source_record_id
+    if (sourceRecordId && existingSourceRecordIds.has(sourceRecordId)) {
       skipped++
       continue
     }
 
-    // Case resolution
+    // Case resolution via normalized phone
     const { caseId, needsReview: flag, reviewReason } = resolveCase(phoneMap, rec.client_phone ?? null)
     if (flag) needsReview++
 
     toInsert.push({
-      case_id:       caseId,
-      channel:       'sms',
-      direction:     rec.direction,
-      body:          rec.body,
-      snippet:       rec.snippet,
-      occurred_at:   rec.occurred_at,
-      from_number:   rec.from_number,
-      to_number:     rec.to_number,
-      thread_id:     rec.thread_id,
-      source_system: SOURCE_SYSTEM,
-      needs_review:  flag,
-      review_reason: reviewReason,
-      raw_metadata:  rec.raw_metadata,
+      // Source identity — source-agnostic dedup key
+      source_system:          SOURCE_SYSTEM,
+      source_record_id:       sourceRecordId ?? null,
+
+      // Case linkage (nullable — resolved later via reconciliation)
+      case_id:                caseId,
+
+      // Channel
+      channel:                'sms',
+      direction:              rec.direction,
+
+      // Content
+      body:                   rec.body ?? null,
+      snippet:                rec.snippet ?? null,
+
+      // Timing
+      occurred_at:            rec.occurred_at ?? null,
+
+      // Phone fields
+      from_number:            rec.from_number ?? null,
+      to_number:              rec.to_number ?? null,
+      thread_id:              rec.thread_id ?? null,
+
+      // SMS-inapplicable fields — explicit clean defaults
+      hubspot_engagement_id:  null,   // not applicable for Aloware
+      recipient_emails:       [],     // not applicable for SMS
+      cc_emails:              [],     // not applicable for SMS
+      attachments_metadata:   [],     // not applicable for SMS
+      has_attachments:        false,  // not applicable for SMS
+
+      // Review flags
+      needs_review:           flag,
+      review_reason:          reviewReason ?? null,
+
+      // Audit
+      raw_metadata:           rec.raw_metadata,
+      is_deleted:             false,
     })
   }
 
