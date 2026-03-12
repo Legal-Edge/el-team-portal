@@ -112,37 +112,19 @@ export async function POST(req: NextRequest) {
   // ── Phone map ────────────────────────────────────────────────────────────────
   const phoneMap = await getPhoneMap()
 
-  // ── Load existing source_record_ids for dedup ────────────────────────────────
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
   const coreDb   = supabase.schema('core')
 
-  const existingSourceRecordIds = new Set<string>()
-
-  if (!dryRun) {
-    const { data: existing } = await coreDb
-      .from('communications')
-      .select('source_record_id')
-      .eq('source_system', SOURCE_SYSTEM)
-      .not('source_record_id', 'is', null)
-
-    for (const row of (existing ?? []) as { source_record_id: string }[]) {
-      if (row.source_record_id) existingSourceRecordIds.add(row.source_record_id)
-    }
-  }
-
-  // ── Build insert records ─────────────────────────────────────────────────────
+  // ── Build upsert records ─────────────────────────────────────────────────────
+  // No pre-check query needed — upsert with ignoreDuplicates handles dedup
+  // atomically at the DB level via uq_communications_source (source_system, source_record_id).
+  // This avoids the Supabase 1,000-row default page limit that caused pre-checks
+  // to silently miss existing rows on large tables.
   const toInsert: Record<string, unknown>[] = []
-  let skipped     = 0
   let needsReview = 0
 
   for (const rec of records) {
     const sourceRecordId = rec.raw_metadata?.import_hash as string | undefined
-
-    // Dedup check using source_record_id
-    if (sourceRecordId && existingSourceRecordIds.has(sourceRecordId)) {
-      skipped++
-      continue
-    }
 
     // Case resolution via normalized phone
     const { caseId, needsReview: flag, reviewReason } = resolveCase(phoneMap, rec.client_phone ?? null)
@@ -189,20 +171,28 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // ── Insert ───────────────────────────────────────────────────────────────────
+  // ── Upsert ───────────────────────────────────────────────────────────────────
+  // ignoreDuplicates: true → existing rows are silently skipped (no error).
+  // Rows returned in data[] are only the newly inserted ones.
+  // Skipped = sent - inserted (duplicates resolved at DB level).
   let inserted  = 0
+  let skipped   = 0
   const errors: string[] = []
 
   if (!dryRun && toInsert.length > 0) {
     const { data, error } = await coreDb
       .from('communications')
-      .insert(toInsert)
+      .upsert(toInsert, {
+        onConflict:       'source_system,source_record_id',
+        ignoreDuplicates: true,
+      })
       .select('id')
 
     if (error) {
       errors.push(error.message)
     } else {
-      inserted = (data as unknown[])?.length ?? toInsert.length
+      inserted = (data as unknown[])?.length ?? 0
+      skipped  = toInsert.length - inserted
     }
   } else if (dryRun) {
     inserted = toInsert.length
