@@ -1,10 +1,15 @@
 /**
- * HubSpot → core.cases Sync (Mapping-driven)
+ * HubSpot → core.cases + core.case_contacts Sync (Mapping-driven)
  * Reads field mappings from integration.hubspot_case_field_mapping
  *
  * Usage:
  *   node scripts/sync-hubspot-cases.mjs --deal-id=57785602325
  *   node scripts/sync-hubspot-cases.mjs --backfill
+ *
+ * NOTE: This script requires SUPABASE_SERVICE_ROLE_KEY which is only
+ * available on Vercel. For production backfill use:
+ *   node scripts/run-sync-hubspot-cases.mjs --backfill
+ * which calls the server-side /api/admin/sync-hubspot-cases endpoint.
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -228,17 +233,68 @@ function mapToCase(deal, contact, mappings) {
   return row
 }
 
-// ─── Upsert ────────────────────────────────────────────────
+// ─── Phone normalisation ───────────────────────────────────
+// Stores all phones in E.164 format (+1XXXXXXXXXX for US numbers).
+// Returns null if the number can't be resolved — never store garbage.
+
+function normalisePhone(raw) {
+  if (!raw) return null
+  const digits = String(raw).replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  if (digits.length > 7 && String(raw).startsWith('+')) return `+${digits}`
+  return null
+}
+
+// ─── Upsert case ───────────────────────────────────────────
+// Returns { result: 'ok'|'error', caseId: uuid|null }
 
 async function upsert(row) {
-  const { error } = await coreDb
+  const { data, error } = await coreDb
     .from('cases')
     .upsert(row, { onConflict: 'hubspot_deal_id', ignoreDuplicates: false })
+    .select('id')
+    .maybeSingle()
   if (error) {
     console.error(`  Upsert error [${row.hubspot_deal_id}]:`, error.message)
+    return { result: 'error', caseId: null }
+  }
+  return { result: 'ok', caseId: data?.id ?? null }
+}
+
+// ─── Upsert case_contact ───────────────────────────────────
+// Writes one primary contact row per case.
+// Dedup key: (case_id, hubspot_contact_id).
+// Returns: 'ok' | 'no_contact' | 'no_phone' | 'error'
+
+async function upsertCaseContact(caseId, contact) {
+  if (!contact || !caseId) return 'no_contact'
+
+  const p = contact.properties ?? {}
+  const phone = normalisePhone(p.phone) ?? normalisePhone(p.mobilephone)
+
+  const row = {
+    case_id:             caseId,
+    hubspot_contact_id:  String(contact.id),
+    first_name:          p.firstname ?? null,
+    last_name:           p.lastname  ?? null,
+    email:               p.email     ?? null,
+    phone:               phone,           // null if unnormalisable — stored, flagged in stats
+    relationship:        'primary',
+    is_primary:          true,
+    is_deleted:          false,
+    updated_at:          new Date().toISOString(),
+  }
+
+  const { error } = await coreDb
+    .from('case_contacts')
+    .upsert(row, { onConflict: 'case_id,hubspot_contact_id', ignoreDuplicates: false })
+
+  if (error) {
+    console.error(`  case_contacts upsert error [case=${caseId}]:`, error.message)
     return 'error'
   }
-  return 'ok'
+  return phone ? 'ok' : 'no_phone'
 }
 
 // ─── Main ─────────────────────────────────────────────────
@@ -289,20 +345,33 @@ if (dealId) {
   console.log('\nMapped row → core.cases:')
   console.log(JSON.stringify(row, null, 2))
 
-  const result = await upsert(row)
+  const { result, caseId: newCaseId } = await upsert(row)
   console.log(`\nUpsert: ${result}`)
 
   const { data: verify } = await coreDb
     .from('cases')
-    .select('hubspot_deal_id, client_first_name, client_last_name, case_status, vehicle_year, vehicle_make, vehicle_model, vehicle_vin, state_jurisdiction, created_at')
+    .select('id, hubspot_deal_id, client_first_name, client_last_name, case_status, vehicle_year, vehicle_make, vehicle_model, vehicle_vin, state_jurisdiction, created_at')
     .eq('hubspot_deal_id', dealId)
     .single()
 
   console.log('\n✅ Verified row in core.cases:')
   console.log(JSON.stringify(verify, null, 2))
 
+  // Sync case_contacts
+  const resolvedCaseId = newCaseId ?? verify?.id ?? null
+  if (resolvedCaseId) {
+    const contactResult = await upsertCaseContact(resolvedCaseId, contact)
+    console.log(`\ncase_contacts upsert: ${contactResult}`)
+    if (contact) {
+      console.log(`  hubspot_contact_id: ${contact.id}`)
+      console.log(`  phone raw:          ${contact.properties?.phone ?? contact.properties?.mobilephone ?? '—'}`)
+      console.log(`  phone normalised:   ${normalisePhone(contact.properties?.phone) ?? normalisePhone(contact.properties?.mobilephone) ?? 'null'}`)
+    }
+  }
+
   const { count } = await coreDb.from('cases').select('*', { count: 'exact', head: true })
-  console.log(`\ncore.cases total: ${count}`)
+  const { count: ccCount } = await coreDb.from('case_contacts').select('*', { count: 'exact', head: true })
+  console.log(`\ncore.cases total: ${count} | core.case_contacts total: ${ccCount}`)
 
 } else {
   // Log sync start
@@ -319,26 +388,59 @@ if (dealId) {
     console.log(`Total deals: ${deals.length}`)
 
     let ok = 0, err = 0
+    let contactsOk = 0, contactsNoPhone = 0, contactsNoContact = 0, contactsErr = 0
+
     for (const deal of deals) {
       const contact = await fetchContact(deal.id, contactPropNames)
-      const res = await upsert(mapToCase(deal, contact, mappings))
-      res === 'ok' ? ok++ : err++
-      if ((ok + err) % 100 === 0) console.log(`  ${ok + err}/${deals.length} (${err} errors)`)
+      const { result, caseId } = await upsert(mapToCase(deal, contact, mappings))
+      result === 'ok' ? ok++ : err++
+
+      // Sync case_contacts for successfully upserted cases
+      if (result === 'ok' && caseId) {
+        // caseId may be null if upsert matched existing row without returning id
+        // Fall back: look up by hubspot_deal_id
+        let resolvedCaseId = caseId
+        if (!resolvedCaseId) {
+          const { data: existing } = await coreDb
+            .from('cases').select('id').eq('hubspot_deal_id', String(deal.id)).maybeSingle()
+          resolvedCaseId = existing?.id ?? null
+        }
+        if (resolvedCaseId) {
+          const contactResult = await upsertCaseContact(resolvedCaseId, contact)
+          if      (contactResult === 'ok')         contactsOk++
+          else if (contactResult === 'no_phone')   contactsNoPhone++
+          else if (contactResult === 'no_contact') contactsNoContact++
+          else                                     contactsErr++
+        }
+      }
+
+      if ((ok + err) % 100 === 0) console.log(`  ${ok + err}/${deals.length} cases (${err} errors) | contacts: ${contactsOk} ok, ${contactsNoPhone} no_phone`)
       await new Promise(r => setTimeout(r, 50))
     }
 
-    const { count } = await coreDb.from('cases').select('*', { count: 'exact', head: true })
+    const { count: casesTotal }    = await coreDb.from('cases').select('*', { count: 'exact', head: true })
+    const { count: contactsTotal } = await coreDb.from('case_contacts').select('*', { count: 'exact', head: true })
 
     if (logId) {
       await integrationDb.from('hubspot_sync_log').update({
         status: 'success', records_total: deals.length,
         records_synced: ok, records_failed: err,
         completed_at: new Date().toISOString(),
-        metadata: { total_in_db: count }
+        metadata: {
+          total_cases_in_db: casesTotal,
+          total_contacts_in_db: contactsTotal,
+          contacts_synced: contactsOk,
+          contacts_no_phone: contactsNoPhone,
+          contacts_no_contact: contactsNoContact,
+          contacts_err: contactsErr,
+        }
       }).eq('id', logId)
     }
 
-    console.log(`\n✅ Done — ${ok} synced, ${err} errors | core.cases total: ${count}`)
+    console.log(`\n✅ Done`)
+    console.log(`   Cases synced:          ${ok} (${err} errors) | total in DB: ${casesTotal}`)
+    console.log(`   Contacts synced:       ${contactsOk} with phone, ${contactsNoPhone} no phone, ${contactsNoContact} no contact, ${contactsErr} errors`)
+    console.log(`   core.case_contacts:    ${contactsTotal} total`)
   } catch (e) {
     if (logId) await integrationDb.from('hubspot_sync_log')
       .update({ status: 'error', error_message: e.message, completed_at: new Date().toISOString() })
