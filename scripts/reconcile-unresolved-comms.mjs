@@ -82,9 +82,13 @@ console.log(`Loaded ${contacts.length} case_contacts → ${uniquePhones} unique 
 let offset     = 0
 let totalFetched  = 0
 let totalResolved = 0
-let totalSkipped  = 0   // ambiguous or still no match after re-check
+let totalAmbiguous = 0
+let totalNoMatch  = 0
 let totalErrors   = 0
 let continueLoop  = true
+
+// Sample collection (dry run only — first 10 per category)
+const samples = { resolved: [], ambiguous: [], no_match: [] }
 
 while (continueLoop) {
   // Fetch a batch of unresolved rows
@@ -118,34 +122,42 @@ while (continueLoop) {
   // Determine the client phone for each row
   // For inbound: client phone is from_number; outbound: to_number
   const updates = []
-  let batchResolved = 0
-  let batchSkipped  = 0
+  let batchResolved  = 0
+  let batchAmbiguous = 0
+  let batchNoMatch   = 0
 
   for (const row of rows) {
     const clientPhone = row.direction === 'inbound' ? row.from_number : row.to_number
 
     if (!clientPhone) {
-      batchSkipped++
+      batchNoMatch++
+      if (isDryRun && samples.no_match.length < 10) {
+        samples.no_match.push({ id: row.id, source_system: row.source_system, direction: row.direction, phone: null, review_reason: 'no_contact_phone' })
+      }
       continue
     }
 
     const matches = phoneMap.get(clientPhone) ?? []
 
     if (matches.length === 0) {
-      // Still no match — leave as-is
-      batchSkipped++
+      batchNoMatch++
+      if (isDryRun && samples.no_match.length < 10) {
+        samples.no_match.push({ id: row.id, source_system: row.source_system, direction: row.direction, phone: clientPhone, review_reason: 'no_case_for_phone' })
+      }
       continue
     }
 
     if (matches.length > 1) {
-      // Ambiguous — update review_reason if it changed but leave needs_review = true
       updates.push({
         id:            row.id,
         case_id:       null,
         needs_review:  true,
         review_reason: `multiple_cases_for_phone: ${matches.join(', ')}`,
       })
-      batchSkipped++
+      batchAmbiguous++
+      if (isDryRun && samples.ambiguous.length < 10) {
+        samples.ambiguous.push({ id: row.id, source_system: row.source_system, direction: row.direction, phone: clientPhone, matched_cases: matches })
+      }
       continue
     }
 
@@ -157,10 +169,14 @@ while (continueLoop) {
       review_reason: null,
     })
     batchResolved++
+    if (isDryRun && samples.resolved.length < 10) {
+      samples.resolved.push({ id: row.id, source_system: row.source_system, direction: row.direction, phone: clientPhone, would_assign_case_id: matches[0] })
+    }
   }
 
-  totalResolved += batchResolved
-  totalSkipped  += batchSkipped
+  totalResolved  += batchResolved
+  totalAmbiguous += batchAmbiguous
+  totalNoMatch   += batchNoMatch
 
   // Apply updates
   if (!isDryRun && updates.length > 0) {
@@ -191,10 +207,20 @@ const runtimeMs  = Date.now() - startTime
 const runtimeSec = (runtimeMs / 1000).toFixed(1)
 
 console.log(`\n=== Reconciliation Complete ===`)
-console.log(`Total unresolved fetched:  ${totalFetched}`)
-console.log(`Total resolved (case_id assigned): ${totalResolved}`)
-console.log(`Total still unresolved:    ${totalSkipped}`)
-console.log(`Total errors:              ${totalErrors}`)
-console.log(`Runtime:                   ${runtimeSec}s`)
-console.log(`Mode:                      ${isDryRun ? 'DRY RUN — no writes' : 'LIVE — DB updated'}`)
-console.log(`Completed:                 ${new Date().toISOString()}\n`)
+console.log(`Total unresolved scanned:         ${totalFetched}`)
+console.log(`Would resolve (1:1 phone match):  ${totalResolved}`)
+console.log(`Multiple cases (ambiguous):       ${totalAmbiguous}`)
+console.log(`No case match:                    ${totalNoMatch}`)
+console.log(`Errors:                           ${totalErrors}`)
+console.log(`Runtime:                          ${runtimeSec}s`)
+console.log(`Mode:                             ${isDryRun ? 'DRY RUN — no writes' : 'LIVE — DB updated'}`)
+console.log(`Completed:                        ${new Date().toISOString()}`)
+
+if (isDryRun) {
+  console.log(`\n--- Sample: Would Resolve (up to 10) ---`)
+  console.log(JSON.stringify(samples.resolved, null, 2))
+  console.log(`\n--- Sample: Ambiguous / Multiple Cases (up to 10) ---`)
+  console.log(JSON.stringify(samples.ambiguous, null, 2))
+  console.log(`\n--- Sample: No Case Match (up to 10) ---`)
+  console.log(JSON.stringify(samples.no_match, null, 2))
+}
