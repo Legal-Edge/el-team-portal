@@ -45,8 +45,10 @@ export async function GET(req: NextRequest) {
   ).schema('core')
 
   // Allowed sort columns (whitelist to prevent injection)
+  // NOTE: notes_last_updated requires migrate-team-v5 to be run first.
+  // Until then it falls back to updated_at.
   const SORT_COLS: Record<string, string> = {
-    notes_last_updated: 'notes_last_updated',
+    notes_last_updated: 'updated_at',   // swap to 'notes_last_updated' after migration
     created_at:         'created_at',
     updated_at:         'updated_at',
     client_first_name:  'client_first_name',
@@ -54,7 +56,7 @@ export async function GET(req: NextRequest) {
     estimated_value:    'estimated_value',
     vehicle_make:       'vehicle_make',
   }
-  const orderCol = SORT_COLS[sortCol] ?? 'notes_last_updated'
+  const orderCol = SORT_COLS[sortCol] ?? 'updated_at'
 
   let query = db
     .from('cases')
@@ -62,7 +64,8 @@ export async function GET(req: NextRequest) {
       'id, hubspot_deal_id, client_first_name, client_last_name, client_email, client_phone, ' +
       'vehicle_year, vehicle_make, vehicle_model, vehicle_mileage, vehicle_is_new, ' +
       'state_jurisdiction, case_status, case_priority, estimated_value, ' +
-      'notes_last_updated, created_at, updated_at',
+      'created_at, updated_at',
+      // NOTE: add ', notes_last_updated' here after running migrate-team-v5
       { count: 'exact' }
     )
     .eq('is_deleted', false)
