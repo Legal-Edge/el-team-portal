@@ -16,6 +16,7 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/reconcile-comms',     // communications reconciliation job (token-protected)
     '/api/admin/sync-hubspot-cases',  // HubSpot → Supabase case sync (token-protected)
     '/api/admin/case-counts',         // case count stats (token-protected)
+    '/api/admin/cron',                // Vercel cron jobs (CRON_SECRET-protected)
     '/api/webhooks/hubspot-team',     // HubSpot real-time webhook (token-protected)
   ]
   
@@ -46,6 +47,6 @@ export default auth((req: NextRequest & { auth: any }) => {
 // Configure which routes should be processed by the middleware
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/cron|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

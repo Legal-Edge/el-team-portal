@@ -314,5 +314,26 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Log to sync_log ───────────────────────────────────────────────────────
+  const synced  = Object.values(results).filter(v => v === 'upserted' || v === 'deleted' || v === 'deleted_on_404').length
+  const errored = Object.values(results).filter(v => v.startsWith('case_err') || v.startsWith('error')).length
+  const status  = errored > 0 && synced === 0 ? 'error' : errored > 0 ? 'partial' : 'success'
+  const errors  = Object.entries(results).filter(([,v]) => v.startsWith('case_err') || v.startsWith('error')).map(([k,v]) => `[${k}] ${v}`)
+
+  try {
+    await coreDb.from('sync_log').insert({
+      sync_type:     'webhook',
+      completed_at:  new Date().toISOString(),
+      deals_seen:    upserts.size + deletions.size,
+      deals_synced:  synced,
+      deals_errored: errored,
+      status,
+      notes:         `batch of ${events.length} events`,
+      errors:        errors.slice(0, 50),
+    })
+  } catch (logErr) {
+    console.error('[webhook] sync_log write failed:', (logErr as Error).message)
+  }
+
   return NextResponse.json({ processed: events.length, results })
 }

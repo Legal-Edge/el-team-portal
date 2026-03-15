@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/admin/cron/delta-sync",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}
