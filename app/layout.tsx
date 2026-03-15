@@ -3,8 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default:  "🍋 Team Portal — Easy Lemon",
-    template: "%s | 🍋 Team Portal — Easy Lemon",
+    default:  "🍋 Team Portal",
+    template: "🍋 %s | Team Portal",
   },
   description: "Easy Lemon Staff Case Management Portal",
 

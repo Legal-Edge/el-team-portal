@@ -872,8 +872,8 @@ export default function CaseDetailPage() {
   useEffect(() => {
     if (!caseData) return
     const name = [caseData.client_first_name, caseData.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
-    document.title = `${name} | 🍋 Team Portal — Easy Lemon`
-    return () => { document.title = '🍋 Team Portal — Easy Lemon' }
+    document.title = `🍋 ${name} | Team Portal`
+    return () => { document.title = '🍋 Team Portal' }
   }, [caseData])
 
   useEffect(() => {
