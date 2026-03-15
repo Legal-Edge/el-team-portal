@@ -1,44 +1,72 @@
 'use client'
 
-import Link           from 'next/link'
+import Link            from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { TeamRole } from '@/lib/session'
+
+// ── SVG icon components ────────────────────────────────────────────────────
+
+function IconDashboard()  { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg> }
+function IconCases()      { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M3 12h18M3 18h18" /></svg> }
+function IconComms()      { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg> }
+function IconPipeline()   { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> }
+function IconDocs()       { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg> }
+function IconIntake()     { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> }
+function IconAdmin()      { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> }
+
+const ICONS: Record<string, React.ReactNode> = {
+  dashboard:     <IconDashboard />,
+  cases:         <IconCases />,
+  'cases-me':    <IconCases />,
+  comms:         <IconComms />,
+  pipeline:      <IconPipeline />,
+  docs:          <IconDocs />,
+  intake:        <IconIntake />,
+  admin:         <IconAdmin />,
+}
 
 interface NavItem {
   label: string
   href:  string
-  icon:  string
+  icon:  keyof typeof ICONS
 }
 
 const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
   admin: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: '▦' },
-    { label: 'Cases',         href: '/cases',             icon: '⚖' },
-    { label: 'Comms Inbox',   href: '/comms',             icon: '💬' },
-    { label: 'Pipeline',      href: '/pipeline',          icon: '📊' },
-    { label: 'Doc Queue',     href: '/docs/queue',        icon: '📂' },
-    { label: 'Intake Triage', href: '/intake',            icon: '📋' },
-    { label: 'Admin',         href: '/admin',             icon: '⚙' },
+    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
+    { label: 'Cases',         href: '/cases',             icon: 'cases'     },
+    { label: 'Comms Inbox',   href: '/comms',             icon: 'comms'     },
+    { label: 'Pipeline',      href: '/pipeline',          icon: 'pipeline'  },
+    { label: 'Doc Queue',     href: '/docs/queue',        icon: 'docs'      },
+    { label: 'Intake Triage', href: '/intake',            icon: 'intake'    },
+    { label: 'Admin',         href: '/admin',             icon: 'admin'     },
   ],
   attorney: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: '▦' },
-    { label: 'My Cases',      href: '/cases?assigned=me', icon: '⚖' },
-    { label: 'All Cases',     href: '/cases',             icon: '🗂' },
-    { label: 'Comms Inbox',   href: '/comms',             icon: '💬' },
-    { label: 'Documents',     href: '/docs',              icon: '📂' },
+    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
+    { label: 'My Cases',      href: '/cases?assigned=me', icon: 'cases-me'  },
+    { label: 'All Cases',     href: '/cases',             icon: 'cases'     },
+    { label: 'Comms Inbox',   href: '/comms',             icon: 'comms'     },
+    { label: 'Documents',     href: '/docs',              icon: 'docs'      },
   ],
   manager: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: '▦' },
-    { label: 'Cases',         href: '/cases',             icon: '⚖' },
-    { label: 'Comms Inbox',   href: '/comms',             icon: '💬' },
-    { label: 'Doc Queue',     href: '/docs/queue',        icon: '📂' },
-    { label: 'Intake Triage', href: '/intake',            icon: '📋' },
+    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
+    { label: 'Cases',         href: '/cases',             icon: 'cases'     },
+    { label: 'Comms Inbox',   href: '/comms',             icon: 'comms'     },
+    { label: 'Doc Queue',     href: '/docs/queue',        icon: 'docs'      },
+    { label: 'Intake Triage', href: '/intake',            icon: 'intake'    },
   ],
   staff: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: '▦' },
-    { label: 'Cases',         href: '/cases',             icon: '⚖' },
-    { label: 'Documents',     href: '/docs',              icon: '📂' },
+    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
+    { label: 'Cases',         href: '/cases',             icon: 'cases'     },
+    { label: 'Documents',     href: '/docs',              icon: 'docs'      },
   ],
+}
+
+const ROLE_LABELS: Record<TeamRole, string> = {
+  admin:    'Admin',
+  attorney: 'Attorney',
+  manager:  'Manager',
+  staff:    'Staff',
 }
 
 const ROLE_COLORS: Record<TeamRole, string> = {
@@ -73,7 +101,7 @@ export function Sidebar({ role, displayName, email }: SidebarProps) {
       {/* Role pill */}
       <div className="px-4 pb-3 pt-1">
         <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${ROLE_COLORS[role]}`}>
-          {role}
+          {ROLE_LABELS[role]}
         </span>
       </div>
 
@@ -85,33 +113,33 @@ export function Sidebar({ role, displayName, email }: SidebarProps) {
             <Link
               key={item.href}
               href={item.href}
-              className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-100 group ${
+              className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95 group ${
                 active
                   ? 'text-gray-900 bg-gray-50'
                   : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
               }`}
             >
-              {/* Yellow left-border indicator — same as referral portal's underline */}
+              {/* Lemon left-bar active indicator */}
               {active && (
                 <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-lemon-400 rounded-full" />
               )}
-              <span className={`text-base w-5 text-center ${active ? 'text-gray-700' : 'text-gray-400 group-hover:text-gray-600'}`}>
-                {item.icon}
+              <span className={`shrink-0 transition-colors duration-150 ${active ? 'text-gray-700' : 'text-gray-400 group-hover:text-gray-600'}`}>
+                {ICONS[item.icon]}
               </span>
-              {item.label}
+              <span>{item.label}</span>
             </Link>
           )
         })}
       </nav>
 
-      {/* Bottom user */}
+      {/* Bottom user card */}
       <div className="p-4 border-t border-gray-100">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-lemon-400 flex items-center justify-center text-xs font-bold text-gray-900 shrink-0">
             {displayName.slice(0, 1).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
+            <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
             <p className="text-xs text-gray-400 truncate">{email}</p>
           </div>
         </div>

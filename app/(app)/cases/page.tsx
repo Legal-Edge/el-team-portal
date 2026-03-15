@@ -138,93 +138,85 @@ function CasesContent() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-8 py-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-              <a href="/dashboard" className="hover:text-gray-700">Dashboard</a>
-              <span>/</span>
-              <span>Cases</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold text-gray-900">
-                Case Queue
-                {total > 0 && <span className="ml-2 text-sm font-normal text-gray-500">({total} total)</span>}
-              </h1>
-              <span className={`inline-flex items-center gap-1.5 text-xs font-medium transition-all duration-500 ${isLive ? 'text-green-600' : 'text-gray-300'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
-                {isLive ? 'Live' : 'Connecting…'}
-              </span>
-            </div>
-          </div>
-          <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
-            ← Dashboard
-          </a>
-        </div>
-      </header>
+    <div className="p-8 max-w-7xl mx-auto space-y-5">
 
-      <main className="max-w-7xl mx-auto px-8 py-6">
-        {/* Search */}
-        <form onSubmit={handleSearch} className="mb-4 flex gap-2">
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, email, vehicle, deal ID..."
-            className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-          />
-          <button
-            type="submit"
-            className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
-          >
-            Search
-          </button>
-          {search && (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setPage(1); load(activeStatus, '', 1) }}
-              className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900"
-            >
-              Clear
-            </button>
+      {/* Page title row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold text-gray-900">
+            Case Queue
+          </h1>
+          {total > 0 && (
+            <span className="text-sm font-normal text-gray-400">
+              {total.toLocaleString()} cases
+            </span>
           )}
-        </form>
+          <span className={`inline-flex items-center gap-1.5 text-xs font-medium transition-all duration-500 ${isLive ? 'text-emerald-600' : 'text-gray-300'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+            {isLive ? 'Live' : 'Connecting…'}
+          </span>
+        </div>
+      </div>
 
-        {/* Status filter tabs */}
-        <div className="flex gap-1 flex-wrap mb-4">
+      {/* Search */}
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name, email, vehicle, deal ID…"
+          className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-lemon-400 focus:border-lemon-400 focus:bg-white transition-all"
+        />
+        <button
+          type="submit"
+          className="px-4 py-2 bg-lemon-400 hover:bg-lemon-500 text-gray-900 text-sm font-semibold rounded-lg transition-all duration-150 active:scale-95"
+        >
+          Search
+        </button>
+        {search && (
           <button
-            onClick={() => selectStatus('')}
-            className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-              activeStatus === ''
-                ? 'bg-gray-900 text-white'
-                : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-400'
+            type="button"
+            onClick={() => { setSearch(''); setPage(1); load(activeStatus, '', 1) }}
+            className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all duration-150 active:scale-95"
+          >
+            Clear
+          </button>
+        )}
+      </form>
+
+      {/* Status filter tabs */}
+      <div className="flex gap-1.5 flex-wrap">
+        <button
+          onClick={() => selectStatus('')}
+          className={`px-3.5 py-1.5 text-sm rounded-lg font-medium transition-all duration-150 active:scale-95 ${
+            activeStatus === ''
+              ? 'bg-lemon-400 text-gray-900 border border-lemon-500'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+          }`}
+        >
+          All ({total.toLocaleString()})
+        </button>
+        {Object.entries(stageCounts)
+          .sort(([,a],[,b]) => b - a)
+          .map(([status, count]) => (
+          <button
+            key={status}
+            onClick={() => selectStatus(status)}
+            className={`px-3.5 py-1.5 text-sm rounded-lg font-medium transition-all duration-150 active:scale-95 ${
+              activeStatus === status
+                ? 'bg-lemon-400 text-gray-900 border border-lemon-500'
+                : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
             }`}
           >
-            All ({total})
+            {STATUS_LABELS[status] ?? status} ({count.toLocaleString()})
           </button>
-          {Object.entries(stageCounts)
-            .sort(([,a],[,b]) => b - a)
-            .map(([status, count]) => (
-            <button
-              key={status}
-              onClick={() => selectStatus(status)}
-              className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-                activeStatus === status
-                  ? 'bg-gray-900 text-white'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-400'
-              }`}
-            >
-              {STATUS_LABELS[status] ?? status} ({count})
-            </button>
-          ))}
+        ))}
         </div>
 
-        {/* Table */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-card">
           {loading ? (
-            <div className="py-16 text-center text-gray-400 text-sm">Loading cases...</div>
+            <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
           ) : cases.length === 0 ? (
             <div className="py-16 text-center">
               <p className="text-gray-400 text-sm">No cases found</p>
@@ -232,56 +224,56 @@ function CasesContent() {
             </div>
           ) : (
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Client</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vehicle</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">State</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Mileage</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Value</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Added</th>
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Client</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Vehicle</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">State</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Mileage</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Value</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Added</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-50">
                 {cases.map(c => (
                   <tr
                     key={c.id}
                     onClick={() => { window.location.href = `/cases/${c.hubspot_deal_id}` }}
-                    className={`border-b border-gray-100 cursor-pointer transition-all duration-700 border-l-2 ${
-                        flashedIds.has(c.id)
-                          ? 'bg-yellow-50 border-l-yellow-400'
-                          : 'hover:bg-gray-50 border-l-transparent'
-                      }`}
+                    className={`cursor-pointer transition-all duration-500 border-l-2 ${
+                      flashedIds.has(c.id)
+                        ? 'bg-lemon-400/10 border-l-lemon-400'
+                        : 'hover:bg-gray-50 border-l-transparent hover:border-l-gray-200'
+                    }`}
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">
-                        {[c.client_first_name, c.client_last_name].filter(Boolean).join(' ') || <span className="text-gray-400 italic">Unknown</span>}
+                        {[c.client_first_name, c.client_last_name].filter(Boolean).join(' ') || <span className="text-gray-300 italic">Unknown</span>}
                       </div>
                       {c.client_email && <div className="text-xs text-gray-400 mt-0.5">{c.client_email}</div>}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-4">
                       <div className="text-gray-900">
-                        {[c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ') || <span className="text-gray-400 italic">—</span>}
+                        {[c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ') || <span className="text-gray-300">—</span>}
                       </div>
                       {c.vehicle_is_new !== null && (
                         <div className="text-xs text-gray-400 mt-0.5">{c.vehicle_is_new ? 'New' : 'Used'}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown}`}>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown}`}>
                         {STATUS_LABELS[c.case_status] ?? c.case_status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{c.state_jurisdiction ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-700">
+                    <td className="px-6 py-4 text-gray-600 text-sm">{c.state_jurisdiction ?? '—'}</td>
+                    <td className="px-6 py-4 text-gray-600 text-sm tabular-nums">
                       {c.vehicle_mileage ? c.vehicle_mileage.toLocaleString() : '—'}
                     </td>
-                    <td className="px-4 py-3 text-gray-700">
+                    <td className="px-6 py-4 text-gray-600 text-sm tabular-nums">
                       {c.estimated_value ? '$' + c.estimated_value.toLocaleString() : '—'}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {new Date(c.created_at).toLocaleDateString()}
+                    <td className="px-6 py-4 text-gray-400 text-xs tabular-nums">
+                      {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
                   </tr>
                 ))}
@@ -290,31 +282,30 @@ function CasesContent() {
           )}
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4">
-            <p className="text-sm text-gray-500">
-              Page {page} of {totalPages} · {total} total cases
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:border-gray-400 transition-colors"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:border-gray-400 transition-colors"
-              >
-                Next
-              </button>
-            </div>
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-400">
+            Page {page} of {totalPages} · {total.toLocaleString()} cases
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3.5 py-1.5 text-sm font-medium border border-gray-200 rounded-lg disabled:opacity-40 hover:border-gray-300 hover:bg-gray-50 transition-all duration-150 active:scale-95"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="px-3.5 py-1.5 text-sm font-medium border border-gray-200 rounded-lg disabled:opacity-40 hover:border-gray-300 hover:bg-gray-50 transition-all duration-150 active:scale-95"
+            >
+              Next
+            </button>
           </div>
-        )}
-      </main>
+        </div>
+      )}
     </div>
   )
 }

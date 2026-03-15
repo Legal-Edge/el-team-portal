@@ -190,43 +190,43 @@ export default async function DashboardPage() {
 
       {/* ── Quick Actions ── */}
       <div>
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Quick Actions</h2>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Quick Actions</h2>
         <div className="flex flex-wrap gap-2">
           {[
-            { href: '/cases',      label: '⚖ Case Queue',      show: true },
-            { href: '/comms',      label: '💬 Comms Inbox',     show: session.role !== 'staff' },
-            { href: '/intake',     label: '📋 Intake Triage',   show: session.role === 'admin' || session.role === 'manager' },
-            { href: '/docs/queue', label: '📂 Doc Queue',       show: session.role === 'admin' || session.role === 'manager' },
-            { href: '/pipeline',   label: '📊 Pipeline Report', show: session.role === 'admin' },
+            { href: '/cases',      label: 'Case Queue',      show: true },
+            { href: '/comms',      label: 'Comms Inbox',     show: session.role !== 'staff' },
+            { href: '/intake',     label: 'Intake Triage',   show: session.role === 'admin' || session.role === 'manager' },
+            { href: '/docs/queue', label: 'Doc Queue',       show: session.role === 'admin' || session.role === 'manager' },
+            { href: '/pipeline',   label: 'Pipeline Report', show: session.role === 'admin' },
           ].filter(a => a.show).map(a => (
             <Link key={a.href} href={a.href}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-card">
+              className="inline-flex items-center px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-card">
               {a.label}
             </Link>
           ))}
-          <kbd className="inline-flex items-center gap-2 px-4 py-2 bg-lemon-400/10 border border-lemon-400/30 rounded-lg text-sm font-medium text-gray-700">
-            ⌘K Command Palette
+          <kbd className="inline-flex items-center gap-1.5 px-4 py-2 bg-lemon-400/10 border border-lemon-400/30 rounded-lg text-sm font-medium text-gray-600">
+            <span className="font-mono">⌘K</span> Command Palette
           </kbd>
         </div>
       </div>
 
       {/* ── Recent Activity ── */}
       <div>
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent Case Activity</h2>
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Recent Case Activity</h2>
+        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-card">
           {activity.length === 0 ? (
             <div className="py-12 text-center text-gray-400 text-sm">No recent activity</div>
           ) : (
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Client</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stage</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Updated</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Client</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Stage</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Updated</th>
                   <th />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 text-sm">
                 {activity.map(c => {
                   const name = [c.client_first_name, c.client_last_name].filter(Boolean).join(' ') || 'Unknown'
                   const updated = c.updated_at
