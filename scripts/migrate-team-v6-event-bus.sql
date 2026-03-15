@@ -214,3 +214,5 @@ CREATE TRIGGER trg_supersede_ai_output
 ALTER TABLE core.case_state     REPLICA IDENTITY FULL;
 ALTER TABLE core.comms_state    REPLICA IDENTITY FULL;
 ALTER TABLE core.ai_outputs     REPLICA IDENTITY FULL;
+-- NOTE: final working REVOKE syntax for Supabase:
+-- REVOKE UPDATE, DELETE ON core.events FROM authenticated, anon;
