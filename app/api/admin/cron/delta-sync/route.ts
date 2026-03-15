@@ -52,12 +52,28 @@ function safeDate(raw: unknown): string | null {
   if (!raw) return null
   const s = String(raw).trim()
   if (!s) return null
-  if (s.startsWith('+') || s.startsWith('-0')) return null
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s
-  if (/^\d{13}$/.test(s)) return new Date(parseInt(s)).toISOString()
+  if (s.startsWith('+')) return null
+  if (/^\d{13}$/.test(s)) {
+    try {
+      const d = new Date(parseInt(s))
+      const y = d.getUTCFullYear()
+      if (y < 1900 || y > 2100) return null
+      return d.toISOString().slice(0, 10)
+    } catch { return null }
+  }
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1]), m = parseInt(isoMatch[2]), d = parseInt(isoMatch[3])
+    if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  }
   try {
     const d = new Date(s)
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+    if (!isNaN(d.getTime())) {
+      const y = d.getUTCFullYear()
+      if (y < 1900 || y > 2100) return null
+      return d.toISOString().slice(0, 10)
+    }
   } catch { /* fall through */ }
   return null
 }

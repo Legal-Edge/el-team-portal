@@ -70,18 +70,33 @@ function safeDate(raw: unknown): string | null {
   if (!raw) return null
   const s = String(raw).trim()
   if (!s) return null
-  // Reject extended ISO with leading + (e.g. "+010480-01") — corrupted HubSpot data
-  if (s.startsWith('+') || s.startsWith('-0')) return null
-  // Already valid ISO date or datetime
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s
+  if (s.startsWith('+')) return null  // extended ISO year (e.g. +010480-01-01)
   // HubSpot epoch ms timestamp
-  if (/^\d{13}$/.test(s)) return new Date(parseInt(s)).toISOString()
-  // Try native parse — guard against out-of-range errors
+  if (/^\d{13}$/.test(s)) {
+    try {
+      const d = new Date(parseInt(s))
+      const y = d.getUTCFullYear()
+      if (y < 1900 || y > 2100) return null
+      return d.toISOString().slice(0, 10)
+    } catch { return null }
+  }
+  // ISO date — extract ONLY YYYY-MM-DD, discard time and timezone entirely
+  // This prevents corrupted timezone offsets (e.g. +010480) from reaching Postgres
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1]), m = parseInt(isoMatch[2]), d = parseInt(isoMatch[3])
+    if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  }
+  // Last resort — native parse with year range guard
   try {
     const d = new Date(s)
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+    if (!isNaN(d.getTime())) {
+      const y = d.getUTCFullYear()
+      if (y < 1900 || y > 2100) return null  // "10480" parses as year 10480 → reject
+      return d.toISOString().slice(0, 10)
+    }
   } catch { /* fall through */ }
-  // Unresolvable (e.g. "June or July", garbage offsets) — store null, never crash
   return null
 }
 
