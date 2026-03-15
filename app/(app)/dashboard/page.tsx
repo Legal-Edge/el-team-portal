@@ -1,8 +1,9 @@
-import { redirect }       from 'next/navigation'
-import { getTeamSession } from '@/lib/session'
-import { createClient }   from '@supabase/supabase-js'
-import { KpiCard }        from '@/components/KpiCard'
-import Link               from 'next/link'
+import { redirect }        from 'next/navigation'
+import { getTeamSession }  from '@/lib/session'
+import { createClient }    from '@supabase/supabase-js'
+import { KpiCard }         from '@/components/KpiCard'
+import { DashboardLive }   from '@/components/DashboardLive'
+import Link                from 'next/link'
 
 function getCoreDb() {
   return createClient(
@@ -147,14 +148,9 @@ export default async function DashboardPage() {
         <p className="text-sm text-gray-500 mt-0.5">{today} · Los Angeles</p>
       </div>
 
-      {/* ── KPI Cards ── */}
+      {/* ── Admin: Live KPIs + Pipeline Chart ── */}
       {session.role === 'admin' && adminStats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard label="Total Active Cases"   value={adminStats.totalActive}   accent="bg-lemon-400"   href="/cases" />
-          <KpiCard label="Settled This Month"   value={adminStats.settledMonth}  accent="bg-emerald-400" />
-          <KpiCard label="Total Pipeline"       value={adminStats.totalPipeline} accent="bg-gray-300" />
-          <KpiCard label="Top Stage"            value={adminStats.topStage}      accent="bg-amber-400" />
-        </div>
+        <DashboardLive initial={adminStats} />
       )}
 
       {session.role === 'attorney' && attorneyStats && (
