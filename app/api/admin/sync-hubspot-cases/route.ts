@@ -70,14 +70,18 @@ function safeDate(raw: unknown): string | null {
   if (!raw) return null
   const s = String(raw).trim()
   if (!s) return null
+  // Reject extended ISO with leading + (e.g. "+010480-01") — corrupted HubSpot data
+  if (s.startsWith('+') || s.startsWith('-0')) return null
   // Already valid ISO date or datetime
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s
   // HubSpot epoch ms timestamp
   if (/^\d{13}$/.test(s)) return new Date(parseInt(s)).toISOString()
-  // Try native parse
-  const d = new Date(s)
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
-  // Unresolvable (e.g. "June or July") — store null, never crash
+  // Try native parse — guard against out-of-range errors
+  try {
+    const d = new Date(s)
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  } catch { /* fall through */ }
+  // Unresolvable (e.g. "June or July", garbage offsets) — store null, never crash
   return null
 }
 
@@ -122,6 +126,35 @@ async function fetchPageOfDeals(after: string | null, limit: number) {
   return {
     deals:      page.results ?? [],
     nextAfter:  page.paging?.next?.after ?? null,
+  }
+}
+
+// Delta sync: fetch only deals modified since a given ISO timestamp (uses Search API)
+async function fetchDeltaDeals(modifiedSince: string, after: string | null, limit: number) {
+  const body = {
+    filterGroups: [{
+      filters: [{
+        propertyName: 'hs_lastmodifieddate',
+        operator:     'GTE',
+        value:        String(new Date(modifiedSince).getTime()),
+      }],
+    }],
+    properties: DEAL_PROPS,
+    limit,
+    ...(after ? { after } : {}),
+    sorts: [{ propertyName: 'hs_lastmodifieddate', direction: 'ASCENDING' }],
+  }
+  const res = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`HubSpot search ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  const page = await res.json()
+  return {
+    deals:     page.results ?? [],
+    nextAfter: page.paging?.next?.after ?? null,
+    total:     page.total ?? 0,
   }
 }
 
@@ -192,10 +225,10 @@ function mapToCase(deal: Record<string, unknown>, contact: Record<string, unknow
     client_email:          cp['email'] ? String(cp['email']).toLowerCase() : null,
     client_phone:          normalisePhone(String(cp['phone'] ?? cp['mobilephone'] ?? '')),
     vehicle_year:          vehicleYear ? (applyTransform(vehicleYear, 'parseInt') as number) : null,
-    vehicle_make:          vehicleMake ?? null,
-    vehicle_model:         vehicleModel ?? null,
-    vehicle_vin:           dp['vin'] ? String(dp['vin']).toUpperCase().trim() : null,
-    vehicle_mileage:       mileage ? (applyTransform(mileage, 'parseInt') as number) : null,
+    vehicle_make:          vehicleMake ? String(vehicleMake).slice(0, 100) : null,
+    vehicle_model:         vehicleModel ? String(vehicleModel).slice(0, 100) : null,
+    vehicle_vin:           dp['vin'] ? String(dp['vin']).toUpperCase().trim().slice(0, 50) : null,
+    vehicle_mileage:       mileage ? Math.min(applyTransform(mileage, 'parseInt') as number, 2147483647) : null,
     vehicle_purchase_price: purchasePrice ? (applyTransform(purchasePrice, 'parseFloat') as number) : null,
     vehicle_purchase_date: safeDate(purchaseDate),
     vehicle_is_new:        isNew ? applyTransform(isNew, 'boolean_new_used') : null,
@@ -218,13 +251,14 @@ export async function POST(req: NextRequest) {
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
   if (token !== IMPORT_TOKEN) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let body: { after?: string; limit?: number; dryRun?: boolean }
+  let body: { after?: string; limit?: number; dryRun?: boolean; modifiedSince?: string }
   try { body = await req.json() }
   catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
-  const after   = body.after  ?? null
-  const limit   = Math.min(body.limit ?? 50, 100)
-  const dryRun  = body.dryRun ?? false
+  const after         = body.after  ?? null
+  const limit         = Math.min(body.limit ?? 50, 100)
+  const dryRun        = body.dryRun ?? false
+  const modifiedSince = body.modifiedSince ?? null   // ISO string — triggers delta sync mode
 
   const db     = createClient(SUPABASE_URL, SUPABASE_KEY)
   const coreDb = db.schema('core')
@@ -233,10 +267,15 @@ export async function POST(req: NextRequest) {
   let casesSynced = 0, casesErrors = 0
   let contactsOk = 0, contactsNoPhone = 0, contactsNoContact = 0, contactsErrors = 0
 
-  // Fetch one page of deals
-  let deals: Record<string, unknown>[], nextAfter: string | null
+  // Fetch one page of deals — delta mode (modifiedSince) or full page mode
+  let deals: Record<string, unknown>[], nextAfter: string | null, deltaTotal: number | null = null
   try {
-    ({ deals, nextAfter } = await fetchPageOfDeals(after, limit))
+    if (modifiedSince) {
+      const result = await fetchDeltaDeals(modifiedSince, after, limit)
+      deals = result.deals; nextAfter = result.nextAfter; deltaTotal = result.total
+    } else {
+      ({ deals, nextAfter } = await fetchPageOfDeals(after, limit))
+    }
   } catch (e) {
     return NextResponse.json({ error: `HubSpot fetch failed: ${(e as Error).message}` }, { status: 500 })
   }
@@ -322,6 +361,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     dry_run:              dryRun,
+    mode:                 modifiedSince ? 'delta' : 'full',
+    modified_since:       modifiedSince ?? undefined,
+    delta_total:          deltaTotal ?? undefined,
     page_size:            deals.length,
     cases_synced:         casesSynced,
     cases_errors:         casesErrors,
