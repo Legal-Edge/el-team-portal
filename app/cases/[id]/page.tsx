@@ -61,6 +61,7 @@ interface Comm {
   from_number: string | null
   to_number: string | null
   recording_url: string | null
+  is_internal: boolean
 }
 
 interface CaseDetail {
@@ -344,7 +345,10 @@ function CommCard({ comm }: { comm: Comm }) {
   const hasContent  = !!fullContent
 
   return (
-    <div className={`px-6 py-4 transition-colors ${comm.needs_review ? 'border-l-4 border-l-yellow-400' : ''}`}>
+    <div className={`px-6 py-4 transition-colors ${
+      comm.is_internal    ? 'bg-purple-50/40 border-l-4 border-l-purple-300' :
+      comm.needs_review   ? 'border-l-4 border-l-yellow-400' : ''
+    }`}>
       <div
         className="flex items-start justify-between gap-4 cursor-pointer"
         onClick={() => hasContent && setExpanded(e => !e)}
@@ -362,6 +366,9 @@ function CommCard({ comm }: { comm: Comm }) {
               )}
               {duration && (
                 <span className="text-xs text-gray-400">{duration}</span>
+              )}
+              {comm.is_internal && (
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">🔒 Internal</span>
               )}
               {comm.needs_review && (
                 <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">⚠ Review</span>
@@ -855,6 +862,8 @@ export default function CaseDetailPage() {
   const [commTotal, setCommTotal] = useState(0)
   const [commChannel, setCommChannel] = useState('')
   const [commsLoading, setCommsLoading] = useState(true)
+  const [canSeeInternal, setCanSeeInternal] = useState(false)
+  const [userCanSms, setUserCanSms] = useState(false)
   const [isLive, setIsLive] = useState(false)
   const [statusFlash, setStatusFlash] = useState(false)
   const esRef = useRef<EventSource | null>(null)
@@ -905,6 +914,9 @@ export default function CaseDetailPage() {
       setComms(data.comms)
       setCommCounts(data.counts)
       setCommTotal(data.total)
+      setCanSeeInternal(data.canSeeInternal ?? false)
+      // Staff can't send SMS (enforced server-side too; this is just UI gating)
+      setUserCanSms(data.canSeeInternal ?? false)
     }
     setCommsLoading(false)
   }, [params.id])
@@ -1165,10 +1177,13 @@ export default function CaseDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {/* Comm header */}
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Communications</h2>
               {commTotal > 0 && (
                 <span className="text-xs text-gray-400 tabular-nums">{commTotal} total</span>
+              )}
+              {canSeeInternal && (
+                <span className="text-xs text-purple-500 font-medium">🔒 = internal only</span>
               )}
             </div>
 
@@ -1216,7 +1231,10 @@ export default function CaseDetailPage() {
             </div>
           )}
 
-          {/* SMS compose disabled — read-only until Nov approves outbound */}
+          {/* SMS compose — admin/attorney/manager only */}
+          {userCanSms && commCounts.sms > 0 && (commChannel === '' || commChannel === 'sms') && (
+            <SmsCompose caseId={params.id as string} onSent={() => loadComms(commChannel)} />
+          )}
         </div>
 
       </main>
