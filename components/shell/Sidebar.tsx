@@ -1,28 +1,31 @@
 'use client'
 
-import Link            from 'next/link'
-import { usePathname } from 'next/navigation'
+import Link             from 'next/link'
+import { usePathname }  from 'next/navigation'
+import { useState, useEffect } from 'react'
 import type { TeamRole } from '@/lib/session'
 
-// ── SVG icon components ────────────────────────────────────────────────────
+// ── SVG icons ──────────────────────────────────────────────────────────────
 
-function IconDashboard()  { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg> }
-function IconCases()      { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M3 12h18M3 18h18" /></svg> }
-function IconComms()      { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg> }
-function IconPipeline()   { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> }
-function IconDocs()       { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg> }
-function IconIntake()     { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> }
-function IconAdmin()      { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> }
+function IconDashboard() { return <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg> }
+function IconCases()     { return <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M3 12h18M3 18h18" /></svg> }
+function IconComms()     { return <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg> }
+function IconPipeline()  { return <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> }
+function IconDocs()      { return <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg> }
+function IconIntake()    { return <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> }
+function IconAdmin()     { return <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> }
+function IconChevronLeft()  { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg> }
+function IconChevronRight() { return <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg> }
 
 const ICONS: Record<string, React.ReactNode> = {
-  dashboard:     <IconDashboard />,
-  cases:         <IconCases />,
-  'cases-me':    <IconCases />,
-  comms:         <IconComms />,
-  pipeline:      <IconPipeline />,
-  docs:          <IconDocs />,
-  intake:        <IconIntake />,
-  admin:         <IconAdmin />,
+  dashboard:  <IconDashboard />,
+  cases:      <IconCases />,
+  'cases-me': <IconCases />,
+  comms:      <IconComms />,
+  pipeline:   <IconPipeline />,
+  docs:       <IconDocs />,
+  intake:     <IconIntake />,
+  admin:      <IconAdmin />,
 }
 
 interface NavItem {
@@ -83,8 +86,24 @@ interface SidebarProps {
 }
 
 export function Sidebar({ role, displayName, email }: SidebarProps) {
-  const pathname = usePathname()
-  const navItems = NAV_ITEMS[role] ?? NAV_ITEMS.staff
+  const pathname  = usePathname()
+  const navItems  = NAV_ITEMS[role] ?? NAV_ITEMS.staff
+  const [collapsed, setCollapsed] = useState(false)
+  const [mounted,   setMounted]   = useState(false)
+
+  // Read persisted state after mount to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+    if (localStorage.getItem('sidebar-collapsed') === 'true') setCollapsed(true)
+  }, [])
+
+  function toggle() {
+    setCollapsed(prev => {
+      const next = !prev
+      localStorage.setItem('sidebar-collapsed', String(next))
+      return next
+    })
+  }
 
   function isActive(href: string) {
     const path = href.split('?')[0]
@@ -92,56 +111,87 @@ export function Sidebar({ role, displayName, email }: SidebarProps) {
     return pathname.startsWith(path)
   }
 
-  return (
-    <aside className="w-60 shrink-0 h-screen flex flex-col bg-white border-r border-gray-100 select-none">
+  // Don't animate on first paint — only after mount to avoid flash
+  const transitionClass = mounted ? 'transition-all duration-200 ease-in-out' : ''
 
+  return (
+    <aside
+      className={`${collapsed ? 'w-14' : 'w-60'} ${transitionClass} shrink-0 h-screen flex flex-col bg-white border-r border-gray-100 select-none overflow-hidden`}
+    >
       {/* Spacer — aligns with 64px header */}
       <div className="h-16 shrink-0" />
 
-      {/* Role pill */}
-      <div className="px-4 pb-3 pt-1">
-        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${ROLE_COLORS[role]}`}>
-          {ROLE_LABELS[role]}
-        </span>
-      </div>
+      {/* Role pill — hidden when collapsed */}
+      {!collapsed && (
+        <div className="px-4 pb-3 pt-1">
+          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${ROLE_COLORS[role]}`}>
+            {ROLE_LABELS[role]}
+          </span>
+        </div>
+      )}
+      {collapsed && <div className="pb-3 pt-1 px-3">
+        <span className={`w-2 h-2 rounded-full inline-block ${ROLE_COLORS[role].split(' ')[0]}`} />
+      </div>}
 
       {/* Nav */}
-      <nav className="flex-1 px-3 overflow-y-auto space-y-0.5">
+      <nav className={`flex-1 overflow-y-auto space-y-0.5 ${collapsed ? 'px-2' : 'px-3'}`}>
         {navItems.map(item => {
           const active = isActive(item.href)
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95 group ${
-                active
+              title={collapsed ? item.label : undefined}
+              className={`relative flex items-center gap-3 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95 group
+                ${collapsed ? 'px-2.5 py-2.5 justify-center' : 'px-3 py-2.5'}
+                ${active
                   ? 'text-gray-900 bg-gray-50'
                   : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
+                }`}
             >
               {/* Lemon left-bar active indicator */}
-              {active && (
+              {active && !collapsed && (
                 <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-lemon-400 rounded-full" />
               )}
-              <span className={`shrink-0 transition-colors duration-150 ${active ? 'text-gray-700' : 'text-gray-400 group-hover:text-gray-600'}`}>
+              {active && collapsed && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-lemon-400 rounded-full" />
+              )}
+              <span className={`transition-colors duration-150 ${active ? 'text-gray-700' : 'text-gray-400 group-hover:text-gray-600'}`}>
                 {ICONS[item.icon]}
               </span>
-              <span>{item.label}</span>
+              {!collapsed && <span className="truncate">{item.label}</span>}
             </Link>
           )
         })}
       </nav>
 
+      {/* Toggle collapse button */}
+      <div className={`${collapsed ? 'px-2 pb-3' : 'px-3 pb-3'}`}>
+        <button
+          onClick={toggle}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={`w-full flex items-center rounded-lg py-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-all duration-150 active:scale-95
+            ${collapsed ? 'justify-center px-2.5' : 'gap-2 px-3'}`}
+        >
+          {collapsed ? <IconChevronRight /> : <><IconChevronLeft /><span>Collapse</span></>}
+        </button>
+      </div>
+
       {/* Bottom user card */}
-      <div className="p-4 border-t border-gray-100">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-lemon-400 flex items-center justify-center text-xs font-bold text-gray-900 shrink-0">
+      <div className={`border-t border-gray-100 ${collapsed ? 'p-2' : 'p-4'}`}>
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
+          <div
+            title={collapsed ? `${displayName} (${email})` : undefined}
+            className="w-8 h-8 rounded-full bg-lemon-400 flex items-center justify-center text-xs font-bold text-gray-900 shrink-0"
+          >
             {displayName.slice(0, 1).toUpperCase()}
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
-            <p className="text-xs text-gray-400 truncate">{email}</p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
+              <p className="text-xs text-gray-400 truncate">{email}</p>
+            </div>
+          )}
         </div>
       </div>
     </aside>
