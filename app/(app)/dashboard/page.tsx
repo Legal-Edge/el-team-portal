@@ -25,7 +25,7 @@ async function getAdminStats() {
 
   const [{ count: totalActive }, { count: settledMonth }, { count: totalPipeline }] = await Promise.all([
     db.from('cases').select('*', { count: 'exact', head: true }).in('case_status', ACTIVE_STAGES),
-    db.from('cases').select('*', { count: 'exact', head: true }).eq('case_status', 'settled').gte('settled_at', monthStart),
+    db.from('cases').select('*', { count: 'exact', head: true }).eq('case_status', 'settled').gte('closed_at', monthStart),
     db.from('cases').select('*', { count: 'exact', head: true }).neq('case_status', 'dropped'),
   ])
 
