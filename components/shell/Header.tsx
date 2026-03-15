@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter }                    from 'next/navigation'
 import { signOut }                      from 'next-auth/react'
+import Image                            from 'next/image'
 import type { TeamRole }                from '@/lib/session'
 
 const ROLE_COLORS: Record<TeamRole, string> = {
@@ -72,8 +73,14 @@ export function Header({ role, displayName }: HeaderProps) {
 
       {/* Logo — 240px wide to align with sidebar */}
       <div className="flex items-center gap-2.5 w-60 shrink-0 -ml-6 pl-6">
-        <div className="w-8 h-8 bg-lemon-400 rounded-lg flex items-center justify-center shrink-0">
-          <span className="text-sm font-black text-gray-900">EL</span>
+        <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 bg-lemon-400 flex items-center justify-center">
+          <Image
+            src="/logos/easylemon-icon-192.webp"
+            alt="Easy Lemon"
+            width={32}
+            height={32}
+            className="w-full h-full object-contain"
+          />
         </div>
         <div>
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Staff Portal</p>
