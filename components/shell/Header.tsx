@@ -72,20 +72,18 @@ export function Header({ role, displayName }: HeaderProps) {
     <header className="h-16 shrink-0 flex items-center gap-4 px-6 bg-white border-b border-gray-100 z-20">
 
       {/* Logo — 240px wide to align with sidebar */}
-      <div className="flex items-center gap-2.5 w-60 shrink-0 -ml-6 pl-6">
-        <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 bg-lemon-400 flex items-center justify-center">
-          <Image
-            src="/logos/easylemon-icon-192.webp"
-            alt="Easy Lemon"
-            width={32}
-            height={32}
-            className="w-full h-full object-contain"
-          />
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none">Staff Portal</p>
-          <p className="text-sm font-bold text-gray-900 leading-tight">Easy Lemon</p>
-        </div>
+      <div className="flex items-center gap-2 w-60 shrink-0 -ml-6 pl-6">
+        <Image
+          src="/logos/easylemon-wordmark.png"
+          alt="Easy Lemon"
+          width={140}
+          height={36}
+          className="h-7 w-auto object-contain"
+          priority
+        />
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none mt-0.5 shrink-0">
+          Staff
+        </span>
       </div>
 
       {/* Search — matches referral portal's clean input style */}
