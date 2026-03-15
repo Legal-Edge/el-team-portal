@@ -90,22 +90,22 @@ export function Header({ role, displayName }: HeaderProps) {
   }
 
   return (
-    <header className="h-16 shrink-0 flex items-center gap-4 px-6 bg-white border-b border-gray-100 z-20">
+    <header className="h-16 shrink-0 grid grid-cols-3 items-center px-6 bg-white border-b border-gray-100 z-20">
 
-      {/* Left — wordmark only */}
-      <div className="flex items-center w-14 shrink-0 -ml-6 pl-6">
+      {/* Left — wordmark */}
+      <div className="flex items-center pl-8">
         <Image
           src="/logos/easylemon-wordmark.png"
           alt="Easy Lemon"
-          width={120}
-          height={32}
-          className="h-8 w-auto object-contain"
+          width={160}
+          height={40}
+          className="h-9 w-auto object-contain"
           priority
         />
       </div>
 
-      {/* Center — search */}
-      <div className="flex-1 max-w-lg mx-auto relative">
+      {/* Center — search (truly centered via grid) */}
+      <div className="relative w-full max-w-sm mx-auto">
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -157,7 +157,7 @@ export function Header({ role, displayName }: HeaderProps) {
       </div>
 
       {/* Right — avatar menu */}
-      <div className="ml-auto relative" ref={menuRef}>
+      <div className="flex justify-end relative" ref={menuRef}>
         <button
           onClick={() => setMenuOpen(prev => !prev)}
           className="w-8 h-8 rounded-full bg-lemon-400 flex items-center justify-center text-xs font-bold text-gray-900 hover:ring-2 hover:ring-lemon-400 hover:ring-offset-2 transition-all duration-150 active:scale-95"
