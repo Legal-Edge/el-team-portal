@@ -167,30 +167,6 @@ export function DashboardLive({ initial }: Props) {
         <span className="text-xs text-gray-400">{isLive ? 'Live' : 'Connecting…'}</span>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <LiveKpiCard
-          label="Total Active Cases"
-          value={stats.totalActive.toLocaleString()}
-          accent="bg-lemon-400"
-          href="/cases"
-          flash={flash}
-        />
-        <LiveKpiCard
-          label="Settled This Month"
-          value={stats.settledMonth.toLocaleString()}
-          accent="bg-emerald-400"
-          flash={flash}
-        />
-        <LiveKpiCard
-          label="Total Pipeline"
-          value={stats.totalPipeline.toLocaleString()}
-          accent="bg-gray-300"
-          flash={flash}
-        />
-
-      </div>
-
       {/* Pipeline Chart */}
       <PipelineChart byStage={stats.byStage} flash={flash} />
     </div>
