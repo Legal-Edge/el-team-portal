@@ -34,32 +34,21 @@ interface NavItem {
 
 const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
   admin: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
-    { label: 'Cases',         href: '/cases',             icon: 'cases'     },
-    { label: 'Comms Inbox',   href: '/comms',             icon: 'comms'     },
-    { label: 'Pipeline',      href: '/pipeline',          icon: 'pipeline'  },
-    { label: 'Doc Queue',     href: '/docs/queue',        icon: 'docs'      },
-    { label: 'Intake Triage', href: '/intake',            icon: 'intake'    },
-    { label: 'Admin',         href: '/admin',             icon: 'admin'     },
+    { label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
+    { label: 'Cases',     href: '/cases',     icon: 'cases'     },
   ],
   attorney: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
-    { label: 'My Cases',      href: '/cases?assigned=me', icon: 'cases-me'  },
-    { label: 'All Cases',     href: '/cases',             icon: 'cases'     },
-    { label: 'Comms Inbox',   href: '/comms',             icon: 'comms'     },
-    { label: 'Documents',     href: '/docs',              icon: 'docs'      },
+    { label: 'Dashboard', href: '/dashboard',         icon: 'dashboard' },
+    { label: 'My Cases',  href: '/cases?assigned=me', icon: 'cases-me'  },
+    { label: 'All Cases', href: '/cases',             icon: 'cases'     },
   ],
   manager: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
-    { label: 'Cases',         href: '/cases',             icon: 'cases'     },
-    { label: 'Comms Inbox',   href: '/comms',             icon: 'comms'     },
-    { label: 'Doc Queue',     href: '/docs/queue',        icon: 'docs'      },
-    { label: 'Intake Triage', href: '/intake',            icon: 'intake'    },
+    { label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
+    { label: 'Cases',     href: '/cases',     icon: 'cases'     },
   ],
   staff: [
-    { label: 'Dashboard',     href: '/dashboard',         icon: 'dashboard' },
-    { label: 'Cases',         href: '/cases',             icon: 'cases'     },
-    { label: 'Documents',     href: '/docs',              icon: 'docs'      },
+    { label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
+    { label: 'Cases',     href: '/cases',     icon: 'cases'     },
   ],
 }
 
