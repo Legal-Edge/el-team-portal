@@ -47,13 +47,13 @@ export async function GET() {
     byStage[stage] = stageCounts[i]?.count ?? 0
   })
 
-  const topStage = Object.entries(byStage).sort((a, b) => b[1] - a[1])[0]
+
 
   return NextResponse.json({
     totalActive:   kpiActive.count   ?? 0,
     settledMonth:  kpiSettled.count  ?? 0,
     totalPipeline: kpiPipeline.count ?? 0,
-    topStage:      topStage ? `${topStage[0]}: ${topStage[1]}` : '—',
+
     byStage,
     fetchedAt:     now.toISOString(),
   })

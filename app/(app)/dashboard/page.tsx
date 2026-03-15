@@ -38,13 +38,10 @@ async function getAdminStats() {
   const byStage: Record<string, number> = {}
   ALL_STAGES.forEach((stage, i) => { byStage[stage] = stageCounts[i]?.count ?? 0 })
 
-  const topStage = Object.entries(byStage).sort((a, b) => b[1] - a[1])[0]
-
   return {
     totalActive:   kpiActive.count   ?? 0,
     settledMonth:  kpiSettled.count  ?? 0,
     totalPipeline: kpiPipeline.count ?? 0,
-    topStage:      topStage ? `${topStage[0]}: ${topStage[1]}` : '—',
     byStage,
     fetchedAt:     new Date().toISOString(),
   }

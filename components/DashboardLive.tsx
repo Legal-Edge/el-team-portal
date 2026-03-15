@@ -9,7 +9,7 @@ interface DashboardStats {
   totalActive:   number
   settledMonth:  number
   totalPipeline: number
-  topStage:      string
+
   byStage:       Record<string, number>
   fetchedAt:     string
 }
@@ -188,12 +188,7 @@ export function DashboardLive({ initial }: Props) {
           accent="bg-gray-300"
           flash={flash}
         />
-        <LiveKpiCard
-          label="Top Stage"
-          value={stats.topStage}
-          accent="bg-amber-400"
-          flash={flash}
-        />
+
       </div>
 
       {/* Pipeline Chart */}
