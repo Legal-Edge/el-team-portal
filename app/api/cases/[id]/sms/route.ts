@@ -9,8 +9,8 @@
  * This endpoint only initiates the send — it does not write to DB directly.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { auth }                       from '@/auth'
+import { NextRequest, NextResponse }  from 'next/server'
+import { getTeamSession, canSendSms } from '@/lib/session'
 import { createClient }               from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -22,10 +22,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth()
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const session = await getTeamSession()
+  if (!session)              return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!canSendSms(session))  return NextResponse.json({ error: 'Forbidden — admin, attorney, or manager only' }, { status: 403 })
 
   const { id } = await params
   const body   = await req.json()
@@ -99,7 +98,7 @@ export async function POST(
 
   console.log(
     `[sms/send] Sent to ${contact.phone} for case ${caseRow.id}`,
-    `by ${session.user.email}`,
+    `by ${session.email}`,
   )
 
   // The outbound webhook will fire from Aloware and capture this in core.communications.

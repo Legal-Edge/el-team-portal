@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/auth'
+import { getTeamSession, isAdmin } from '@/lib/session'
 import { createClient } from '@supabase/supabase-js'
 
 function getIntegrationDb() {
@@ -10,10 +10,9 @@ function getIntegrationDb() {
 }
 
 export async function GET() {
-  const session = await auth()
-  if (!session?.user || session.user.role !== 'admin') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const session = await getTeamSession()
+  if (!session)          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAdmin(session)) return NextResponse.json({ error: 'Forbidden' },    { status: 403 })
 
   const db = getIntegrationDb()
 
@@ -51,10 +50,9 @@ export async function GET() {
 
 // Trigger property sync
 export async function POST() {
-  const session = await auth()
-  if (!session?.user || session.user.role !== 'admin') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const session = await getTeamSession()
+  if (!session)          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAdmin(session)) return NextResponse.json({ error: 'Forbidden' },    { status: 403 })
 
   const HUBSPOT_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN
   if (!HUBSPOT_TOKEN) {

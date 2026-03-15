@@ -1,0 +1,12 @@
+{
+  "startTime": "2026-03-12T23:16:42.311Z",
+  "finishTime": "2026-03-12T23:16:43.602Z",
+  "totalRuntimeSeconds": 1.291,
+  "processedRecords": 5,
+  "inserted": 5,
+  "skipped": 0,
+  "needsReview": 5,
+  "errors": [],
+  "dryRun": false,
+  "timestamp": "2026-03-12T23:16:43.602Z"
+}
