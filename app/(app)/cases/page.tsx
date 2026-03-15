@@ -80,7 +80,7 @@ function CasesContent() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { document.title = '🍋 Cases | Team Portal' }, [])
+  useEffect(() => { document.title = 'Cases | Team Portal' }, [])
   useEffect(() => { load(activeStatus, search, page) }, [activeStatus, page])
 
   // SSE subscription — live case updates
