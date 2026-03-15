@@ -99,7 +99,7 @@ export function Header({ role, displayName }: HeaderProps) {
           alt="Easy Lemon"
           width={120}
           height={32}
-          className="h-6 w-auto object-contain"
+          className="h-8 w-auto object-contain"
           priority
         />
       </div>
