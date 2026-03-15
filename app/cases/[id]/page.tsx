@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 interface CaseIntake {
@@ -855,6 +855,9 @@ export default function CaseDetailPage() {
   const [commTotal, setCommTotal] = useState(0)
   const [commChannel, setCommChannel] = useState('')
   const [commsLoading, setCommsLoading] = useState(true)
+  const [isLive, setIsLive] = useState(false)
+  const [statusFlash, setStatusFlash] = useState(false)
+  const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -868,6 +871,27 @@ export default function CaseDetailPage() {
       setLoading(false)
     }
     load()
+  }, [params.id])
+
+  // SSE subscription — live updates for this specific case
+  useEffect(() => {
+    if (!params.id) return
+    const es = new EventSource(`/api/cases/stream?id=${params.id}`)
+    esRef.current = es
+
+    es.addEventListener('connected', () => setIsLive(true))
+    es.onerror = () => setIsLive(false)
+
+    es.addEventListener('case', (e: MessageEvent) => {
+      const payload = JSON.parse(e.data) as { type: string; new: CaseDetail | null }
+      if (payload.type === 'UPDATE' && payload.new) {
+        setCaseData(prev => prev ? { ...prev, ...payload.new! } : payload.new)
+        setStatusFlash(true)
+        setTimeout(() => setStatusFlash(false), 1500)
+      }
+    })
+
+    return () => { es.close(); setIsLive(false) }
   }, [params.id])
 
   const loadComms = useCallback(async (channel: string) => {
@@ -928,8 +952,16 @@ export default function CaseDetailPage() {
             {/* Title row */}
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold text-gray-900">{clientName}</h1>
-              <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown}`}>
+              <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full transition-all duration-700 ${
+                statusFlash
+                  ? 'bg-yellow-100 text-yellow-800 ring-2 ring-yellow-300'
+                  : STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown
+              }`}>
                 {STATUS_LABELS[c.case_status] ?? c.case_status}
+              </span>
+              <span className={`inline-flex items-center gap-1 text-xs transition-all duration-500 ${isLive ? 'text-green-500' : 'text-gray-300'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
+                {isLive ? 'Live' : ''}
               </span>
             </div>
             <p className="text-sm text-gray-500 mt-0.5">{vehicle}</p>

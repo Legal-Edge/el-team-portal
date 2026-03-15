@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
@@ -61,6 +61,9 @@ function CasesContent() {
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [activeStatus, setActiveStatus] = useState(searchParams.get('status') ?? '')
   const [page, setPage] = useState(1)
+  const [isLive, setIsLive] = useState(false)
+  const [flashedIds, setFlashedIds] = useState<Set<string>>(new Set())
+  const esRef = useRef<EventSource | null>(null)
 
   const load = useCallback(async (status: string, q: string, p: number) => {
     setLoading(true)
@@ -78,6 +81,44 @@ function CasesContent() {
   }, [])
 
   useEffect(() => { load(activeStatus, search, page) }, [activeStatus, page])
+
+  // SSE subscription — live case updates
+  useEffect(() => {
+    function connect() {
+      const es = new EventSource('/api/cases/stream')
+      esRef.current = es
+
+      es.addEventListener('connected', () => setIsLive(true))
+      es.onerror = () => { setIsLive(false) }
+
+      es.addEventListener('case', (e: MessageEvent) => {
+        const payload = JSON.parse(e.data) as {
+          type: 'INSERT' | 'UPDATE' | 'DELETE'
+          new: Case | null
+          old: Case | null
+        }
+
+        if (payload.type === 'INSERT' && payload.new) {
+          setCases(prev => [payload.new!, ...prev])
+          setTotal(t => t + 1)
+        } else if (payload.type === 'UPDATE' && payload.new) {
+          setCases(prev => prev.map(c => c.id === payload.new!.id ? { ...c, ...payload.new! } : c))
+          const id = payload.new.id
+          setFlashedIds(prev => new Set([...prev, id]))
+          setTimeout(() => setFlashedIds(prev => { const n = new Set(prev); n.delete(id); return n }), 1500)
+        } else if (payload.type === 'DELETE' && payload.old) {
+          setCases(prev => prev.filter(c => c.id !== payload.old!.id))
+          setTotal(t => Math.max(0, t - 1))
+        }
+      })
+    }
+
+    connect()
+    return () => {
+      esRef.current?.close()
+      setIsLive(false)
+    }
+  }, [])
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -107,10 +148,16 @@ function CasesContent() {
               <span>/</span>
               <span>Cases</span>
             </div>
-            <h1 className="text-xl font-semibold text-gray-900">
-              Case Queue
-              {total > 0 && <span className="ml-2 text-sm font-normal text-gray-500">({total} total)</span>}
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-semibold text-gray-900">
+                Case Queue
+                {total > 0 && <span className="ml-2 text-sm font-normal text-gray-500">({total} total)</span>}
+              </h1>
+              <span className={`inline-flex items-center gap-1.5 text-xs font-medium transition-all duration-500 ${isLive ? 'text-green-600' : 'text-gray-300'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
+                {isLive ? 'Live' : 'Connecting…'}
+              </span>
+            </div>
           </div>
           <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
             ← Dashboard
@@ -201,7 +248,11 @@ function CasesContent() {
                   <tr
                     key={c.id}
                     onClick={() => { window.location.href = `/cases/${c.hubspot_deal_id}` }}
-                    className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
+                    className={`border-b border-gray-100 cursor-pointer transition-all duration-700 border-l-2 ${
+                        flashedIds.has(c.id)
+                          ? 'bg-yellow-50 border-l-yellow-400'
+                          : 'hover:bg-gray-50 border-l-transparent'
+                      }`}
                   >
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">
