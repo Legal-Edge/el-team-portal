@@ -125,7 +125,7 @@ export function CommandPalette({ role }: CommandPaletteProps) {
                 <button
                   className={`w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                     i === idx
-                      ? 'bg-primary-50 text-primary-700'
+                      ? 'bg-lemon-400/10 text-gray-900'
                       : 'text-gray-700 hover:bg-gray-50'
                   }`}
                   onMouseEnter={() => setIdx(i)}

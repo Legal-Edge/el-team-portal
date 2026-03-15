@@ -1,20 +1,18 @@
-// Stripe-style KPI card.
-// accent: CSS color string for the bottom bar.
-// skeleton: shows loading placeholder when true.
+// Stripe-style KPI card — matches Easy Lemon referral portal aesthetic.
 
 interface KpiCardProps {
-  label:    string
-  value:    string | number
-  accent?:  string    // tailwind bg class like 'bg-primary-500' OR arbitrary hex
-  href?:    string    // optional link on the card
-  change?:  string    // e.g. '+12% this month'
-  positive?: boolean  // true = green change, false = red, undefined = neutral
+  label:     string
+  value:     string | number
+  accent?:   string    // Tailwind bg class for the bottom bar
+  href?:     string
+  change?:   string
+  positive?: boolean
   skeleton?: boolean
 }
 
-export function KpiCard({ label, value, accent = 'bg-primary-500', href, change, positive, skeleton }: KpiCardProps) {
+export function KpiCard({ label, value, accent = 'bg-lemon-400', href, change, positive, skeleton }: KpiCardProps) {
   const inner = (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200 group">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-card-md transition-all duration-150 group cursor-default">
       <div className="px-6 pt-5 pb-4">
         {skeleton ? (
           <>
@@ -26,9 +24,9 @@ export function KpiCard({ label, value, accent = 'bg-primary-500', href, change,
             <p className="text-3xl font-bold text-gray-900 tabular-nums leading-none mb-1.5">
               {value}
             </p>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
             {change && (
-              <p className={`text-xs mt-1.5 ${
+              <p className={`text-xs mt-1.5 font-medium ${
                 positive === true  ? 'text-green-600' :
                 positive === false ? 'text-red-500'   :
                 'text-gray-400'
@@ -39,17 +37,11 @@ export function KpiCard({ label, value, accent = 'bg-primary-500', href, change,
           </>
         )}
       </div>
-      {/* Accent bar */}
-      <div className={`h-1 w-full ${skeleton ? 'bg-gray-100' : accent}`} />
+      {/* Bottom accent bar */}
+      <div className={`h-[3px] w-full ${skeleton ? 'bg-gray-100' : accent}`} />
     </div>
   )
 
-  if (href) {
-    return (
-      <a href={href} className="block">
-        {inner}
-      </a>
-    )
-  }
+  if (href) return <a href={href} className="block">{inner}</a>
   return inner
 }

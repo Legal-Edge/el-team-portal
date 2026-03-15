@@ -9,50 +9,40 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Shell
-        background: 'var(--background)',
-        foreground:  'var(--foreground)',
-
-        // Legacy (partner portal)
-        'brand-dark': '#1a1a1a',
-        'lemon-400':  '#fde047',
-
-        // Team portal primary
-        primary: {
-          50:  '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',   // ← default interactive
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
+        // Brand
+        lemon: {
+          300: '#FFE433',
+          400: '#FFD600',   // ← primary accent, matches referrals.easylemon.com
+          500: '#F5C800',
         },
 
-        // Status badge semantic tokens
+        // Semantic status badges — matches partner portal style
         status: {
-          intake:      { bg: '#dbeafe', text: '#1d4ed8' },   // blue
-          nurture:     { bg: '#fef9c3', text: '#a16207' },   // yellow
-          documents:   { bg: '#f3e8ff', text: '#7e22ce' },   // purple
-          review:      { bg: '#e0e7ff', text: '#3730a3' },   // indigo
-          info:        { bg: '#ffedd5', text: '#c2410c' },   // orange
-          signup:      { bg: '#ccfbf1', text: '#0f766e' },   // teal
-          retained:    { bg: '#dcfce7', text: '#15803d' },   // green
-          settled:     { bg: '#d1fae5', text: '#065f46' },   // emerald
-          dropped:     { bg: '#fee2e2', text: '#b91c1c' },   // red
+          intake:    { bg: '#dbeafe', text: '#1d4ed8' },
+          nurture:   { bg: '#fef9c3', text: '#a16207' },
+          documents: { bg: '#f3e8ff', text: '#7e22ce' },
+          review:    { bg: '#e0e7ff', text: '#3730a3' },
+          info:      { bg: '#ffedd5', text: '#c2410c' },
+          signup:    { bg: '#ccfbf1', text: '#0f766e' },
+          retained:  { bg: '#dcfce7', text: '#15803d' },
+          settled:   { bg: '#d1fae5', text: '#065f46' },
+          dropped:   { bg: '#fee2e2', text: '#b91c1c' },
         },
 
-        // Severity border indicators (left border on case rows)
-        alarm:   '#ef4444',   // red-500   — missing required doc
-        warning: '#f59e0b',   // amber-500 — info needed
-        track:   '#22c55e',   // green-500 — on track
-        muted:   '#d1d5db',   // gray-300  — dropped / inactive
+        // Severity row indicators
+        alarm:   '#ef4444',
+        warning: '#f59e0b',
+        track:   '#22c55e',
+        muted:   '#d1d5db',
+      },
+
+      boxShadow: {
+        card:    '0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.04)',
+        'card-md': '0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05)',
       },
 
       animation: {
-        'fade-in': 'fadeIn 150ms ease-out',
+        'fade-in':  'fadeIn 150ms ease-out',
         'slide-up': 'slideUp 200ms ease-out',
       },
       keyframes: {

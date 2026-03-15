@@ -150,34 +150,34 @@ export default async function DashboardPage() {
       {/* ── KPI Cards ── */}
       {session.role === 'admin' && adminStats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard label="Total Active Cases"   value={adminStats.totalActive}   accent="bg-primary-500"  href="/cases" />
-          <KpiCard label="Settled This Month"   value={adminStats.settledMonth}  accent="bg-emerald-500" />
-          <KpiCard label="Total Pipeline"       value={adminStats.totalPipeline} accent="bg-indigo-400" />
+          <KpiCard label="Total Active Cases"   value={adminStats.totalActive}   accent="bg-lemon-400"   href="/cases" />
+          <KpiCard label="Settled This Month"   value={adminStats.settledMonth}  accent="bg-emerald-400" />
+          <KpiCard label="Total Pipeline"       value={adminStats.totalPipeline} accent="bg-gray-300" />
           <KpiCard label="Top Stage"            value={adminStats.topStage}      accent="bg-amber-400" />
         </div>
       )}
 
       {session.role === 'attorney' && attorneyStats && (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <KpiCard label="My Active Cases"      value={attorneyStats.myActive}     accent="bg-primary-500"  href="/cases?assigned=me" />
-          <KpiCard label="Due This Week"        value={attorneyStats.dueSoon}      accent={attorneyStats.dueSoon > 0 ? 'bg-red-500' : 'bg-green-500'} />
-          <KpiCard label="Comms Needing Review" value={attorneyStats.needsReview}  accent="bg-amber-400"    href="/comms" />
+          <KpiCard label="My Active Cases"      value={attorneyStats.myActive}     accent="bg-lemon-400"   href="/cases?assigned=me" />
+          <KpiCard label="Due This Week"        value={attorneyStats.dueSoon}      accent={attorneyStats.dueSoon > 0 ? 'bg-red-400' : 'bg-emerald-400'} />
+          <KpiCard label="Comms Needing Review" value={attorneyStats.needsReview}  accent="bg-amber-400"   href="/comms" />
         </div>
       )}
 
       {session.role === 'manager' && managerStats && (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <KpiCard label="Active Cases"         value={managerStats.totalCases}    accent="bg-primary-500"  href="/cases" />
-          <KpiCard label="Intake Pending"       value={managerStats.intakePending} accent="bg-amber-400"    href="/intake" />
-          <KpiCard label="Comms to Review"      value={managerStats.commsReview}   accent="bg-orange-400"   href="/comms" />
+          <KpiCard label="Active Cases"         value={managerStats.totalCases}    accent="bg-lemon-400"  href="/cases" />
+          <KpiCard label="Intake Pending"       value={managerStats.intakePending} accent="bg-amber-400"   href="/intake" />
+          <KpiCard label="Comms to Review"      value={managerStats.commsReview}   accent="bg-orange-400"  href="/comms" />
         </div>
       )}
 
       {session.role === 'staff' && staffStats && (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <KpiCard label="Active Cases"         value={staffStats.totalCases}      accent="bg-primary-500" href="/cases" />
+          <KpiCard label="Active Cases"         value={staffStats.totalCases}      accent="bg-lemon-400"  href="/cases" />
           <KpiCard label="Intake Pending"       value={staffStats.intakePending}   accent="bg-amber-400"   href="/cases?status=intake" />
-          <KpiCard label="In Attorney Review"   value={staffStats.reviewPending}   accent="bg-indigo-400"  href="/cases?status=attorney_review" />
+          <KpiCard label="In Attorney Review"   value={staffStats.reviewPending}   accent="bg-gray-300"    href="/cases?status=attorney_review" />
         </div>
       )}
 
@@ -185,35 +185,19 @@ export default async function DashboardPage() {
       <div>
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Quick Actions</h2>
         <div className="flex flex-wrap gap-2">
-          <Link href="/cases"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
-            ⚖ Case Queue
-          </Link>
-          {session.role !== 'staff' && (
-            <Link href="/comms"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
-              💬 Comms Inbox
+          {[
+            { href: '/cases',      label: '⚖ Case Queue',      show: true },
+            { href: '/comms',      label: '💬 Comms Inbox',     show: session.role !== 'staff' },
+            { href: '/intake',     label: '📋 Intake Triage',   show: session.role === 'admin' || session.role === 'manager' },
+            { href: '/docs/queue', label: '📂 Doc Queue',       show: session.role === 'admin' || session.role === 'manager' },
+            { href: '/pipeline',   label: '📊 Pipeline Report', show: session.role === 'admin' },
+          ].filter(a => a.show).map(a => (
+            <Link key={a.href} href={a.href}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 active:scale-95 shadow-card">
+              {a.label}
             </Link>
-          )}
-          {(session.role === 'admin' || session.role === 'manager') && (
-            <>
-              <Link href="/intake"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
-                📋 Intake Triage
-              </Link>
-              <Link href="/docs/queue"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
-                📂 Doc Queue
-              </Link>
-            </>
-          )}
-          {session.role === 'admin' && (
-            <Link href="/pipeline"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
-              📊 Pipeline Report
-            </Link>
-          )}
-          <kbd className="inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-primary-200 rounded-lg text-sm font-medium text-primary-700">
+          ))}
+          <kbd className="inline-flex items-center gap-2 px-4 py-2 bg-lemon-400/10 border border-lemon-400/30 rounded-lg text-sm font-medium text-gray-700">
             ⌘K Command Palette
           </kbd>
         </div>
@@ -253,7 +237,7 @@ export default async function DashboardPage() {
                       <td className="px-6 py-3.5 text-right">
                         <Link
                           href={`/cases/${c.hubspot_deal_id}`}
-                          className="text-xs text-primary-600 hover:text-primary-800 font-medium"
+                          className="text-xs text-gray-500 hover:text-gray-900 font-medium transition-colors"
                         >
                           View →
                         </Link>
