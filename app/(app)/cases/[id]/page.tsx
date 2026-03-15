@@ -868,6 +868,14 @@ export default function CaseDetailPage() {
   const [statusFlash, setStatusFlash] = useState(false)
   const esRef = useRef<EventSource | null>(null)
 
+  // Update tab title when client name loads
+  useEffect(() => {
+    if (!caseData) return
+    const name = [caseData.client_first_name, caseData.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
+    document.title = `${name} | 🍋 Team Portal — Easy Lemon`
+    return () => { document.title = '🍋 Team Portal — Easy Lemon' }
+  }, [caseData])
+
   useEffect(() => {
     async function load() {
       const res = await fetch(`/api/cases/${params.id}`)
@@ -947,7 +955,7 @@ export default function CaseDetailPage() {
   const vehicle    = [c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ') || 'Unknown Vehicle'
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
 
       {/* ── Header ── */}
       <header className="bg-white border-b border-gray-200">

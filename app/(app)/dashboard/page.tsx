@@ -3,6 +3,9 @@ import { getTeamSession }  from '@/lib/session'
 import { createClient }    from '@supabase/supabase-js'
 import { KpiCard }         from '@/components/KpiCard'
 import { DashboardLive }   from '@/components/DashboardLive'
+import type { Metadata }   from 'next'
+
+export const metadata: Metadata = { title: 'Dashboard' }
 import Link                from 'next/link'
 
 function getCoreDb() {

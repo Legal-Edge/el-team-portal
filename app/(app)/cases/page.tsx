@@ -80,6 +80,7 @@ function CasesContent() {
     setLoading(false)
   }, [])
 
+  useEffect(() => { document.title = 'Cases | 🍋 Team Portal — Easy Lemon' }, [])
   useEffect(() => { load(activeStatus, search, page) }, [activeStatus, page])
 
   // SSE subscription — live case updates

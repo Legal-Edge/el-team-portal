@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "EL Team Portal",
+  title: {
+    default:  "🍋 Team Portal — Easy Lemon",
+    template: "%s | 🍋 Team Portal — Easy Lemon",
+  },
   description: "Easy Lemon Staff Case Management Portal",
 };
 
