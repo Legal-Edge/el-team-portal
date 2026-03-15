@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { PLATFORM_EVENTS, EVENT_SOURCES, emitEvent, emitEvents } from '@/lib/events'
+import { syncIntakeFromHubSpot } from '@/lib/pipelines/intake'
 
 // ── Stage map ─────────────────────────────────────────────────────────────────
 export const STAGE_MAP: Record<string, string> = {
@@ -33,7 +34,7 @@ export const CLOSED_STATUSES = new Set(['settled', 'dropped'])
 
 // ── HubSpot property lists ────────────────────────────────────────────────────
 export const DEAL_PROPS = [
-  'hs_object_id','dealstage','amount','closedate','createdate','notes_last_updated',
+  'hs_object_id','dealstage','amount','closedate','createdate','notes_last_updated','el_app_status',
   'vehicle_year','vehicle_make','vehicle_model','vin',
   'what_is_the_approximate_year_of_your_vehicle_',
   'what_is_the_make_of_your_vehicle_',
@@ -221,6 +222,7 @@ export async function fetchDeltaDeals(
 
 export interface CaseRow {
   hubspot_deal_id:        string
+  el_app_status:          string | null
   client_first_name:      string | null
   client_last_name:       string | null
   client_email:           string | null
@@ -289,6 +291,7 @@ export function buildCaseRow(
     created_at:             safeDate(dp['createdate']),
     closed_at:              isClosed ? safeDate(dp['closedate']) : null,
     notes_last_updated:     safeDate(dp['notes_last_updated']),
+    el_app_status:          dp['el_app_status'] ? String(dp['el_app_status']) : null,
     is_deleted:             false,
     updated_at:             new Date().toISOString(),
   }
@@ -376,6 +379,11 @@ export async function upsertCase(
       is_deleted:         false,
       updated_at:         new Date().toISOString(),
     }, { onConflict: 'case_id,hubspot_contact_id', ignoreDuplicates: false })
+  }
+
+  // Sync intake state from HubSpot → core.case_state
+  if (caseId) {
+    await syncIntakeFromHubSpot(client, caseId, caseRow.el_app_status ?? null)
   }
 
   // Emit events
