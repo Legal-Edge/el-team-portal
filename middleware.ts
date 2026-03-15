@@ -15,6 +15,8 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/backfill-sms',    // one-time SMS backfill (token-protected, remove after use)
     '/api/admin/reconcile-comms',     // communications reconciliation job (token-protected)
     '/api/admin/sync-hubspot-cases',  // HubSpot → Supabase case sync (token-protected)
+    '/api/admin/case-counts',         // case count stats (token-protected)
+    '/api/webhooks/hubspot-team',     // HubSpot real-time webhook (token-protected)
   ]
   
   // Check if current path is public
@@ -44,6 +46,6 @@ export default auth((req: NextRequest & { auth: any }) => {
 // Configure which routes should be processed by the middleware
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
