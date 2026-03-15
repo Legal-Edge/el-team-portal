@@ -866,6 +866,7 @@ export default function CaseDetailPage() {
   const [userCanSms, setUserCanSms] = useState(false)
   const [isLive, setIsLive] = useState(false)
   const [statusFlash, setStatusFlash] = useState(false)
+  const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>('overview')
   const esRef = useRef<EventSource | null>(null)
 
   // Update tab title when client name loads
@@ -954,298 +955,468 @@ export default function CaseDetailPage() {
   const clientName = [c.client_first_name, c.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
   const vehicle    = [c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ') || 'Unknown Vehicle'
 
-  return (
-    <div className="min-h-screen bg-white">
+  function fmtDate(d: string | null) {
+    if (!d) return null
+    const [y, m, day] = d.split('T')[0].split('-').map(Number)
+    return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
 
-      {/* ── Header ── */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-8 py-5 flex justify-between items-start">
-          <div>
-            {/* Breadcrumb */}
-            <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
-              <a href="/dashboard" className="hover:text-gray-600 transition-colors">Dashboard</a>
-              <span>/</span>
-              <a href="/cases" className="hover:text-gray-600 transition-colors">Cases</a>
-              <span>/</span>
-              <span className="text-gray-600">{clientName}</span>
-            </div>
-            {/* Title row */}
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold text-gray-900">{clientName}</h1>
-              <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full transition-all duration-700 ${
-                statusFlash
-                  ? 'bg-yellow-100 text-yellow-800 ring-2 ring-yellow-300'
-                  : STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown
-              }`}>
-                {STATUS_LABELS[c.case_status] ?? c.case_status}
-              </span>
-              <span className={`inline-flex items-center gap-1 text-xs transition-all duration-500 ${isLive ? 'text-green-500' : 'text-gray-300'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
-                {isLive ? 'Live' : ''}
-              </span>
-            </div>
-            <p className="text-sm text-gray-500 mt-0.5">{vehicle}</p>
+  const TABS = [
+    { id: 'overview',   label: 'Overview'   },
+    { id: 'comms',      label: `Comms${commTotal > 0 ? ` (${commTotal})` : ''}` },
+    { id: 'documents',  label: 'Documents'  },
+    { id: 'intake',     label: 'Intake'     },
+  ] as const
+
+  return (
+    <div className="p-8 max-w-screen-xl mx-auto">
+
+      {/* ── Page header ── */}
+      <div className="mb-6">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-3">
+          <a href="/cases" className="hover:text-gray-600 transition-colors">← Cases</a>
+          <span>/</span>
+          <span className="text-gray-600">{clientName}</span>
+        </div>
+
+        {/* Title + status */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl font-semibold text-gray-900">{clientName}</h1>
+          <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full transition-all duration-700 ${
+            statusFlash
+              ? 'bg-yellow-100 text-yellow-800 ring-2 ring-yellow-300'
+              : STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown
+          }`}>
+            {STATUS_LABELS[c.case_status] ?? c.case_status}
+          </span>
+          <span className={`inline-flex items-center gap-1 text-xs transition-all duration-500 ${isLive ? 'text-emerald-500' : 'text-gray-300'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+            {isLive ? 'Live' : ''}
+          </span>
+        </div>
+        <p className="text-sm text-gray-400 mt-1">{vehicle}</p>
+      </div>
+
+      {/* ── Two-column layout ── */}
+      <div className="flex gap-6 items-start">
+
+        {/* ── Left: tabs + content ── */}
+        <div className="flex-1 min-w-0">
+
+          {/* Tab bar */}
+          <div className="flex gap-0 border-b border-gray-100 mb-5">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2.5 text-sm font-medium transition-all duration-150 -mb-px border-b-2 ${
+                  activeTab === tab.id
+                    ? 'text-gray-900 border-lemon-400'
+                    : 'text-gray-400 border-transparent hover:text-gray-700 hover:border-gray-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 mt-1">
-            {c.sharepoint_folder_url && (
+          {/* ── Overview tab ── */}
+          {activeTab === 'overview' && (
+            <div className="space-y-4">
+
+              {/* Client + Vehicle side by side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Client card */}
+                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-3">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Client</h3>
+                  <div className="space-y-2.5">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-0.5">Name</p>
+                      <p className="text-sm font-medium text-gray-900">{clientName}</p>
+                    </div>
+                    {c.client_phone && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Phone</p>
+                        <a href={`tel:${c.client_phone}`} className="text-sm font-medium text-gray-900 hover:text-lemon-500 transition-colors">
+                          {c.client_phone}
+                        </a>
+                      </div>
+                    )}
+                    {c.client_email && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Email</p>
+                        <a href={`mailto:${c.client_email}`} className="text-sm text-gray-900 hover:text-lemon-500 transition-colors truncate block">
+                          {c.client_email}
+                        </a>
+                      </div>
+                    )}
+                    {c.state_jurisdiction && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">State</p>
+                        <p className="text-sm text-gray-900">{c.state_jurisdiction}</p>
+                      </div>
+                    )}
+                    {c.client_address && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Address</p>
+                        <p className="text-sm text-gray-900">{c.client_address}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Vehicle card */}
+                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-3">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Vehicle</h3>
+                  <div className="space-y-2.5">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-0.5">Vehicle</p>
+                      <p className="text-sm font-medium text-gray-900">{vehicle || '—'}</p>
+                    </div>
+                    {c.vehicle_vin && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">VIN</p>
+                        <p className="text-sm font-mono text-gray-900">{c.vehicle_vin}</p>
+                      </div>
+                    )}
+                    {c.vehicle_mileage && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Mileage</p>
+                        <p className="text-sm text-gray-900">{c.vehicle_mileage.toLocaleString()} mi</p>
+                      </div>
+                    )}
+                    {c.vehicle_is_new !== null && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Condition</p>
+                        <p className="text-sm text-gray-900">{c.vehicle_is_new ? 'New' : 'Used'}</p>
+                      </div>
+                    )}
+                    {c.vehicle_purchase_date && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Purchase Date</p>
+                        <p className="text-sm text-gray-900">{fmtDate(c.vehicle_purchase_date)}</p>
+                      </div>
+                    )}
+                    {c.vehicle_purchase_price && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Purchase Price</p>
+                        <p className="text-sm text-gray-900">${c.vehicle_purchase_price.toLocaleString()}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Case details */}
+              <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Case Details</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+                  <Field label="Type"           value={c.case_type} />
+                  <Field label="Priority"       value={c.case_priority} />
+                  <Field label="Est. Value"     value={c.estimated_value ? '$' + c.estimated_value.toLocaleString() : null} />
+                  <Field label="Settlement"     value={c.settlement_amount ? '$' + c.settlement_amount.toLocaleString() : null} />
+                  <Field label="Attorney Fees"  value={c.attorney_fees ? '$' + c.attorney_fees.toLocaleString() : null} />
+                  <Field label="Filing Deadline" value={fmtDate(c.filing_deadline)} />
+                  <Field label="SOL"            value={fmtDate(c.statute_of_limitations)} />
+                  <Field label="HubSpot Deal"   value={c.hubspot_deal_id} mono />
+                </div>
+              </div>
+
+              {/* Timeline */}
+              <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Timeline</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+                  <Field label="Created"          value={fmtDate(c.created_at)} />
+                  <Field label="Last Updated"     value={fmtDate(c.updated_at)} />
+                  <Field label="Intake Completed" value={fmtDate(c.intake_completed_at)} />
+                  <Field label="Review Completed" value={fmtDate(c.review_completed_at)} />
+                  <Field label="Filed"            value={fmtDate(c.filed_at)} />
+                  <Field label="Settled"          value={fmtDate(c.settled_at)} />
+                  <Field label="Closed"           value={fmtDate(c.closed_at)} />
+                </div>
+              </div>
+
+              {/* Notes */}
+              {(c.case_notes || c.internal_notes) && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-4">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Notes</h3>
+                  {c.case_notes && (
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-1.5">Case Notes</p>
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.case_notes}</p>
+                    </div>
+                  )}
+                  {c.internal_notes && (
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-1.5">Internal Notes</p>
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.internal_notes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tags */}
+              {c.tags && c.tags.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Tags</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {c.tags.map(tag => (
+                      <span key={tag} className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">{tag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Comms tab ── */}
+          {activeTab === 'comms' && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
+              {/* Comm header */}
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Communications</span>
+                  {commTotal > 0 && <span className="text-xs text-gray-400 tabular-nums">{commTotal} total</span>}
+                  {canSeeInternal && <span className="text-xs text-purple-500 font-medium">🔒 = internal only</span>}
+                </div>
+                {/* Channel filter */}
+                {commTotal > 0 && (
+                  <div className="flex gap-1 flex-wrap">
+                    {[
+                      { key: '',      label: 'All' },
+                      { key: 'call',  label: `Calls${commCounts.call  ? ` (${commCounts.call})`  : ''}` },
+                      { key: 'sms',   label: `SMS${commCounts.sms    ? ` (${commCounts.sms})`    : ''}` },
+                      { key: 'email', label: `Email${commCounts.email ? ` (${commCounts.email})` : ''}` },
+                      { key: 'note',  label: `Notes${commCounts.note  ? ` (${commCounts.note})`  : ''}` },
+                    ]
+                      .filter(t => t.key === '' || commCounts[t.key])
+                      .map(tab => (
+                        <button
+                          key={tab.key}
+                          onClick={() => setCommChannel(tab.key)}
+                          className={`px-3 py-1 text-xs font-medium rounded-lg transition-all duration-150 active:scale-95 ${
+                            commChannel === tab.key
+                              ? 'bg-lemon-400 text-gray-900'
+                              : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+              {/* Comm list */}
+              {commsLoading ? (
+                <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
+              ) : comms.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-gray-400 text-sm">No communications synced yet</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {comms.map(comm => <CommRow key={comm.id} comm={comm} />)}
+                </div>
+              )}
+              {/* SMS compose */}
+              {userCanSms && commCounts.sms > 0 && (commChannel === '' || commChannel === 'sms') && (
+                <SmsCompose caseId={params.id as string} onSent={() => loadComms(commChannel)} />
+              )}
+            </div>
+          )}
+
+          {/* ── Documents tab ── */}
+          {activeTab === 'documents' && (
+            <DocumentsSection
+              caseId={params.id as string}
+              sharePointUrl={c.sharepoint_folder_url}
+            />
+          )}
+
+          {/* ── Intake tab ── */}
+          {activeTab === 'intake' && (
+            <div className="space-y-3">
+              <IntakeSection title="Intake Submission" icon="📋">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
+                  <Field label="ELA Intake Status"  value={intake?.ela_intake} />
+                  <Field label="Intake Management"  value={intake?.intake_management} />
+                  <Field label="HubSpot Qualifier"  value={intake?.intake_hubspot_qualifier} />
+                  <Field label="Intake Associate"   value={intake?.intake_associate} />
+                  <Field label="Had Repairs"        value={intake?.had_repairs == null ? null : intake.had_repairs ? 'Yes' : 'No'} />
+                  <Field label="Paid for Repairs"   value={intake?.paid_for_repairs} />
+                  <Field label="Number of Repairs"  value={intake?.repair_count} />
+                </div>
+              </IntakeSection>
+              <IntakeSection title="Vehicle Information" icon="🚗">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
+                  <Field label="Purchase or Lease" value={intake?.purchase_or_lease} />
+                  <Field label="How Purchased"     value={intake?.how_purchased} />
+                  <Field label="Vehicle Status"    value={intake?.vehicle_status} />
+                </div>
+              </IntakeSection>
+              <IntakeSection title="Issues & Repair History" icon="🔧">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+                  <IntakeProblem n={1} category={intake?.problem_1_category ?? null} notes={intake?.problem_1_notes ?? null} attempts={intake?.problem_1_repair_attempts ?? null} />
+                  <IntakeProblem n={2} category={intake?.problem_2_category ?? null} notes={intake?.problem_2_notes ?? null} attempts={intake?.problem_2_repair_attempts ?? null} />
+                  <IntakeProblem n={3} category={intake?.problem_3_category ?? null} notes={intake?.problem_3_notes ?? null} attempts={intake?.problem_3_repair_attempts ?? null} />
+                  <IntakeProblem n={4} category={intake?.problem_4_category ?? null} notes={intake?.problem_4_notes ?? null} attempts={intake?.problem_4_repair_attempts ?? null} />
+                </div>
+                {(intake?.repair_attempts || intake?.last_repair_attempt_date) && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-5 border-t border-gray-100 pt-5">
+                    <Field label="Total Repair Attempts"    value={intake?.repair_attempts} />
+                    <Field label="Last Repair Attempt Date" value={intake?.last_repair_attempt_date} />
+                  </div>
+                )}
+              </IntakeSection>
+              <IntakeSection title="Additional Information" icon="📄">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
+                  <Field label="Car in Shop 30+ Days"   value={intake?.in_shop_30_days} />
+                  <Field label="Contacted Manufacturer" value={intake?.contacted_manufacturer} />
+                  <Field label="Manufacturer Offer"     value={intake?.manufacturer_offer} />
+                  <Field label="Has Repair Documents"   value={intake?.has_repair_documents} />
+                  <Field label="Refund Preference"      value={intake?.refund_preference} />
+                </div>
+              </IntakeSection>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right: sticky sidebar ── */}
+        <div className="w-64 shrink-0 sticky top-6 space-y-4">
+
+          {/* Status card */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Case Status</p>
+            <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full transition-all duration-700 ${
+              statusFlash
+                ? 'bg-yellow-100 text-yellow-800 ring-2 ring-yellow-300'
+                : STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown
+            }`}>
+              {STATUS_LABELS[c.case_status] ?? c.case_status}
+            </span>
+            <div className="mt-3 space-y-1.5 text-xs text-gray-400">
+              <div className="flex justify-between">
+                <span>Added</span>
+                <span className="text-gray-600">{fmtDate(c.created_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Updated</span>
+                <span className="text-gray-600">{fmtDate(c.updated_at)}</span>
+              </div>
+              {c.filed_at && (
+                <div className="flex justify-between">
+                  <span>Filed</span>
+                  <span className="text-gray-600">{fmtDate(c.filed_at)}</span>
+                </div>
+              )}
+              {c.settled_at && (
+                <div className="flex justify-between">
+                  <span>Settled</span>
+                  <span className="text-gray-600">{fmtDate(c.settled_at)}</span>
+                </div>
+              )}
+              {c.closed_at && (
+                <div className="flex justify-between">
+                  <span>Closed</span>
+                  <span className="text-gray-600">{fmtDate(c.closed_at)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quick actions */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Quick Actions</p>
+            <div className="space-y-2">
+              {c.client_phone && (
+                <a
+                  href={`tel:${c.client_phone}`}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-50 hover:bg-lemon-400/20 hover:text-gray-900 transition-all duration-150 active:scale-95"
+                >
+                  <svg className="w-4 h-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" /></svg>
+                  Call client
+                </a>
+              )}
+              {c.client_email && (
+                <a
+                  href={`mailto:${c.client_email}`}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-50 hover:bg-lemon-400/20 hover:text-gray-900 transition-all duration-150 active:scale-95"
+                >
+                  <svg className="w-4 h-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+                  Email client
+                </a>
+              )}
               <a
-                href={c.sharepoint_folder_url}
+                href={`https://app.hubspot.com/contacts/47931752/deal/${c.hubspot_deal_id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={c.sharepoint_folder_title ?? 'Open SharePoint Folder'}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-50 hover:bg-orange-50 hover:text-orange-700 transition-all duration-150 active:scale-95"
               >
-                📁 SharePoint ↗
+                <svg className="w-4 h-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                Open in HubSpot
               </a>
-            )}
-            <a
-              href={`https://app.hubspot.com/contacts/47931752/deal/${c.hubspot_deal_id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
-            >
-              HubSpot ↗
-            </a>
-            <button
-              onClick={() => router.push('/cases' as never)}
-              className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              ← Cases
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* ── Main content ── */}
-      <main className="max-w-5xl mx-auto px-8 py-6 space-y-3">
-
-        {/* Client */}
-        <Section title="Client">
-          <Field label="First Name"  value={c.client_first_name} />
-          <Field label="Last Name"   value={c.client_last_name} />
-          <Field label="Email"       value={c.client_email} />
-          <Field label="Phone"       value={c.client_phone} />
-          <Field label="Address"     value={c.client_address} />
-          <Field label="State"       value={c.state_jurisdiction} />
-        </Section>
-
-        {/* Vehicle */}
-        <Section title="Vehicle">
-          <Field label="Year"           value={c.vehicle_year} />
-          <Field label="Make"           value={c.vehicle_make} />
-          <Field label="Model"          value={c.vehicle_model} />
-          <Field label="VIN"            value={c.vehicle_vin} mono />
-          <Field label="Mileage"        value={c.vehicle_mileage ? c.vehicle_mileage.toLocaleString() + ' mi' : null} />
-          <Field label="Condition"      value={c.vehicle_is_new === null ? null : c.vehicle_is_new ? 'New' : 'Used'} />
-          <Field label="Purchase Date"  value={c.vehicle_purchase_date} />
-          <Field label="Purchase Price" value={c.vehicle_purchase_price ? '$' + c.vehicle_purchase_price.toLocaleString() : null} />
-        </Section>
-
-        {/* Case */}
-        <Section title="Case">
-          <Field label="Status"      value={STATUS_LABELS[c.case_status] ?? c.case_status} />
-          <Field label="Type"        value={c.case_type} />
-          <Field label="Priority"    value={c.case_priority} />
-          <Field label="Est. Value"  value={c.estimated_value ? '$' + c.estimated_value.toLocaleString() : null} />
-          <Field label="Settlement"  value={c.settlement_amount ? '$' + c.settlement_amount.toLocaleString() : null} />
-          <Field label="Atty Fees"   value={c.attorney_fees ? '$' + c.attorney_fees.toLocaleString() : null} />
-          <Field label="Filing Deadline"  value={c.filing_deadline} />
-          <Field label="SOL"              value={c.statute_of_limitations} />
-          <Field label="HubSpot Deal ID"  value={c.hubspot_deal_id} mono />
-        </Section>
-
-        {/* Timeline */}
-        <Section title="Timeline">
-          <Field label="Created"          value={new Date(c.created_at).toLocaleString()} />
-          <Field label="Updated"          value={new Date(c.updated_at).toLocaleString()} />
-          <Field label="Intake Completed" value={c.intake_completed_at ? new Date(c.intake_completed_at).toLocaleDateString() : null} />
-          <Field label="Review Completed" value={c.review_completed_at ? new Date(c.review_completed_at).toLocaleDateString() : null} />
-          <Field label="Filed"            value={c.filed_at ? new Date(c.filed_at).toLocaleDateString() : null} />
-          <Field label="Settled"          value={c.settled_at ? new Date(c.settled_at).toLocaleDateString() : null} />
-          <Field label="Closed"           value={c.closed_at ? new Date(c.closed_at).toLocaleDateString() : null} />
-        </Section>
-
-        {/* Notes */}
-        {(c.case_notes || c.internal_notes) && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</h2>
-            {c.case_notes && (
-              <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Case Notes</p>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.case_notes}</p>
-              </div>
-            )}
-            {c.internal_notes && (
-              <div>
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Internal Notes</p>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{c.internal_notes}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tags */}
-        {c.tags && c.tags.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Tags</h2>
-            <div className="flex flex-wrap gap-2">
-              {c.tags.map(tag => (
-                <span key={tag} className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">{tag}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Intake Accordions ── */}
-
-        {/* Intake Submission */}
-        <IntakeSection title="Intake Submission" icon="📋">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-            <Field label="ELA Intake Status"  value={intake?.ela_intake} />
-            <Field label="Intake Management"  value={intake?.intake_management} />
-            <Field label="HubSpot Qualifier"  value={intake?.intake_hubspot_qualifier} />
-            <Field label="Intake Associate"   value={intake?.intake_associate} />
-            <Field label="Had Repairs"        value={intake?.had_repairs == null ? null : intake.had_repairs ? 'Yes' : 'No'} />
-            <Field label="Paid for Repairs"   value={intake?.paid_for_repairs} />
-            <Field label="Number of Repairs"  value={intake?.repair_count} />
-          </div>
-        </IntakeSection>
-
-        {/* Vehicle Information */}
-        <IntakeSection title="Vehicle Information" icon="🚗">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-            <Field label="Purchase or Lease"  value={intake?.purchase_or_lease} />
-            <Field label="How Purchased"      value={intake?.how_purchased} />
-            <Field label="Vehicle Status"     value={intake?.vehicle_status} />
-          </div>
-        </IntakeSection>
-
-        {/* Issues & Repair History */}
-        <IntakeSection title="Issues & Repair History" icon="🔧">
-          {/* Problem cards — 2-column grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
-            <IntakeProblem
-              n={1}
-              category={intake?.problem_1_category ?? null}
-              notes={intake?.problem_1_notes ?? null}
-              attempts={intake?.problem_1_repair_attempts ?? null}
-            />
-            <IntakeProblem
-              n={2}
-              category={intake?.problem_2_category ?? null}
-              notes={intake?.problem_2_notes ?? null}
-              attempts={intake?.problem_2_repair_attempts ?? null}
-            />
-            <IntakeProblem
-              n={3}
-              category={intake?.problem_3_category ?? null}
-              notes={intake?.problem_3_notes ?? null}
-              attempts={intake?.problem_3_repair_attempts ?? null}
-            />
-            <IntakeProblem
-              n={4}
-              category={intake?.problem_4_category ?? null}
-              notes={intake?.problem_4_notes ?? null}
-              attempts={intake?.problem_4_repair_attempts ?? null}
-            />
-          </div>
-
-          {/* Summary fields */}
-          {(intake?.repair_attempts || intake?.last_repair_attempt_date) && (
-            <>
-              <div className="border-t border-gray-100 mb-5" />
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-                <Field label="Total Repair Attempts"    value={intake?.repair_attempts} />
-                <Field label="Last Repair Attempt Date" value={intake?.last_repair_attempt_date} />
-              </div>
-            </>
-          )}
-        </IntakeSection>
-
-        {/* Additional Information */}
-        <IntakeSection title="Additional Information" icon="📄">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-            <Field label="Car in Shop 30+ Days"     value={intake?.in_shop_30_days} />
-            <Field label="Contacted Manufacturer"   value={intake?.contacted_manufacturer} />
-            <Field label="Manufacturer Offer"       value={intake?.manufacturer_offer} />
-            <Field label="Has Repair Documents"     value={intake?.has_repair_documents} />
-            <Field label="Refund Preference"        value={intake?.refund_preference} />
-          </div>
-        </IntakeSection>
-
-        {/* ── Documents ── */}
-        <DocumentsSection
-          caseId={params.id as string}
-          sharePointUrl={c.sharepoint_folder_url}
-        />
-
-        {/* ── Communications ── */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {/* Comm header */}
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Communications</h2>
-              {commTotal > 0 && (
-                <span className="text-xs text-gray-400 tabular-nums">{commTotal} total</span>
+              {c.sharepoint_folder_url && (
+                <a
+                  href={c.sharepoint_folder_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 transition-all duration-150 active:scale-95"
+                >
+                  <svg className="w-4 h-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+                  SharePoint folder
+                </a>
               )}
-              {canSeeInternal && (
-                <span className="text-xs text-purple-500 font-medium">🔒 = internal only</span>
-              )}
+              <button
+                onClick={() => setActiveTab('comms')}
+                className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-all duration-150 active:scale-95"
+              >
+                <svg className="w-4 h-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                View comms {commTotal > 0 && `(${commTotal})`}
+              </button>
             </div>
-
-            {/* Channel filter */}
-            {commTotal > 0 && (
-              <div className="flex gap-1 flex-wrap">
-                {[
-                  { key: '',      label: 'All' },
-                  { key: 'call',  label: `Calls${commCounts.call  ? ` (${commCounts.call})`  : ''}` },
-                  { key: 'sms',   label: `SMS${commCounts.sms    ? ` (${commCounts.sms})`    : ''}` },
-                  { key: 'email', label: `Email${commCounts.email ? ` (${commCounts.email})` : ''}` },
-                  { key: 'note',  label: `Notes${commCounts.note  ? ` (${commCounts.note})`  : ''}` },
-                ]
-                  .filter(t => t.key === '' || commCounts[t.key])
-                  .map(tab => (
-                    <button
-                      key={tab.key}
-                      onClick={() => setCommChannel(tab.key)}
-                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                        commChannel === tab.key
-                          ? 'bg-gray-900 text-white'
-                          : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-              </div>
-            )}
           </div>
 
-          {/* Comm list */}
-          {commsLoading ? (
-            <div className="py-12 text-center text-gray-400 text-sm">Loading communications…</div>
-          ) : comms.length === 0 ? (
-            <div className="py-12 text-center space-y-1">
-              <p className="text-gray-400 text-sm">No communications synced yet</p>
-              <p className="text-gray-300 text-xs font-mono">sync-hubspot-comms.mjs --deal-id={c.hubspot_deal_id}</p>
+          {/* Case meta */}
+          {(c.estimated_value || c.case_type || c.case_priority) && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Details</p>
+              <div className="space-y-2 text-xs">
+                {c.estimated_value && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Est. Value</span>
+                    <span className="font-semibold text-gray-900">${c.estimated_value.toLocaleString()}</span>
+                  </div>
+                )}
+                {c.settlement_amount && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Settlement</span>
+                    <span className="font-semibold text-emerald-700">${c.settlement_amount.toLocaleString()}</span>
+                  </div>
+                )}
+                {c.case_type && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Type</span>
+                    <span className="text-gray-700">{c.case_type}</span>
+                  </div>
+                )}
+                {c.case_priority && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Priority</span>
+                    <span className="text-gray-700">{c.case_priority}</span>
+                  </div>
+                )}
+                {c.state_jurisdiction && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">State</span>
+                    <span className="text-gray-700">{c.state_jurisdiction}</span>
+                  </div>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {comms.map(comm => (
-                <CommRow key={comm.id} comm={comm} />
-              ))}
-            </div>
-          )}
-
-          {/* SMS compose — admin/attorney/manager only */}
-          {userCanSms && commCounts.sms > 0 && (commChannel === '' || commChannel === 'sms') && (
-            <SmsCompose caseId={params.id as string} onSent={() => loadComms(commChannel)} />
           )}
         </div>
-
-      </main>
+      </div>
     </div>
   )
 }
