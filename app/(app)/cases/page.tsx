@@ -331,7 +331,7 @@ function CasesContent() {
                 {cases.map(c => {
                   const clientName = [c.client_first_name, c.client_last_name].filter(Boolean).join(' ')
                   const vehicle    = [c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ')
-                  const activity   = (c as Case & { notes_last_updated?: string | null }).notes_last_updated ?? c.updated_at
+                  const activity   = c.notes_last_updated ?? c.updated_at
                   const days       = daysSince(activity)
 
                   return (
