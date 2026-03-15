@@ -36,7 +36,14 @@ async function getAdminStats() {
 
   const topStage = Object.entries(byStage).sort((a, b) => b[1] - a[1])[0]
 
-  return { totalActive: totalActive ?? 0, settledMonth: settledMonth ?? 0, totalPipeline: totalPipeline ?? 0, topStage: topStage ? `${topStage[0]}: ${topStage[1]}` : '—' }
+  return {
+    totalActive:   totalActive   ?? 0,
+    settledMonth:  settledMonth  ?? 0,
+    totalPipeline: totalPipeline ?? 0,
+    topStage:      topStage ? `${topStage[0]}: ${topStage[1]}` : '—',
+    byStage,
+    fetchedAt:     new Date().toISOString(),
+  }
 }
 
 async function getAttorneyStats(staffId: string) {
