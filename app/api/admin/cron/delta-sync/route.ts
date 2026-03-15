@@ -109,7 +109,7 @@ function applyTransform(value: unknown, transform: string): unknown {
 }
 
 const DEAL_PROPS = [
-  'hs_object_id','dealstage','amount','closedate','createdate',
+  'hs_object_id','dealstage','amount','closedate','createdate','notes_last_updated',
   'vehicle_year','vehicle_make','vehicle_model','vin',
   'what_is_the_approximate_year_of_your_vehicle_',
   'what_is_the_make_of_your_vehicle_',
@@ -208,6 +208,7 @@ function mapToCase(deal: Record<string, unknown>, contact: Record<string, unknow
     estimated_value:        dp['amount'] ? applyTransform(dp['amount'], 'parseFloat')      as number : null,
     created_at:             safeDate(dp['createdate']),
     closed_at:              isClosed ? safeDate(dp['closedate']) : null,
+    notes_last_updated:     safeDate(dp['notes_last_updated']),
     is_deleted:             false,
     updated_at:             new Date().toISOString(),
   }

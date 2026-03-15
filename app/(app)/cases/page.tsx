@@ -1,40 +1,42 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface Case {
-  id: string
-  hubspot_deal_id: string
-  client_first_name: string | null
-  client_last_name: string | null
-  client_email: string | null
-  client_phone: string | null
-  vehicle_year: number | null
-  vehicle_make: string | null
-  vehicle_model: string | null
-  vehicle_mileage: number | null
-  vehicle_is_new: boolean | null
-  state_jurisdiction: string | null
-  case_status: string
-  case_priority: string | null
-  estimated_value: number | null
-  created_at: string
-  updated_at: string
+  id:                  string
+  hubspot_deal_id:     string
+  client_first_name:   string | null
+  client_last_name:    string | null
+  client_email:        string | null
+  client_phone:        string | null
+  vehicle_year:        number | null
+  vehicle_make:        string | null
+  vehicle_model:       string | null
+  vehicle_mileage:     number | null
+  vehicle_is_new:      boolean | null
+  state_jurisdiction:  string | null
+  case_status:         string
+  case_priority:       string | null
+  estimated_value:     number | null
+  notes_last_updated:  string | null
+  created_at:          string
+  updated_at:          string
 }
 
+// ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_LABELS: Record<string, string> = {
   intake:              'Intake',
   nurture:             'Nurture',
   document_collection: 'Documents',
-  attorney_review:     'Attorney Review',
+  attorney_review:     'Atty Review',
   info_needed:         'Info Needed',
   sign_up:             'Sign Up',
   retained:            'Retained',
   settled:             'Settled',
   dropped:             'Dropped',
-  unknown:             'Unknown',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -50,55 +52,102 @@ const STATUS_COLORS: Record<string, string> = {
   unknown:             'bg-gray-100 text-gray-500',
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function daysSince(date: string | null): number | null {
+  if (!date) return null
+  const diff = Date.now() - new Date(date).getTime()
+  return Math.floor(diff / (1000 * 60 * 60 * 24))
+}
+
+function fmtDate(d: string | null): string {
+  if (!d) return '—'
+  const date = new Date(d)
+  const now  = new Date()
+  const days = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+  if (days === 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  if (days < 7)  return `${days}d ago`
+  if (days < 30) return `${Math.floor(days / 7)}w ago`
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined })
+}
+
+// Left-border urgency: based on days since last activity
+function urgencyClass(c: Case): string {
+  // Dropped cases — no urgency indicator
+  if (c.case_status === 'dropped' || c.case_status === 'settled') return 'border-l-gray-100'
+  const days = daysSince(c.notes_last_updated ?? c.updated_at)
+  if (days === null) return 'border-l-gray-100'
+  if (days > 30) return 'border-l-red-400'
+  if (days > 14) return 'border-l-amber-400'
+  return 'border-l-emerald-400'
+}
+
+// Sort chevron
+function SortIcon({ col, active, asc }: { col: string; active: boolean; asc: boolean }) {
+  return (
+    <span className={`ml-1 inline-flex flex-col gap-px leading-none ${active ? 'opacity-100' : 'opacity-30'}`}>
+      <span className={`text-[8px] ${active && asc  ? 'text-gray-900' : 'text-gray-400'}`}>▲</span>
+      <span className={`text-[8px] ${active && !asc ? 'text-gray-900' : 'text-gray-400'}`}>▼</span>
+    </span>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 function CasesContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
 
-  const [cases, setCases] = useState<Case[]>([])
-  const [total, setTotal] = useState(0)
+  const [cases,       setCases]       = useState<Case[]>([])
+  const [total,       setTotal]       = useState(0)
+  const [groupCounts, setGroupCounts] = useState<Record<string, number>>({})
   const [stageCounts, setStageCounts] = useState<Record<string, number>>({})
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState(searchParams.get('search') ?? '')
-  const [activeStatus, setActiveStatus] = useState(searchParams.get('status') ?? '')
-  const [page, setPage] = useState(1)
-  const [isLive, setIsLive] = useState(false)
-  const [flashedIds, setFlashedIds] = useState<Set<string>>(new Set())
+  const [loading,     setLoading]     = useState(true)
+  const [search,      setSearch]      = useState(searchParams.get('search') ?? '')
+  const [activeGroup, setActiveGroup] = useState(searchParams.get('group') ?? '')
+  const [activeStage, setActiveStage] = useState(searchParams.get('status') ?? '')
+  const [page,        setPage]        = useState(1)
+  const [hasMore,     setHasMore]     = useState(false)
+  const [sortCol,     setSortCol]     = useState('notes_last_updated')
+  const [sortDir,     setSortDir]     = useState<'asc' | 'desc'>('desc')
+  const [isLive,      setIsLive]      = useState(false)
+  const [flashedIds,  setFlashedIds]  = useState<Set<string>>(new Set())
   const esRef = useRef<EventSource | null>(null)
 
-  const load = useCallback(async (status: string, q: string, p: number) => {
-    setLoading(true)
-    const params = new URLSearchParams({ page: String(p) })
+  useEffect(() => { document.title = 'Cases | Team Portal' }, [])
+
+  const load = useCallback(async (
+    group: string, status: string, q: string, p: number, col: string, dir: string, append = false
+  ) => {
+    if (!append) setLoading(true)
+    const params = new URLSearchParams({ page: String(p), sort: col, dir })
     if (status) params.set('status', status)
-    if (q)      params.set('search', q)
+    else if (group) params.set('group', group)
+    if (q) params.set('search', q)
     const res = await fetch(`/api/cases?${params}`)
     if (res.ok) {
       const data = await res.json()
-      setCases(data.cases)
+      setCases(prev => append ? [...prev, ...(data.cases ?? [])] : (data.cases ?? []))
       setTotal(data.total)
-      setStageCounts(data.stageCounts)
+      setGroupCounts(data.groupCounts ?? {})
+      setStageCounts(data.stageCounts ?? {})
+      setHasMore((data.cases?.length ?? 0) === 25)
     }
     setLoading(false)
   }, [])
 
-  useEffect(() => { document.title = 'Cases | Team Portal' }, [])
-  useEffect(() => { load(activeStatus, search, page) }, [activeStatus, page])
+  useEffect(() => {
+    setPage(1)
+    load(activeGroup, activeStage, search, 1, sortCol, sortDir)
+  }, [activeGroup, activeStage, sortCol, sortDir])
 
-  // SSE subscription — live case updates
+  // SSE — live case updates
   useEffect(() => {
     function connect() {
       const es = new EventSource('/api/cases/stream')
       esRef.current = es
-
       es.addEventListener('connected', () => setIsLive(true))
-      es.onerror = () => { setIsLive(false) }
-
+      es.onerror = () => setIsLive(false)
       es.addEventListener('case', (e: MessageEvent) => {
-        const payload = JSON.parse(e.data) as {
-          type: 'INSERT' | 'UPDATE' | 'DELETE'
-          new: Case | null
-          old: Case | null
-        }
-
+        const payload = JSON.parse(e.data) as { type: string; new: Case | null; old: Case | null }
         if (payload.type === 'INSERT' && payload.new) {
           setCases(prev => [payload.new!, ...prev])
           setTotal(t => t + 1)
@@ -113,45 +162,69 @@ function CasesContent() {
         }
       })
     }
-
     connect()
-    return () => {
-      esRef.current?.close()
-      setIsLive(false)
-    }
+    return () => { esRef.current?.close(); setIsLive(false) }
   }, [])
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     setPage(1)
-    load(activeStatus, search, 1)
+    load(activeGroup, activeStage, search, 1, sortCol, sortDir)
   }
 
-  function selectStatus(s: string) {
-    setActiveStatus(s)
+  function selectGroup(g: string) {
+    setActiveGroup(g)
+    setActiveStage('')
     setPage(1)
   }
 
-  const totalPages = Math.ceil(total / 25)
+  function selectStage(s: string) {
+    setActiveStage(s === activeStage ? '' : s)
+    setActiveGroup('')
+    setPage(1)
+  }
 
-  const allStatuses = Object.keys(STATUS_LABELS).filter(
-    s => stageCounts[s] || s === ''
-  )
+  function toggleSort(col: string) {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortCol(col)
+      setSortDir('desc')
+    }
+  }
+
+  function loadMore() {
+    const nextPage = page + 1
+    setPage(nextPage)
+    load(activeGroup, activeStage, search, nextPage, sortCol, sortDir, true)
+  }
+
+  // Group tab definitions
+  const GROUPS = [
+    { id: '',         label: 'All',      count: total },
+    { id: 'active',   label: 'Active',   count: groupCounts.active   ?? 0 },
+    { id: 'retained', label: 'Retained', count: groupCounts.retained ?? 0 },
+    { id: 'settled',  label: 'Settled',  count: groupCounts.settled  ?? 0 },
+    { id: 'dropped',  label: 'Dropped',  count: groupCounts.dropped  ?? 0 },
+  ]
+
+  // Sub-stage filter (only shown when a group is active)
+  const GROUP_STAGES: Record<string, string[]> = {
+    active:   ['intake','nurture','document_collection','attorney_review','info_needed'],
+    retained: ['sign_up','retained'],
+    settled:  ['settled'],
+    dropped:  ['dropped'],
+  }
+  const subStages = activeGroup ? GROUP_STAGES[activeGroup] ?? [] : []
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-5">
+    <div className="p-8 space-y-5 max-w-screen-xl mx-auto">
 
-      {/* Page title row */}
+      {/* ── Title row ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Case Queue
-          </h1>
-          {total > 0 && (
-            <span className="text-sm font-normal text-gray-400">
-              {total.toLocaleString()} cases
-            </span>
-          )}
+          <h1 className="text-2xl font-semibold text-gray-900">Case Queue</h1>
+          {total > 0 && <span className="text-sm text-gray-400">{total.toLocaleString()} cases</span>}
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium transition-all duration-500 ${isLive ? 'text-emerald-600' : 'text-gray-300'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
             {isLive ? 'Live' : 'Connecting…'}
@@ -159,161 +232,201 @@ function CasesContent() {
         </div>
       </div>
 
-      {/* Search */}
+      {/* ── Search ── */}
       <form onSubmit={handleSearch} className="flex gap-2">
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search by name, email, vehicle, deal ID…"
+          placeholder="Search by name, phone, email, vehicle, deal ID…"
           className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-lemon-400 focus:border-lemon-400 focus:bg-white transition-all"
         />
-        <button
-          type="submit"
-          className="px-4 py-2 bg-lemon-400 hover:bg-lemon-500 text-gray-900 text-sm font-semibold rounded-lg transition-all duration-150 active:scale-95"
-        >
+        <button type="submit" className="px-4 py-2 bg-lemon-400 hover:bg-lemon-500 text-gray-900 text-sm font-semibold rounded-lg transition-all duration-150 active:scale-95">
           Search
         </button>
         {search && (
-          <button
-            type="button"
-            onClick={() => { setSearch(''); setPage(1); load(activeStatus, '', 1) }}
-            className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all duration-150 active:scale-95"
-          >
+          <button type="button" onClick={() => { setSearch(''); load(activeGroup, activeStage, '', 1, sortCol, sortDir) }}
+            className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all duration-150 active:scale-95">
             Clear
           </button>
         )}
       </form>
 
-      {/* Status filter tabs */}
-      <div className="flex gap-1.5 flex-wrap">
-        <button
-          onClick={() => selectStatus('')}
-          className={`px-3.5 py-1.5 text-sm rounded-lg font-medium transition-all duration-150 active:scale-95 ${
-            activeStatus === ''
-              ? 'bg-lemon-400 text-gray-900 border border-lemon-500'
-              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          All ({total.toLocaleString()})
-        </button>
-        {Object.entries(stageCounts)
-          .sort(([,a],[,b]) => b - a)
-          .map(([status, count]) => (
+      {/* ── Group filter tabs ── */}
+      <div className="flex gap-1.5 items-center border-b border-gray-100 pb-3">
+        {GROUPS.map(g => (
           <button
-            key={status}
-            onClick={() => selectStatus(status)}
-            className={`px-3.5 py-1.5 text-sm rounded-lg font-medium transition-all duration-150 active:scale-95 ${
-              activeStatus === status
-                ? 'bg-lemon-400 text-gray-900 border border-lemon-500'
-                : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+            key={g.id}
+            onClick={() => selectGroup(g.id)}
+            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-all duration-150 active:scale-95 ${
+              activeGroup === g.id && !activeStage
+                ? 'bg-lemon-400 text-gray-900'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
             }`}
           >
-            {STATUS_LABELS[status] ?? status} ({count.toLocaleString()})
+            {g.label}
+            <span className={`ml-1.5 text-xs tabular-nums ${activeGroup === g.id && !activeStage ? 'text-gray-700' : 'text-gray-400'}`}>
+              {g.count.toLocaleString()}
+            </span>
           </button>
         ))}
-        </div>
+      </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-card">
-          {loading ? (
-            <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
-          ) : cases.length === 0 ? (
-            <div className="py-16 text-center">
-              <p className="text-gray-400 text-sm">No cases found</p>
-              {search && <p className="text-gray-400 text-xs mt-1">Try a different search term</p>}
-            </div>
-          ) : (
+      {/* ── Sub-stage chips (shown when group is active) ── */}
+      {subStages.length > 1 && (
+        <div className="flex gap-1.5 flex-wrap -mt-2">
+          {subStages.map(s => (
+            <button
+              key={s}
+              onClick={() => selectStage(s)}
+              className={`px-3 py-1 text-xs rounded-full font-medium transition-all duration-150 active:scale-95 border ${
+                activeStage === s
+                  ? `${STATUS_COLORS[s] ?? 'bg-gray-100 text-gray-700'} border-transparent`
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {STATUS_LABELS[s] ?? s}
+              {stageCounts[s] ? <span className="ml-1 opacity-70">{stageCounts[s].toLocaleString()}</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Table ── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
+        {loading && cases.length === 0 ? (
+          <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
+        ) : cases.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-gray-400 text-sm">No cases found</p>
+            {search && <p className="text-gray-300 text-xs mt-1">Try a different search term</p>}
+          </div>
+        ) : (
+          <>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Client</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Vehicle</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">State</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Mileage</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Value</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Added</th>
+                  <th className="w-1 px-0" /> {/* urgency bar spacer */}
+                  {[
+                    { col: 'client_first_name', label: 'Client'        },
+                    { col: 'vehicle_make',       label: 'Vehicle'       },
+                    { col: 'case_status',        label: 'Status'        },
+                    { col: 'estimated_value',    label: 'Value'         },
+                    { col: 'notes_last_updated', label: 'Last Activity' },
+                    { col: 'created_at',         label: 'Added'         },
+                  ].map(h => (
+                    <th key={h.col}
+                      onClick={() => toggleSort(h.col)}
+                      className="text-left px-4 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700 select-none transition-colors first:pl-6"
+                    >
+                      <span className="inline-flex items-center gap-0.5">
+                        {h.label}
+                        <SortIcon col={h.col} active={sortCol === h.col} asc={sortDir === 'asc'} />
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {cases.map(c => (
-                  <tr
-                    key={c.id}
-                    onClick={() => { window.location.href = `/cases/${c.hubspot_deal_id}` }}
-                    className={`cursor-pointer transition-all duration-500 border-l-2 ${
-                      flashedIds.has(c.id)
-                        ? 'bg-lemon-400/10 border-l-lemon-400'
-                        : 'hover:bg-gray-50 border-l-transparent hover:border-l-gray-200'
-                    }`}
-                  >
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">
-                        {[c.client_first_name, c.client_last_name].filter(Boolean).join(' ') || <span className="text-gray-300 italic">Unknown</span>}
-                      </div>
-                      {c.client_email && <div className="text-xs text-gray-400 mt-0.5">{c.client_email}</div>}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-gray-900">
-                        {[c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ') || <span className="text-gray-300">—</span>}
-                      </div>
-                      {c.vehicle_is_new !== null && (
-                        <div className="text-xs text-gray-400 mt-0.5">{c.vehicle_is_new ? 'New' : 'Used'}</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown}`}>
-                        {STATUS_LABELS[c.case_status] ?? c.case_status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600 text-sm">{c.state_jurisdiction ?? '—'}</td>
-                    <td className="px-6 py-4 text-gray-600 text-sm tabular-nums">
-                      {c.vehicle_mileage ? c.vehicle_mileage.toLocaleString() : '—'}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600 text-sm tabular-nums">
-                      {c.estimated_value ? '$' + c.estimated_value.toLocaleString() : '—'}
-                    </td>
-                    <td className="px-6 py-4 text-gray-400 text-xs tabular-nums">
-                      {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </td>
-                  </tr>
-                ))}
+                {cases.map(c => {
+                  const clientName = [c.client_first_name, c.client_last_name].filter(Boolean).join(' ')
+                  const vehicle    = [c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ')
+                  const activity   = c.notes_last_updated ?? c.updated_at
+                  const days       = daysSince(activity)
+
+                  return (
+                    <tr
+                      key={c.id}
+                      onClick={() => { window.location.href = `/cases/${c.hubspot_deal_id}` }}
+                      className={`cursor-pointer transition-all duration-500 border-l-4 ${
+                        flashedIds.has(c.id)
+                          ? 'bg-lemon-400/10 border-l-lemon-400'
+                          : `hover:bg-gray-50 ${urgencyClass(c)}`
+                      }`}
+                    >
+                      <td className="w-0 p-0" />
+                      {/* Client */}
+                      <td className="pl-5 pr-4 py-3.5">
+                        <div className="font-medium text-gray-900 leading-tight">
+                          {clientName || <span className="text-gray-300 italic text-xs">Unknown</span>}
+                        </div>
+                        {c.client_phone && (
+                          <a
+                            href={`tel:${c.client_phone}`}
+                            onClick={e => e.stopPropagation()}
+                            className="text-xs text-gray-400 hover:text-lemon-500 transition-colors mt-0.5 block"
+                          >
+                            {c.client_phone}
+                          </a>
+                        )}
+                      </td>
+                      {/* Vehicle */}
+                      <td className="px-4 py-3.5">
+                        <div className="text-gray-900 leading-tight">
+                          {vehicle || <span className="text-gray-300">—</span>}
+                        </div>
+                        {c.vehicle_is_new !== null && (
+                          <div className="text-xs text-gray-400 mt-0.5">{c.vehicle_is_new ? 'New' : 'Used'}</div>
+                        )}
+                      </td>
+                      {/* Status */}
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown}`}>
+                          {STATUS_LABELS[c.case_status] ?? c.case_status}
+                        </span>
+                      </td>
+                      {/* Value */}
+                      <td className="px-4 py-3.5 text-gray-700 tabular-nums text-sm">
+                        {c.estimated_value ? '$' + c.estimated_value.toLocaleString() : <span className="text-gray-300">—</span>}
+                      </td>
+                      {/* Last Activity */}
+                      <td className="px-4 py-3.5">
+                        <span className={`text-xs tabular-nums ${
+                          days !== null && days > 30 ? 'text-red-500 font-medium' :
+                          days !== null && days > 14 ? 'text-amber-500 font-medium' :
+                          'text-gray-500'
+                        }`}>
+                          {fmtDate(activity)}
+                        </span>
+                        {days !== null && days > 30 && (
+                          <div className="text-[10px] text-red-400 mt-0.5">{days}d inactive</div>
+                        )}
+                      </td>
+                      {/* Added */}
+                      <td className="px-4 py-3.5 pr-6 text-gray-400 text-xs tabular-nums">
+                        {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
-          )}
-        </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-400">
-            Page {page} of {totalPages} · {total.toLocaleString()} cases
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3.5 py-1.5 text-sm font-medium border border-gray-200 rounded-lg disabled:opacity-40 hover:border-gray-300 hover:bg-gray-50 transition-all duration-150 active:scale-95"
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-3.5 py-1.5 text-sm font-medium border border-gray-200 rounded-lg disabled:opacity-40 hover:border-gray-300 hover:bg-gray-50 transition-all duration-150 active:scale-95"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+            {/* Load more */}
+            {hasMore && (
+              <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+                <p className="text-sm text-gray-400">
+                  Showing {cases.length.toLocaleString()} of {total.toLocaleString()}
+                </p>
+                <button
+                  onClick={loadMore}
+                  disabled={loading}
+                  className="px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg hover:border-gray-300 hover:bg-gray-50 transition-all duration-150 active:scale-95 disabled:opacity-40"
+                >
+                  {loading ? 'Loading…' : 'Load more'}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
 
 export default function CasesPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400 text-sm">Loading...</div>}>
+    <Suspense fallback={<div className="flex items-center justify-center p-16 text-gray-400 text-sm">Loading…</div>}>
       <CasesContent />
     </Suspense>
   )
