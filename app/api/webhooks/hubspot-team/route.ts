@@ -61,10 +61,17 @@ function safeDate(raw: unknown): string | null {
   if (!raw) return null
   const s = String(raw).trim()
   if (!s) return null
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s
-  if (/^\d{13}$/.test(s)) return new Date(parseInt(s)).toISOString()
-  const d = new Date(s)
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  if (s.startsWith('+')) return null
+  if (/^\d{13}$/.test(s)) {
+    try { return new Date(parseInt(s)).toISOString().slice(0, 10) } catch { return null }
+  }
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1]), month = parseInt(isoMatch[2]), day = parseInt(isoMatch[3])
+    if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  }
+  try { const d = new Date(s); if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10) } catch { /* */ }
   return null
 }
 

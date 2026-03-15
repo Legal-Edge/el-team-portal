@@ -54,9 +54,21 @@ function safeDate(raw: unknown): string | null {
   if (!raw) return null
   const s = String(raw).trim()
   if (!s) return null
-  if (s.startsWith('+') || s.startsWith('-0')) return null
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s
-  if (/^\d{13}$/.test(s)) return new Date(parseInt(s)).toISOString()
+  // Reject extended ISO years (e.g. +010480-01) — garbage HubSpot data
+  if (s.startsWith('+')) return null
+  // Epoch ms timestamp
+  if (/^\d{13}$/.test(s)) {
+    try { return new Date(parseInt(s)).toISOString().slice(0, 10) } catch { return null }
+  }
+  // ISO date string — extract ONLY YYYY-MM-DD, discard any time/timezone portion
+  // This prevents corrupted timezone offsets (e.g. +010480) from reaching Postgres
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1]), month = parseInt(isoMatch[2]), day = parseInt(isoMatch[3])
+    if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  }
+  // Last resort — native parse
   try { const d = new Date(s); if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10) } catch { /* */ }
   return null
 }
@@ -137,9 +149,9 @@ function mapToCase(deal: Record<string, unknown>, contact: Record<string, unknow
   const stateRaw      = dp['which_state_did_you_purchase_or_lease_your_vehicle_'] ?? cp['state']
   return {
     hubspot_deal_id:        String((deal as { id: string }).id),
-    client_first_name:      cp['firstname'] ?? null,
-    client_last_name:       cp['lastname']  ?? null,
-    client_email:           cp['email'] ? String(cp['email']).toLowerCase() : null,
+    client_first_name:      cp['firstname'] ? String(cp['firstname']).slice(0, 100) : null,
+    client_last_name:       cp['lastname']  ? String(cp['lastname']).slice(0, 100)  : null,
+    client_email:           cp['email'] ? String(cp['email']).toLowerCase().slice(0, 254) : null,
     client_phone:           normalisePhone(String(cp['phone'] ?? cp['mobilephone'] ?? '')),
     vehicle_year:           vehicleYear   ? applyTransform(vehicleYear,   'parseInt')   as number : null,
     vehicle_make:           vehicleMake   ? String(vehicleMake).slice(0, 100)           : null,
