@@ -37,16 +37,15 @@ export async function GET(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Stage counts for filter tabs
-  const { data: stageCounts } = await db
-    .from('cases')
-    .select('case_status')
-    .eq('is_deleted', false)
-
+  // Per-stage COUNT queries — never fetch rows, no 1000-row pagination cap
+  const STAGE_KEYS = ['intake','nurture','document_collection','attorney_review','info_needed','sign_up','retained','settled','dropped']
+  const stageCountResults = await Promise.all(
+    STAGE_KEYS.map(s =>
+      db.from('cases').select('*', { count: 'exact', head: true }).eq('case_status', s).eq('is_deleted', false)
+    )
+  )
   const counts: Record<string, number> = {}
-  for (const r of stageCounts ?? []) {
-    counts[r.case_status] = (counts[r.case_status] ?? 0) + 1
-  }
+  STAGE_KEYS.forEach((s, i) => { counts[s] = stageCountResults[i]?.count ?? 0 })
 
   return NextResponse.json({ cases: data ?? [], total: count ?? 0, stageCounts: counts, page, limit })
 }

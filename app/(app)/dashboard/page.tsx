@@ -14,8 +14,9 @@ function getCoreDb() {
 
 // ─── Stage groupings ───────────────────────────────────────────────────────
 
+const ALL_STAGES    = ['intake', 'nurture', 'document_collection', 'attorney_review', 'info_needed', 'sign_up', 'retained', 'settled']
 const ACTIVE_STAGES = ['intake', 'nurture', 'document_collection', 'attorney_review', 'info_needed', 'sign_up', 'retained']
-const INTAKE_STAGES  = ['intake', 'nurture']
+const INTAKE_STAGES = ['intake', 'nurture']
 
 // ─── Stats per role ────────────────────────────────────────────────────────
 
@@ -24,22 +25,25 @@ async function getAdminStats() {
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
-  const [{ count: totalActive }, { count: settledMonth }, { count: totalPipeline }] = await Promise.all([
+  // Per-stage COUNT queries — never fetch rows, no 1000-row pagination cap
+  const [kpiActive, kpiSettled, kpiPipeline, ...stageCounts] = await Promise.all([
     db.from('cases').select('*', { count: 'exact', head: true }).in('case_status', ACTIVE_STAGES),
     db.from('cases').select('*', { count: 'exact', head: true }).eq('case_status', 'settled').gte('closed_at', monthStart),
     db.from('cases').select('*', { count: 'exact', head: true }).neq('case_status', 'dropped'),
+    ...ALL_STAGES.map(stage =>
+      db.from('cases').select('*', { count: 'exact', head: true }).eq('case_status', stage)
+    ),
   ])
 
-  const { data: stageRows } = await db.from('cases').select('case_status').neq('case_status', 'dropped')
   const byStage: Record<string, number> = {}
-  for (const r of stageRows ?? []) byStage[r.case_status] = (byStage[r.case_status] ?? 0) + 1
+  ALL_STAGES.forEach((stage, i) => { byStage[stage] = stageCounts[i]?.count ?? 0 })
 
   const topStage = Object.entries(byStage).sort((a, b) => b[1] - a[1])[0]
 
   return {
-    totalActive:   totalActive   ?? 0,
-    settledMonth:  settledMonth  ?? 0,
-    totalPipeline: totalPipeline ?? 0,
+    totalActive:   kpiActive.count   ?? 0,
+    settledMonth:  kpiSettled.count  ?? 0,
+    totalPipeline: kpiPipeline.count ?? 0,
     topStage:      topStage ? `${topStage[0]}: ${topStage[1]}` : '—',
     byStage,
     fetchedAt:     new Date().toISOString(),
