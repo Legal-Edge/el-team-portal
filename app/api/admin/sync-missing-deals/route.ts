@@ -191,9 +191,9 @@ export async function POST(req: NextRequest) {
 
   // ── Step 2: page through all HubSpot deals (id + dealstage only, fast) ──
   const hubspotIds = new Set<string>()
-  let after: string | null = null
+  let hsAfter: string | null = null
   do {
-    const afterQ = after ? `&after=${after}` : ''
+    const afterQ: string = hsAfter ? `&after=${hsAfter}` : ''
     const res = await fetch(
       `https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=dealstage${afterQ}`,
       { headers: { Authorization: `Bearer ${HUBSPOT_TOKEN}` }, signal: AbortSignal.timeout(15000) }
@@ -201,8 +201,8 @@ export async function POST(req: NextRequest) {
     if (!res.ok) return NextResponse.json({ error: `HubSpot page failed: ${res.status}` }, { status: 500 })
     const page = await res.json()
     for (const deal of (page.results ?? [])) hubspotIds.add(String(deal.id))
-    after = page.paging?.next?.after ?? null
-  } while (after !== null)
+    hsAfter = page.paging?.next?.after ?? null
+  } while (hsAfter !== null)
 
   // ── Step 3: diff ──────────────────────────────────────────────────────────
   const missingIds = [...hubspotIds].filter(id => !supabaseIds.has(id))
