@@ -905,7 +905,7 @@ function DocumentsSection({
 
 
       {/* ── Grouped Files ───────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Files</h2>
@@ -1019,28 +1019,41 @@ function ClassifyDropdown({
   onSelect: (code: string) => void
   onCancel: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [openUpward, setOpenUpward] = useState(false)
+
   const sorted = useMemo(
     () => [...docTypes].sort((a, b) => a.label.localeCompare(b.label)),
     [docTypes]
   )
 
+  // Decide direction based on viewport space
+  useEffect(() => {
+    if (wrapperRef.current) {
+      const rect = wrapperRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom
+      setOpenUpward(spaceBelow < 280)
+    }
+  }, [])
+
   // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onCancel()
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) onCancel()
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [onCancel])
 
   return (
-    <div ref={ref} className="relative inline-block">
-      <div className="absolute left-0 top-1 z-50 w-64 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+    <div ref={wrapperRef} className="relative inline-block">
+      <div className={`absolute left-0 z-50 w-64 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden ${
+        openUpward ? 'bottom-full mb-2' : 'top-full mt-1'
+      }`}>
         <div className="px-3 py-2 border-b border-gray-100">
           <p className="text-xs font-medium text-gray-500">Select document type</p>
         </div>
-        <div className="max-h-60 overflow-y-auto">
+        <div className="max-h-60 overflow-y-auto overscroll-contain">
           {sorted.map(t => (
             <button
               key={t.code}
