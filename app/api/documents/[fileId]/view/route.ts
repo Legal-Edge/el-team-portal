@@ -1,15 +1,17 @@
 // GET /api/documents/[fileId]/view
 //
-// Proxies the file content through our own server so the iframe stays on
-// team.easylemon.com and avoids CSP / X-Frame-Options blocks from Microsoft CDN.
+// Proxies PDF bytes through our server using the Graph /content endpoint.
+// Graph follows redirects automatically and returns the file bytes.
+// We stream them back to the client as application/pdf.
 //
-// Flow: auth check → look up SharePoint item ID → get fresh Graph download URL
-//       → fetch bytes server-side → stream back as application/pdf
+// The blob URL approach in the client-side modal bypasses frame-ancestors CSP.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { createClient } from '@supabase/supabase-js'
 import { getGraphToken } from '@/lib/sharepoint'
+
+const DRIVE_ID = 'b!oTYerw9tj0KLIWLLGc_DzIZijDFxI1xNtMSGXezIVsUHL02cd1kmRra7r_dMei8k'
 
 export async function GET(
   req: NextRequest,
@@ -25,48 +27,41 @@ export async function GET(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   ).schema('core')
 
-  const { data: file } = await db
+  const { data: file, error: dbErr } = await db
     .from('document_files')
-    .select('sharepoint_item_id, sharepoint_drive_id, file_name, file_extension')
+    .select('sharepoint_item_id, sharepoint_drive_id, file_name')
     .eq('id', fileId)
     .eq('is_deleted', false)
     .single()
 
-  if (!file?.sharepoint_item_id) {
+  if (dbErr || !file?.sharepoint_item_id) {
+    console.error('[doc-view] DB lookup failed:', dbErr)
     return new NextResponse('File not found', { status: 404 })
   }
 
-  const driveId = file.sharepoint_drive_id ?? process.env.SHAREPOINT_DRIVE_ID!
+  const driveId = file.sharepoint_drive_id ?? DRIVE_ID
   const itemId  = file.sharepoint_item_id
 
   try {
     const token = await getGraphToken()
 
-    // Get a fresh pre-authenticated download URL from Graph
-    const metaRes = await fetch(
-      `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}?$select=id,%40microsoft.graph.downloadUrl`,
-      { headers: { Authorization: `Bearer ${token}` } }
+    // Graph /content endpoint returns file bytes directly (follows CDN redirect internally)
+    const contentRes = await fetch(
+      `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/content`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        redirect: 'follow',
+      }
     )
-    if (!metaRes.ok) {
-      console.error('[doc-view] Graph meta error:', metaRes.status, await metaRes.text())
-      return new NextResponse('Failed to fetch file metadata', { status: 502 })
+
+    if (!contentRes.ok) {
+      const errText = await contentRes.text()
+      console.error('[doc-view] Graph content error:', contentRes.status, errText)
+      return new NextResponse(`Graph error: ${contentRes.status}`, { status: 502 })
     }
 
-    const meta        = await metaRes.json()
-    const downloadUrl = meta['@microsoft.graph.downloadUrl']
-    if (!downloadUrl) {
-      return new NextResponse('No download URL available', { status: 404 })
-    }
-
-    // Fetch the actual file bytes server-side — stays on our domain
-    const fileRes = await fetch(downloadUrl)
-    if (!fileRes.ok) {
-      console.error('[doc-view] file fetch error:', fileRes.status)
-      return new NextResponse('Failed to fetch file', { status: 502 })
-    }
-
-    const contentType = fileRes.headers.get('content-type') ?? 'application/pdf'
-    const buffer      = await fileRes.arrayBuffer()
+    const buffer      = await contentRes.arrayBuffer()
+    const contentType = contentRes.headers.get('content-type') ?? 'application/pdf'
     const safeName    = encodeURIComponent(file.file_name ?? 'document.pdf')
 
     return new NextResponse(buffer, {
@@ -74,12 +69,10 @@ export async function GET(
         'Content-Type':        contentType,
         'Content-Disposition': `inline; filename="${safeName}"`,
         'Cache-Control':       'private, max-age=300',
-        // Allow iframe to render from same origin
-        'X-Frame-Options':     'SAMEORIGIN',
       },
     })
   } catch (err) {
-    console.error('[doc-view] error:', err)
+    console.error('[doc-view] unexpected error:', err)
     return new NextResponse('Internal error', { status: 500 })
   }
 }
