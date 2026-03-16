@@ -28,7 +28,7 @@ export async function POST(
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
   const { data: caseRow, error: caseErr } = await db
     .from('cases')
-    .select('id, client_name, stage')
+    .select('id, client_first_name, client_last_name, stage')
     .eq(isUUID ? 'id' : 'hubspot_deal_id', id)
     .single()
 
@@ -36,6 +36,8 @@ export async function POST(
     console.error('[ai-analyze] case lookup failed', { id, error: caseErr?.message })
     return NextResponse.json({ error: 'Case not found' }, { status: 404 })
   }
+
+  const clientName = [caseRow.client_first_name, caseRow.client_last_name].filter(Boolean).join(' ') || null
 
   // Try to read cached AI analysis (columns may not exist yet if migration pending)
   let cachedAnalysis: Record<string, unknown> | null = null
@@ -92,7 +94,7 @@ export async function POST(
     : null
 
   const caseContext = {
-    client_name: caseRow.client_name ?? null,
+    client_name: clientName,
     vehicle:     vehicleFromPurchase || null,
     state:       stateFromReg || null,
   }
