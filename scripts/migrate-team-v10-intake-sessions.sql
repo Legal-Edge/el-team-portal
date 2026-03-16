@@ -307,8 +307,21 @@ status_to_batches AS (
       WHEN ci.purchase_or_lease ILIKE '%purchase%' OR ci.purchase_or_lease ILIKE '%buy%' THEN 'purchase'
       ELSE NULL
     END                                                           AS purchase_or_lease,
-    ci.vehicle_status,
-    ci.refund_preference,
+    CASE
+      WHEN ci.vehicle_status ILIKE '%still own%' OR ci.vehicle_status ILIKE '%own the vehicle%' THEN 'have_vehicle'
+      WHEN ci.vehicle_status ILIKE '%traded%' THEN 'traded_in'
+      WHEN ci.vehicle_status ILIKE '%sold%' THEN 'sold'
+      WHEN ci.vehicle_status ILIKE '%total%' THEN 'totaled'
+      WHEN ci.vehicle_status IN ('have_vehicle','traded_in','sold','totaled','other') THEN ci.vehicle_status
+      ELSE NULL
+    END                                                           AS vehicle_status,
+    CASE
+      WHEN ci.refund_preference ILIKE '%return%' OR ci.refund_preference ILIKE '%buyback%' OR ci.refund_preference ILIKE '%full refund%' THEN 'buyback'
+      WHEN ci.refund_preference ILIKE '%cash%' THEN 'cash_settlement'
+      WHEN ci.refund_preference ILIKE '%replacement%' OR ci.refund_preference ILIKE '%new vehicle%' THEN 'replacement'
+      WHEN ci.refund_preference IN ('buyback','cash_settlement','replacement','undecided') THEN ci.refund_preference
+      ELSE NULL
+    END                                                           AS refund_preference,
     -- Completed batches from el_app_status
     CASE c.el_app_status
       WHEN 'not_started'            THEN 0
