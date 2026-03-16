@@ -1195,30 +1195,27 @@ function FileRow({
   const isUnclassified = !f.is_classified
   const isPdf = f.file_extension?.toLowerCase() === 'pdf' || f.file_name.toLowerCase().endsWith('.pdf')
 
+  const cardBase = isUnclassified ? 'border-amber-100 bg-amber-50/30' : 'border-gray-100 bg-white'
+  const cardInteractive = isPdf
+    ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md hover:border-gray-300 hover:bg-gray-50 active:translate-y-0 active:shadow-sm'
+    : ''
+
   return (
-    <div className={`rounded-lg border px-4 py-3 ${isUnclassified ? 'border-amber-100 bg-amber-50/30' : 'border-gray-100 bg-gray-50/30'}`}>
-      {/* Name + size + open */}
+    <div
+      className={`rounded-lg border px-4 py-3 transition-all duration-150 ${cardBase} ${cardInteractive}`}
+      onClick={isPdf ? onView : undefined}
+      role={isPdf ? 'button' : undefined}
+    >
+      {/* Name + size */}
       <div className="flex items-center gap-2 flex-wrap mb-1">
-        {isPdf ? (
-          <button
-            onClick={onView}
-            className="text-sm text-gray-800 font-medium truncate max-w-sm hover:text-lemon-600 hover:underline text-left transition-colors"
-            title="Click to preview"
-          >
-            {f.file_name}
-          </button>
-        ) : (
-          <span className="text-sm text-gray-800 font-medium truncate max-w-sm">{f.file_name}</span>
-        )}
+        <span className="text-sm text-gray-800 font-medium truncate max-w-sm">{f.file_name}</span>
         {f.type_label && !isUnclassified && (
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">{f.type_label}</span>
         )}
         {f.size_bytes && <span className="text-xs text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
-        {isPdf && (
-          <button onClick={onView} className="text-xs text-blue-500 hover:underline shrink-0">Preview ↗</button>
-        )}
         {!isPdf && f.web_url && (
           <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
             className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
         )}
       </div>
