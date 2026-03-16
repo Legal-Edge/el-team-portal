@@ -134,6 +134,24 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 // ─── Shared field component ────────────────────────────────────────────────
+// Sanitize literal \n / \r\n sequences stored by HubSpot as escaped text
+function cleanStr(v: string | null | undefined): string | null {
+  if (!v) return null
+  return v.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').trim() || null
+}
+// Apply cleanStr to all string fields on a case or intake object
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function cleanRecord<T extends Record<string, any>>(obj: T): T {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: Record<string, any> = { ...obj }
+  for (const key of Object.keys(result)) {
+    if (typeof result[key] === 'string') {
+      result[key] = cleanStr(result[key]) ?? result[key]
+    }
+  }
+  return result as T
+}
+
 function Field({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div>
@@ -1109,8 +1127,8 @@ export default function CaseDetailPage() {
       if (res.status === 404) { setNotFound(true); setLoading(false); return }
       if (res.ok) {
         const data = await res.json()
-        setCaseData(data.case)
-        setIntake(data.intake ?? null)
+        setCaseData(data.case ? cleanRecord(data.case) : null)
+        setIntake(data.intake ? cleanRecord(data.intake) : null)
         setIntakeStatus(data.intakeStatus ?? null)
         setUserRole(data.userRole ?? 'staff')
         setStaffId(data.staffId ?? null)
@@ -1152,7 +1170,7 @@ export default function CaseDetailPage() {
     es.addEventListener('case', (e: MessageEvent) => {
       const payload = JSON.parse(e.data) as { type: string; new: CaseDetail | null }
       if (payload.type === 'UPDATE' && payload.new) {
-        setCaseData(prev => prev ? { ...prev, ...payload.new! } : payload.new)
+        setCaseData(prev => prev ? cleanRecord({ ...prev, ...payload.new! }) : cleanRecord(payload.new!))
         setStatusFlash(true)
         setTimeout(() => setStatusFlash(false), 1500)
       }
