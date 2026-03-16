@@ -1857,7 +1857,7 @@ export default function CaseDetailPage() {
               </div>
             )
           })()}
-\n
+
           {/* ── Documents tab ── */}
           {activeTab === 'documents' && (
             <DocumentsSection
