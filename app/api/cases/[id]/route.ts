@@ -58,6 +58,8 @@ export async function GET(
     case: data,
     intake,
     intakeStatus,
-    userRole: (session.user as { role?: string }).role ?? 'staff',
+    userRole:  (session.user as { role?: string }).role    ?? 'staff',
+    staffId:   (session.user as { staffId?: string }).staffId ?? null,
+    staffName: session.user.name ?? session.user.email ?? 'Unknown',
   })
 }

@@ -870,6 +870,23 @@ export default function CaseDetailPage() {
   const [intakeSaving, setIntakeSaving] = useState(false)
   const [intakeError, setIntakeError] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('staff')
+  const [staffId, setStaffId] = useState<string | null>(null)
+
+  // ── Notes state ──────────────────────────────────────────────────────────
+  interface TimelineNote {
+    id: string; note_type: string; visibility: string; body: string
+    is_pinned: boolean; created_at: string; author_id: string
+    author_name: string; is_mine: boolean
+  }
+  const [notes, setNotes] = useState<TimelineNote[]>([])
+  const [notesLoading, setNotesLoading] = useState(false)
+  const [showNoteForm, setShowNoteForm] = useState(false)
+  const [noteBody, setNoteBody] = useState('')
+  const [noteType, setNoteType] = useState('general')
+  const [noteVisibility, setNoteVisibility] = useState('internal')
+  const [notePinned, setNotePinned] = useState(false)
+  const [noteSaving, setNoteSaving] = useState(false)
+  const [noteError, setNoteError] = useState<string | null>(null)
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'intake') ?? 'overview'
   const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>(initialTab)
@@ -929,6 +946,72 @@ export default function CaseDetailPage() {
     ? (userRole === 'admin' ? ALL_INTAKE_STATUSES.filter(s => s !== intakeStatus) : (TRANSITIONS[intakeStatus] ?? []))
     : []
 
+  // ── Notes helpers ────────────────────────────────────────────────────────
+  const NOTE_TYPE_LABELS: Record<string, string> = {
+    general: 'General', call_summary: 'Call Summary', verbal_update: 'Verbal Update',
+    attorney_note: 'Attorney Note', case_manager_note: 'Case Manager Note',
+    milestone: 'Milestone', client_communication: 'Client Communication', intake_note: 'Intake Note',
+  }
+  const VISIBILITY_CONFIG: Record<string, { label: string; cls: string; icon: string }> = {
+    public:     { label: 'Public',     cls: 'bg-green-50 text-green-700',  icon: '🌐' },
+    internal:   { label: 'Internal',   cls: 'bg-blue-50 text-blue-700',    icon: '👥' },
+    restricted: { label: 'Restricted', cls: 'bg-orange-50 text-orange-700', icon: '🔒' },
+    private:    { label: 'Private',    cls: 'bg-purple-50 text-purple-700', icon: '👤' },
+  }
+  function fmtNoteTime(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime()
+    const m = Math.floor(diff / 60000), h = Math.floor(diff / 3600000), d = Math.floor(diff / 86400000)
+    if (m < 60) return `${m}m ago`; if (h < 24) return `${h}h ago`; return `${d}d ago`
+  }
+
+  async function loadNotes() {
+    if (!params.id) return
+    setNotesLoading(true)
+    try {
+      const res = await fetch(`/api/cases/${params.id}/notes`)
+      if (res.ok) { const d = await res.json(); setNotes(d.notes ?? []) }
+    } finally { setNotesLoading(false) }
+  }
+
+  async function handleCreateNote() {
+    if (!noteBody.trim()) return
+    setNoteSaving(true); setNoteError(null)
+    try {
+      const res = await fetch(`/api/cases/${params.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note_type: noteType, visibility: noteVisibility, body: noteBody, is_pinned: notePinned }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        setNoteError(e.error ?? 'Failed to create note')
+      } else {
+        const d = await res.json()
+        setNotes(prev => [d.note, ...prev])
+        setNoteBody(''); setNoteType('general'); setNoteVisibility('internal')
+        setNotePinned(false); setShowNoteForm(false)
+      }
+    } finally { setNoteSaving(false) }
+  }
+
+  async function handleTogglePin(noteId: string, currentPinned: boolean) {
+    const newPinned = !currentPinned
+    setNotes(prev => prev.map(n => n.id === noteId ? { ...n, is_pinned: newPinned } : n))
+    try {
+      const res = await fetch(`/api/cases/${params.id}/notes/${noteId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_pinned: newPinned }),
+      })
+      if (!res.ok) setNotes(prev => prev.map(n => n.id === noteId ? { ...n, is_pinned: currentPinned } : n))
+      else setNotes(prev => [...prev].sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0)))
+    } catch {
+      setNotes(prev => prev.map(n => n.id === noteId ? { ...n, is_pinned: currentPinned } : n))
+    }
+  }
+
+  const canManageNotes = ['admin', 'attorney', 'manager'].includes(userRole)
+
   async function handleIntakeStatusChange(newStatus: string) {
     if (!caseData || !newStatus || newStatus === intakeStatus) return
     const prev = intakeStatus
@@ -972,6 +1055,7 @@ export default function CaseDetailPage() {
         setIntake(data.intake ?? null)
         setIntakeStatus(data.intakeStatus ?? null)
         setUserRole(data.userRole ?? 'staff')
+        setStaffId(data.staffId ?? null)
       }
       setLoading(false)
     }
@@ -1018,6 +1102,11 @@ export default function CaseDetailPage() {
   }, [params.id])
 
   useEffect(() => { loadComms(commChannel) }, [commChannel, loadComms])
+  // Load notes when comms tab opens (or on initial mount)
+  useEffect(() => {
+    if (activeTab === 'comms' && notes.length === 0 && !notesLoading) loadNotes()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
 
   if (loading) {
     return (
@@ -1259,6 +1348,146 @@ export default function CaseDetailPage() {
 
           {/* ── Comms tab ── */}
           {activeTab === 'comms' && (
+            <>
+            {/* ── Timeline Notes ── */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
+              {/* Notes header */}
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Notes</span>
+                  {notes.length > 0 && <span className="text-xs text-gray-400 tabular-nums">{notes.length}</span>}
+                </div>
+                <button
+                  onClick={() => { setShowNoteForm(v => !v); setNoteError(null) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-lemon-400 hover:bg-lemon-500 text-gray-900 transition-all active:scale-95"
+                >
+                  <span>{showNoteForm ? '✕ Cancel' : '+ Add Note'}</span>
+                </button>
+              </div>
+
+              {/* Add Note form */}
+              {showNoteForm && (
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 space-y-3">
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-400 font-medium block mb-1">Type</label>
+                      <select
+                        value={noteType}
+                        onChange={e => setNoteType(e.target.value)}
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
+                      >
+                        {Object.entries(NOTE_TYPE_LABELS).map(([k, v]) => (
+                          <option key={k} value={k}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
+                      <select
+                        value={noteVisibility}
+                        onChange={e => setNoteVisibility(e.target.value)}
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
+                      >
+                        <option value="internal">Internal (team)</option>
+                        <option value="public">Public</option>
+                        {canManageNotes && <option value="restricted">Restricted (admin/attorney/manager)</option>}
+                        <option value="private">Private (only me)</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end pb-2">
+                      <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={notePinned}
+                          onChange={e => setNotePinned(e.target.checked)}
+                          className="w-3.5 h-3.5 accent-yellow-400"
+                        />
+                        Pin
+                      </label>
+                    </div>
+                  </div>
+                  <textarea
+                    value={noteBody}
+                    onChange={e => setNoteBody(e.target.value)}
+                    placeholder="Write a note…"
+                    rows={3}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-lemon-400 resize-none"
+                  />
+                  {noteError && <p className="text-xs text-red-500">{noteError}</p>}
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => { setShowNoteForm(false); setNoteBody(''); setNoteError(null) }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCreateNote}
+                      disabled={noteSaving || !noteBody.trim()}
+                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-all active:scale-95"
+                    >
+                      {noteSaving ? 'Saving…' : 'Save Note'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes list */}
+              {notesLoading ? (
+                <div className="py-8 text-center text-gray-400 text-sm">Loading notes…</div>
+              ) : notes.length === 0 ? (
+                <div className="py-8 text-center text-gray-400 text-sm">No notes yet</div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {notes.map(note => {
+                    const vis   = VISIBILITY_CONFIG[note.visibility] ?? VISIBILITY_CONFIG.internal
+                    const pinCan = canManageNotes || note.is_mine
+                    return (
+                      <div
+                        key={note.id}
+                        className={`px-6 py-4 group transition-colors hover:bg-gray-50 ${note.is_pinned ? 'border-l-2 border-l-yellow-400' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            {/* Badges row */}
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                              {note.is_pinned && (
+                                <span className="text-yellow-500 text-xs font-medium">📌 Pinned</span>
+                              )}
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                {NOTE_TYPE_LABELS[note.note_type] ?? note.note_type}
+                              </span>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${vis.cls}`}>
+                                <span>{vis.icon}</span>
+                                {vis.label}
+                              </span>
+                            </div>
+                            {/* Body */}
+                            <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{note.body}</p>
+                            {/* Meta */}
+                            <p className="mt-2 text-xs text-gray-400">
+                              {note.author_name} · {fmtNoteTime(note.created_at)}
+                            </p>
+                          </div>
+                          {/* Pin toggle */}
+                          {pinCan && (
+                            <button
+                              onClick={() => handleTogglePin(note.id, note.is_pinned)}
+                              title={note.is_pinned ? 'Unpin' : 'Pin'}
+                              className="opacity-0 group-hover:opacity-100 shrink-0 text-gray-300 hover:text-yellow-500 transition-all"
+                            >
+                              {note.is_pinned ? '📌' : '☆'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── Communications ── */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
               {/* Comm header */}
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
@@ -1311,6 +1540,7 @@ export default function CaseDetailPage() {
                 <SmsCompose caseId={params.id as string} onSent={() => loadComms(commChannel)} />
               )}
             </div>
+            </>
           )}
 
           {/* ── Documents tab ── */}
