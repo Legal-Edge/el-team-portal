@@ -24,21 +24,37 @@ export async function POST(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   ).schema('core')
 
-  // Resolve case
+  // Resolve case — select only columns guaranteed to exist
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-  const { data: caseRow } = await db
+  const { data: caseRow, error: caseErr } = await db
     .from('cases')
-    .select('id, client_name, stage, ai_analysis, ai_analyzed_at')
+    .select('id, client_name, stage')
     .eq(isUUID ? 'id' : 'hubspot_deal_id', id)
     .single()
 
-  if (!caseRow) return NextResponse.json({ error: 'Case not found' }, { status: 404 })
+  if (caseErr || !caseRow) {
+    console.error('[ai-analyze] case lookup failed', { id, error: caseErr?.message })
+    return NextResponse.json({ error: 'Case not found' }, { status: 404 })
+  }
+
+  // Try to read cached AI analysis (columns may not exist yet if migration pending)
+  let cachedAnalysis: Record<string, unknown> | null = null
+  let cachedAt: string | null = null
+  try {
+    const { data: aiRow } = await db
+      .from('cases')
+      .select('ai_analysis, ai_analyzed_at')
+      .eq('id', caseRow.id)
+      .single()
+    cachedAnalysis = (aiRow as Record<string, unknown> | null)?.ai_analysis as Record<string, unknown> ?? null
+    cachedAt       = (aiRow as Record<string, unknown> | null)?.ai_analyzed_at as string ?? null
+  } catch { /* migration not yet run — columns don't exist, skip cache */ }
 
   // Return cached if recent (< 1 hour) and not forced
-  if (caseRow.ai_analysis && !force) {
-    const age = Date.now() - new Date(caseRow.ai_analyzed_at).getTime()
+  if (cachedAnalysis && cachedAt && !force) {
+    const age = Date.now() - new Date(cachedAt).getTime()
     if (age < 60 * 60 * 1000) {
-      return NextResponse.json({ analysis: caseRow.ai_analysis, cached: true })
+      return NextResponse.json({ analysis: cachedAnalysis, cached: true })
     }
   }
 
@@ -91,12 +107,14 @@ export async function POST(
     caseContext,
   )
 
-  // Cache on case
-  await db.from('cases').update({
-    ai_analysis:       analysis,
-    ai_analyzed_at:    new Date().toISOString(),
-    ai_analyzed_model: model,
-  }).eq('id', caseRow.id)
+  // Cache on case (best-effort — columns may not exist if migration pending)
+  try {
+    await db.from('cases').update({
+      ai_analysis:       analysis,
+      ai_analyzed_at:    new Date().toISOString(),
+      ai_analyzed_model: model,
+    }).eq('id', caseRow.id)
+  } catch { /* migration not yet run — cache skipped */ }
 
   return NextResponse.json({ analysis, cached: false })
 }
