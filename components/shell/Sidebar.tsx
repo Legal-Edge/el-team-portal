@@ -38,31 +38,19 @@ const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
   admin: [
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-    { label: 'My Work',    href: '/my-work',    icon: 'tasks'     },
-    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
-    { label: 'Documents',  href: '/documents',  icon: 'docs'      },
   ],
   attorney: [
     { label: 'Dashboard',  href: '/dashboard',         icon: 'dashboard' },
-    { label: 'My Work',    href: '/my-work',           icon: 'tasks'     },
     { label: 'My Cases',   href: '/cases?assigned=me', icon: 'cases-me'  },
     { label: 'All Cases',  href: '/cases',             icon: 'cases'     },
-    { label: 'Comms',      href: '/comms',             icon: 'comms'     },
-    { label: 'Documents',  href: '/documents',         icon: 'docs'      },
   ],
   manager: [
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-    { label: 'My Work',    href: '/my-work',    icon: 'tasks'     },
-    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
-    { label: 'Documents',  href: '/documents',  icon: 'docs'      },
   ],
   staff: [
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-    { label: 'My Work',    href: '/my-work',    icon: 'tasks'     },
-    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
-    { label: 'Documents',  href: '/documents',  icon: 'docs'      },
   ],
 }
 
