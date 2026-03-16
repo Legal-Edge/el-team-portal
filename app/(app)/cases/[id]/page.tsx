@@ -481,7 +481,7 @@ interface CaseFile {
   size_bytes: number | null
   web_url: string | null
   document_type_code: string | null
-  checklist_item_id: string | null
+  type_label: string | null          // enriched by API
   is_classified: boolean
   classified_at: string | null
   classification_source: string | null
@@ -709,34 +709,38 @@ const COLLECTION_STATUS_BADGE: Record<string, string> = {
   'Client Traveling':                 'bg-gray-50 text-gray-600 border-gray-200',
 }
 
+// ── Document groups shown in the Files panel ───────────────────────────────
+const DOC_GROUPS = [
+  { key: 'repair_orders',      label: 'Repair Orders',              codes: ['repair_order'] },
+  { key: 'purchase_lease',     label: 'Purchase / Lease Agreement', codes: ['purchase_agreement', 'lease_agreement', 'lease_order'] },
+  { key: 'vehicle_reg',        label: 'Vehicle Registration',       codes: ['vehicle_registration'] },
+  { key: 'other',              label: 'Other Documents',            codes: null }, // catch-all
+] as const
+
 function DocumentsSection({
   caseId,
 }: {
   caseId: string
 }) {
-  const [checklist,    setChecklist]    = useState<ChecklistItem[]>([])
-  const [unclassified, setUnclassified] = useState<CaseFile[]>([])
-  const [docTypes,     setDocTypes]     = useState<DocType[]>([])
-  const [stats,        setStats]        = useState<DocumentStats | null>(null)
-  const [collection,   setCollection]   = useState<DocumentCollection | null>(null)
-  const [sharepoint,   setSharepoint]   = useState<SharePointInfo | null>(null)
-  const [loading,      setLoading]      = useState(true)
-  const [syncing,      setSyncing]      = useState(false)
-  const [classifying,  setClassifying]  = useState<string | null>(null)
-  const [classifyType, setClassifyType] = useState('')
-  const [saving,       setSaving]       = useState(false)
+  const [files,       setFiles]       = useState<CaseFile[]>([])
+  const [docTypes,    setDocTypes]    = useState<DocType[]>([])
+  const [collection,  setCollection]  = useState<DocumentCollection | null>(null)
+  const [sharepoint,  setSharepoint]  = useState<SharePointInfo | null>(null)
+  const [loading,     setLoading]     = useState(true)
+  const [syncing,     setSyncing]     = useState(false)
+  const [classifying, setClassifying] = useState<string | null>(null)
+  const [classifyType,setClassifyType]= useState('')
+  const [saving,      setSaving]      = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     const res = await fetch(`/api/cases/${caseId}/documents`)
     if (res.ok) {
       const data = await res.json()
-      setChecklist(data.checklist    ?? [])
-      setUnclassified(data.unclassified ?? [])
-      setDocTypes(data.docTypes      ?? [])
-      setStats(data.stats            ?? null)
-      setCollection(data.collection  ?? null)
-      setSharepoint(data.sharepoint  ?? null)
+      setFiles(data.files          ?? [])
+      setDocTypes(data.docTypes    ?? [])
+      setCollection(data.collection ?? null)
+      setSharepoint(data.sharepoint ?? null)
     }
     setLoading(false)
   }, [caseId])
@@ -773,13 +777,18 @@ function DocumentsSection({
     )
   }
 
-  const fileCountByType: Record<string, number> = {}
-  checklist.forEach(item => {
-    if (item.files.length > 0) fileCountByType[item.document_type_code] = item.files.length
-  })
-  const selectedTypeItem          = classifyType ? checklist.find(i => i.document_type_code === classifyType) : null
-  const selectedTypeExistingCount = selectedTypeItem?.files.length ?? 0
-  const collectionStatusBadge     = collection?.collection_status
+  // Group files by section
+  const PURCHASE_LEASE_CODES: string[] = ['purchase_agreement','lease_agreement','lease_order']
+  const NAMED_CODES: string[] = ['repair_order','purchase_agreement','lease_agreement','lease_order','vehicle_registration']
+  const groupedFiles: Record<string, CaseFile[]> = {
+    repair_orders:  files.filter(f => f.document_type_code === 'repair_order'),
+    purchase_lease: files.filter(f => PURCHASE_LEASE_CODES.includes(f.document_type_code ?? '')),
+    vehicle_reg:    files.filter(f => f.document_type_code === 'vehicle_registration'),
+    other:          files.filter(f => !f.document_type_code || !NAMED_CODES.includes(f.document_type_code)),
+  }
+  const unclassifiedCount = files.filter(f => !f.is_classified).length
+
+  const collectionStatusBadge = collection?.collection_status
     ? (COLLECTION_STATUS_BADGE[collection.collection_status] ?? 'bg-gray-50 text-gray-600 border-gray-200')
     : null
   const hasDocsNeeded = (collection?.documents_needed ?? []).length > 0
@@ -843,8 +852,8 @@ function DocumentsSection({
               <p className="text-xs text-gray-400 mb-1.5 font-medium uppercase tracking-wide">SharePoint Files</p>
               <p className="text-sm text-gray-700">
                 {sharepoint?.file_count ?? 0} file{(sharepoint?.file_count ?? 0) !== 1 ? 's' : ''}
-                {stats && stats.unclassified > 0 && (
-                  <span className="ml-2 text-xs text-amber-600">· {stats.unclassified} unclassified</span>
+                {unclassifiedCount > 0 && (
+                  <span className="ml-2 text-xs text-amber-600">· {unclassifiedCount} unclassified</span>
                 )}
               </p>
               {sharepoint?.synced_at && (
@@ -885,119 +894,140 @@ function DocumentsSection({
         </div>
       )}
 
-      {/* ── SharePoint Files + Internal Checklist ───────────────────────── */}
+      {/* ── Grouped Files ───────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Files</h2>
-            {stats && (
-              <div className="flex items-center gap-3 text-xs text-gray-400">
-                {stats.approved  > 0 && <span className="text-green-600">✅ {stats.approved} approved</span>}
-                {stats.received  > 0 && <span className="text-blue-600">📄 {stats.received} received</span>}
-                {checklist.filter(i => rowDisplay(i) === 'alarm').length > 0 && (
-                  <span className="text-red-500">❌ {checklist.filter(i => rowDisplay(i) === 'alarm').length} missing</span>
-                )}
-                {stats.unclassified > 0 && <span className="text-amber-600">📎 {stats.unclassified} unclassified</span>}
-              </div>
+            <span className="text-xs text-gray-400">{files.length} total</span>
+            {unclassifiedCount > 0 && (
+              <span className="text-xs text-amber-600">· {unclassifiedCount} need classification</span>
             )}
           </div>
           <button onClick={load} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">↻ Refresh</button>
         </div>
 
-        {checklist.length === 0 && unclassified.length === 0 ? (
+        {files.length === 0 ? (
           <div className="py-10 text-center">
             <p className="text-gray-400 text-sm">No files synced yet</p>
             <p className="text-gray-300 text-xs mt-1">
-              {sharepoint?.has_url
-                ? 'Click "Sync files" to pull from SharePoint'
-                : 'No SharePoint folder linked on this case'}
+              {sharepoint?.has_url ? 'Click "Sync files" above to pull from SharePoint' : 'No SharePoint folder linked on this case'}
             </p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {checklist.map(item => <ChecklistRow key={item.id} item={item} />)}
-
-            {/* Unclassified files */}
-            {unclassified.length > 0 && (
-              <div className="px-6 py-5 bg-amber-50/50">
-                <div className="mb-4">
-                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
-                    Unclassified Files ({unclassified.length})
-                  </p>
-                  <p className="text-xs text-amber-600/80 mt-0.5">
-                    Link each file to a document type.
-                  </p>
+            {DOC_GROUPS.map(group => {
+              const groupFiles = groupedFiles[group.key]
+              if (!groupFiles || groupFiles.length === 0) return null
+              return (
+                <div key={group.key} className="px-6 py-5">
+                  {/* Section header */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{group.label}</h3>
+                    <span className="text-xs text-gray-300">{groupFiles.length}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {groupFiles.map(f => (
+                      <FileRow
+                        key={f.id}
+                        f={f}
+                        docTypes={docTypes}
+                        classifying={classifying}
+                        classifyType={classifyType}
+                        saving={saving}
+                        onStartClassify={() => { setClassifying(f.id); setClassifyType('') }}
+                        onCancelClassify={() => { setClassifying(null); setClassifyType('') }}
+                        onTypeChange={setClassifyType}
+                        onSave={async () => {
+                          if (!classifyType) return
+                          setSaving(true)
+                          const res = await fetch(`/api/cases/${caseId}/documents/classify`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_id: f.id, document_type_code: classifyType }),
+                          })
+                          setSaving(false)
+                          if (res.ok) { setClassifying(null); setClassifyType(''); load() }
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-3">
-                  {unclassified.map(f => (
-                    <div key={f.id} className="rounded-lg bg-white border border-amber-100 px-4 py-3">
-                      <div className="flex items-center gap-3 flex-wrap mb-1">
-                        <span className="text-sm text-gray-800 font-medium min-w-0 truncate max-w-sm">{f.file_name}</span>
-                        {f.size_bytes && <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.size_bytes)}</span>}
-                        {f.web_url && (
-                          <a href={f.web_url} target="_blank" rel="noopener noreferrer"
-                            className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 mb-2 text-xs text-gray-400 flex-wrap">
-                        {f.created_at_source && (
-                          <span>Uploaded {new Date(f.created_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                        )}
-                        {f.created_by_name && <span>by {f.created_by_name}</span>}
-                        {f.modified_at_source && f.modified_at_source !== f.created_at_source && (
-                          <span className="text-gray-300">· Modified {new Date(f.modified_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                        )}
-                      </div>
-                      {classifying === f.id ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <select
-                              className="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white flex-1 min-w-[180px]"
-                              value={classifyType}
-                              onChange={e => setClassifyType(e.target.value)}
-                            >
-                              <option value="">Select document type…</option>
-                              {docTypes.map(t => {
-                                const existing = fileCountByType[t.code] ?? 0
-                                return (
-                                  <option key={t.code} value={t.code}>
-                                    {t.label}{existing > 0 ? ` (${existing} already linked)` : ''}
-                                  </option>
-                                )
-                              })}
-                            </select>
-                            <button
-                              onClick={() => classifyType && classify(f.id, classifyType)}
-                              disabled={!classifyType || saving}
-                              className="text-xs px-3 py-1.5 bg-lemon-400 text-black rounded-lg disabled:opacity-40 shrink-0 active:scale-95"
-                            >
-                              {saving ? 'Saving…' : 'Link file'}
-                            </button>
-                            <button
-                              onClick={() => { setClassifying(null); setClassifyType('') }}
-                              className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
-                            >Cancel</button>
-                          </div>
-                          {selectedTypeExistingCount > 0 && classifyType && (
-                            <p className="text-xs text-blue-600">
-                              ↳ Will add to {selectedTypeItem?.type?.label ?? classifyType} — already has {selectedTypeExistingCount} file{selectedTypeExistingCount !== 1 ? 's' : ''}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setClassifying(f.id); setClassifyType('') }}
-                          className="text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors active:scale-95"
-                        >Classify ▾</button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              )
+            })}
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Shared file row used inside each group ──────────────────────────────────
+function FileRow({
+  f, docTypes, classifying, classifyType, saving,
+  onStartClassify, onCancelClassify, onTypeChange, onSave,
+}: {
+  f: CaseFile
+  docTypes: DocType[]
+  classifying: string | null
+  classifyType: string
+  saving: boolean
+  onStartClassify: () => void
+  onCancelClassify: () => void
+  onTypeChange: (v: string) => void
+  onSave: () => void
+}) {
+  const isUnclassified = !f.is_classified
+  return (
+    <div className={`rounded-lg border px-4 py-3 ${isUnclassified ? 'border-amber-100 bg-amber-50/30' : 'border-gray-100 bg-gray-50/30'}`}>
+      {/* Name + size + open */}
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        <span className="text-sm text-gray-800 font-medium truncate max-w-sm">{f.file_name}</span>
+        {f.type_label && !isUnclassified && (
+          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">{f.type_label}</span>
+        )}
+        {f.size_bytes && <span className="text-xs text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
+        {f.web_url && (
+          <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
+        )}
+      </div>
+      {/* Metadata */}
+      <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap mb-2">
+        {f.created_at_source && (
+          <span>Uploaded {new Date(f.created_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        )}
+        {f.created_by_name && <span>by {f.created_by_name}</span>}
+        {f.modified_at_source && f.modified_at_source !== f.created_at_source && (
+          <span className="text-gray-300">· Modified {new Date(f.modified_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        )}
+      </div>
+      {/* Classify control — only for unclassified */}
+      {isUnclassified && (
+        classifying === f.id ? (
+          <div className="flex items-center gap-2 flex-wrap mt-1">
+            <select
+              className="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white flex-1 min-w-[180px]"
+              value={classifyType}
+              onChange={e => onTypeChange(e.target.value)}
+            >
+              <option value="">Select document type…</option>
+              {docTypes.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
+            </select>
+            <button
+              onClick={onSave}
+              disabled={!classifyType || saving}
+              className="text-xs px-3 py-1.5 bg-lemon-400 text-black rounded-lg disabled:opacity-40 shrink-0 active:scale-95"
+            >{saving ? 'Saving…' : 'Classify'}</button>
+            <button onClick={onCancelClassify} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Cancel</button>
+          </div>
+        ) : (
+          <button
+            onClick={onStartClassify}
+            className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-3 py-1 rounded-lg hover:bg-amber-100 transition-colors active:scale-95"
+          >Classify ▾</button>
+        )
+      )}
     </div>
   )
 }

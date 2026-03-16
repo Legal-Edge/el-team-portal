@@ -88,8 +88,30 @@ export async function syncCaseFiles(
         .maybeSingle()
 
       if (existing) {
-        // Skip if unchanged
-        if (existing.modified_at_source === file.modified_at_source) {
+        const unchanged = existing.modified_at_source === file.modified_at_source
+
+        // Re-classify if still unclassified (even if file hasn't changed)
+        if (unchanged && existing.is_classified === false) {
+          const reclassification = await classifyDocument(file.name, file.mime_type)
+          const autoClassified = reclassification &&
+            reclassification.confidence >= AUTO_CLASSIFY_CONFIDENCE_THRESHOLD
+          if (autoClassified && reclassification) {
+            await db.from('document_files').update({
+              document_type_code:    reclassification.document_type_code,
+              classification_source: reclassification.source,
+              is_classified:         true,
+              classified_at:         now,
+              updated_at:            now,
+            }).eq('id', existing.id)
+            result.updated++
+          } else {
+            result.skipped++
+          }
+          continue
+        }
+
+        // Skip if unchanged and already classified
+        if (unchanged) {
           result.skipped++
           continue
         }
