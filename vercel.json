@@ -3,6 +3,10 @@
     {
       "path": "/api/admin/cron/delta-sync",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/admin/cron/sharepoint-renew",
+      "schedule": "0 */12 * * *"
     }
   ]
 }
