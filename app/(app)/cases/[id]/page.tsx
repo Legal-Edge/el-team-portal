@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams }    from 'next/navigation'
+import { createClient as sbCreate }                  from '@supabase/supabase-js'
+import TasksSection                                  from '@/components/case/TasksSection'
 
 interface CaseIntake {
   id: string
@@ -908,8 +910,10 @@ export default function CaseDetailPage() {
   const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
   const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
-  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'intake') ?? 'overview'
-  const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>(initialTab)
+  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'intake' | 'tasks') ?? 'overview'
+  const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake' | 'tasks'>(initialTab)
+  const [taskCount, setTaskCount] = useState(0)
+  const [staffList, setStaffList] = useState<{ id: string; display_name: string }[]>([])
   const esRef = useRef<EventSource | null>(null)
 
   // ── Intake status transitions ────────────────────────────────────────────
@@ -1112,6 +1116,24 @@ export default function CaseDetailPage() {
         setStaffId(data.staffId ?? null)
         setStaffName(data.staffName ?? null)
         setCaseUUID(data.case?.id ?? null)
+
+        // Fetch open task count for tab badge
+        const taskRes = await fetch(`/api/cases/${params.id}/tasks`)
+        if (taskRes.ok) {
+          const taskData = await taskRes.json()
+          const open = (taskData.tasks ?? []).filter(
+            (t: { task_status: string }) =>
+              t.task_status === 'open' || t.task_status === 'in_progress' || t.task_status === 'blocked'
+          ).length
+          setTaskCount(open)
+        }
+
+        // Fetch staff list for task assignee dropdown
+        const staffRes = await fetch('/api/staff')
+        if (staffRes.ok) {
+          const staffData = await staffRes.json()
+          setStaffList(staffData.staff ?? [])
+        }
       }
       setLoading(false)
     }
@@ -1299,6 +1321,7 @@ export default function CaseDetailPage() {
     { id: 'overview',   label: 'Overview'   },
     { id: 'comms',      label: `Comms${commTotal > 0 ? ` (${commTotal})` : ''}` },
     { id: 'documents',  label: 'Documents'  },
+    { id: 'tasks',      label: `Tasks${taskCount > 0 ? ` (${taskCount})` : ''}` },
     { id: 'intake',     label: 'Intake'     },
   ] as const
 
@@ -1822,6 +1845,17 @@ export default function CaseDetailPage() {
             <DocumentsSection
               caseId={params.id as string}
               sharePointUrl={c.sharepoint_folder_url}
+            />
+          )}
+
+          {/* ── Tasks tab ── */}
+          {activeTab === 'tasks' && (
+            <TasksSection
+              caseSlug={params.id as string}
+              caseUUID={caseUUID}
+              staffId={staffId}
+              userRole={userRole}
+              staffList={staffList}
             />
           )}
 
