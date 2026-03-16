@@ -711,11 +711,31 @@ const COLLECTION_STATUS_BADGE: Record<string, string> = {
 
 // ── Document groups shown in the Files panel ───────────────────────────────
 const DOC_GROUPS = [
-  { key: 'repair_orders',      label: 'Repair Orders',              codes: ['repair_order'] },
-  { key: 'purchase_lease',     label: 'Purchase / Lease Agreement', codes: ['purchase_agreement', 'lease_agreement', 'lease_order'] },
-  { key: 'vehicle_reg',        label: 'Vehicle Registration',       codes: ['vehicle_registration'] },
-  { key: 'other',              label: 'Other Documents',            codes: null }, // catch-all
+  { key: 'repair_orders',  label: 'Repair Orders',              alwaysShow: true,  codes: ['repair_order'] },
+  { key: 'purchase_lease', label: 'Purchase / Lease Agreement', alwaysShow: true,  codes: ['purchase_agreement','lease_agreement','lease_order'] },
+  { key: 'vehicle_reg',    label: 'Vehicle Registration',       alwaysShow: true,  codes: ['vehicle_registration'] },
+  { key: 'other',          label: 'Other Documents',            alwaysShow: false, codes: null },
 ] as const
+
+// Maps HubSpot documents_needed values → group key
+const DOCS_NEEDED_GROUP: Record<string, string> = {
+  // Repair Orders
+  'Additional Repair Order Documents': 'repair_orders',
+  // Purchase / Lease
+  'Purchase/Lease Contract':                         'purchase_lease',
+  'Purchase Agreement/Buyer\'s Order':               'purchase_lease',
+  'Lease Order':                                     'purchase_lease',
+  'Security Agreement/Loan Purchase Agreement':      'purchase_lease',
+  'Auth to Release Loan/Lease Information':          'purchase_lease',
+  'Lienholder Information Request Form':             'purchase_lease',
+  'Loan/Account Information':                        'purchase_lease',
+  'Payoff Quote':                                    'purchase_lease',
+  // Vehicle Registration
+  'Vehicle Registration':                            'vehicle_reg',
+  'Vehicle Title':                                   'vehicle_reg',
+  'Odometer Statement Form':                         'vehicle_reg',
+  // Everything else → 'other' (handled as default)
+}
 
 function DocumentsSection({
   caseId,
@@ -786,6 +806,15 @@ function DocumentsSection({
     vehicle_reg:    files.filter(f => f.document_type_code === 'vehicle_registration'),
     other:          files.filter(f => !f.document_type_code || !NAMED_CODES.includes(f.document_type_code)),
   }
+
+  // Map documents_needed items to their group
+  const docsNeeded: string[] = collection?.documents_needed ?? []
+  const neededByGroup: Record<string, string[]> = { repair_orders: [], purchase_lease: [], vehicle_reg: [], other: [] }
+  for (const doc of docsNeeded) {
+    const groupKey = DOCS_NEEDED_GROUP[doc] ?? 'other'
+    neededByGroup[groupKey].push(doc)
+  }
+
   const unclassifiedCount = files.filter(f => !f.is_classified).length
 
   const collectionStatusBadge = collection?.collection_status
@@ -874,25 +903,7 @@ function DocumentsSection({
         </div>
       </div>
 
-      {/* ── Docs Needed (from HubSpot) ──────────────────────────────────── */}
-      {hasDocsNeeded && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-              Documents Needed
-              <span className="ml-2 text-xs font-normal text-gray-400 normal-case">from HubSpot · {collection!.documents_needed.length} item{collection!.documents_needed.length !== 1 ? 's' : ''}</span>
-            </h2>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {collection!.documents_needed.map((doc, i) => (
-              <div key={i} className="px-6 py-3 flex items-center gap-3">
-                <span className="text-amber-500 text-sm shrink-0">◉</span>
-                <span className="text-sm text-gray-700">{doc}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+
 
       {/* ── Grouped Files ───────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -917,41 +928,79 @@ function DocumentsSection({
         ) : (
           <div className="divide-y divide-gray-100">
             {DOC_GROUPS.map(group => {
-              const groupFiles = groupedFiles[group.key]
-              if (!groupFiles || groupFiles.length === 0) return null
+              const groupFiles  = groupedFiles[group.key] ?? []
+              const neededItems = neededByGroup[group.key] ?? []
+              const hasFiles    = groupFiles.length > 0
+              const hasNeeded   = neededItems.length > 0
+
+              // Skip Other if nothing to show
+              if (!group.alwaysShow && !hasFiles && !hasNeeded) return null
+
+              // Section status
+              const sectionStatus = hasFiles
+                ? 'received'
+                : hasNeeded
+                  ? 'missing'
+                  : group.alwaysShow ? 'empty' : 'empty'
+
               return (
                 <div key={group.key} className="px-6 py-5">
                   {/* Section header */}
                   <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{group.label}</h3>
-                    <span className="text-xs text-gray-300">{groupFiles.length}</span>
+                    {sectionStatus === 'received' && <span className="text-green-500 text-sm">✓</span>}
+                    {sectionStatus === 'missing'  && <span className="text-red-400 text-sm">!</span>}
+                    {sectionStatus === 'empty'    && <span className="text-gray-300 text-sm">○</span>}
+                    <h3 className={`text-xs font-semibold uppercase tracking-wide ${
+                      sectionStatus === 'missing' ? 'text-red-500' : 'text-gray-600'
+                    }`}>{group.label}</h3>
+                    {hasFiles && <span className="text-xs text-gray-300">{groupFiles.length} file{groupFiles.length !== 1 ? 's' : ''}</span>}
+                    {sectionStatus === 'missing' && (
+                      <span className="text-xs font-medium text-red-500 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">Missing</span>
+                    )}
                   </div>
-                  <div className="space-y-3">
-                    {groupFiles.map(f => (
-                      <FileRow
-                        key={f.id}
-                        f={f}
-                        docTypes={docTypes}
-                        classifying={classifying}
-                        classifyType={classifyType}
-                        saving={saving}
-                        onStartClassify={() => { setClassifying(f.id); setClassifyType('') }}
-                        onCancelClassify={() => { setClassifying(null); setClassifyType('') }}
-                        onTypeChange={setClassifyType}
-                        onSave={async () => {
-                          if (!classifyType) return
-                          setSaving(true)
-                          const res = await fetch(`/api/cases/${caseId}/documents/classify`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ file_id: f.id, document_type_code: classifyType }),
-                          })
-                          setSaving(false)
-                          if (res.ok) { setClassifying(null); setClassifyType(''); load() }
-                        }}
-                      />
-                    ))}
-                  </div>
+
+                  {/* Documents needed items for this section */}
+                  {hasNeeded && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {neededItems.map((doc, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
+                          <span className="text-amber-400">▲</span> {doc}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Files list */}
+                  {hasFiles ? (
+                    <div className="space-y-2">
+                      {groupFiles.map(f => (
+                        <FileRow
+                          key={f.id}
+                          f={f}
+                          docTypes={docTypes}
+                          classifying={classifying}
+                          classifyType={classifyType}
+                          saving={saving}
+                          onStartClassify={() => { setClassifying(f.id); setClassifyType('') }}
+                          onCancelClassify={() => { setClassifying(null); setClassifyType('') }}
+                          onTypeChange={setClassifyType}
+                          onSave={async () => {
+                            if (!classifyType) return
+                            setSaving(true)
+                            const res = await fetch(`/api/cases/${caseId}/documents/classify`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ file_id: f.id, document_type_code: classifyType }),
+                            })
+                            setSaving(false)
+                            if (res.ok) { setClassifying(null); setClassifyType(''); load() }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : group.alwaysShow ? (
+                    <p className="text-xs text-gray-300 italic pl-1">No documents received yet</p>
+                  ) : null}
                 </div>
               )
             })}
