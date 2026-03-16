@@ -7,11 +7,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient }              from '@supabase/supabase-js'
 import { syncCaseByUrl, syncCaseFiles } from '@/lib/pipelines/sharepoint-sync'
 
+import { auth } from '@/auth'
+
 const TOKEN = process.env.BACKFILL_IMPORT_TOKEN!
 
 export async function POST(req: NextRequest) {
-  if (req.headers.get('authorization') !== `Bearer ${TOKEN}`)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Accept either admin token OR authenticated session
+  const authHeader = req.headers.get('authorization')
+  if (authHeader !== `Bearer ${TOKEN}`) {
+    const session = await auth()
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const { case_id, hubspot_deal_id } = await req.json()
   if (!case_id && !hubspot_deal_id)

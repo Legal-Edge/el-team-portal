@@ -498,6 +498,22 @@ interface DocumentStats {
   approved: number
   waived: number
   unclassified: number
+  docs_needed: number
+}
+
+interface DocumentCollection {
+  documents_needed:       string[]
+  collection_status:      string | null
+  collection_notes:       string | null
+  promise_date:           string | null
+  synced_from_hubspot_at: string | null
+}
+
+interface SharePointInfo {
+  has_url:    boolean
+  file_url:   string | null
+  synced_at:  string | null
+  file_count: number
 }
 
 // ── is_required + status → visual state ──────────────────────────────────
@@ -669,35 +685,64 @@ function ChecklistRow({ item }: { item: ChecklistItem }) {
   )
 }
 
+// ── Collection status badge colours ────────────────────────────────────────
+const COLLECTION_STATUS_BADGE: Record<string, string> = {
+  'Requested - Awaiting Upload':      'bg-yellow-50 text-yellow-700 border-yellow-200',
+  'Received \u2013 Pending Review/Upload': 'bg-blue-50 text-blue-700 border-blue-200',
+  'New Document Promise Date':        'bg-purple-50 text-purple-700 border-purple-200',
+  'Vehicle in Repair / In Shop':      'bg-orange-50 text-orange-700 border-orange-200',
+  'No Answer / Missed Promise Date':  'bg-red-50 text-red-700 border-red-200',
+  'Missing Documents':                'bg-red-50 text-red-700 border-red-200',
+  'Blurry/Illegible Documents':       'bg-orange-50 text-orange-700 border-orange-200',
+  'Dealership Refused to Provide Docs': 'bg-red-50 text-red-700 border-red-200',
+  'Dealership Refused to Take Vehicle': 'bg-red-50 text-red-700 border-red-200',
+  'Client Traveling':                 'bg-gray-50 text-gray-600 border-gray-200',
+}
+
 function DocumentsSection({
-  caseId, sharePointUrl
+  caseId,
 }: {
   caseId: string
-  sharePointUrl: string | null
 }) {
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([])
+  const [checklist,    setChecklist]    = useState<ChecklistItem[]>([])
   const [unclassified, setUnclassified] = useState<CaseFile[]>([])
-  const [docTypes, setDocTypes] = useState<DocType[]>([])
-  const [stats, setStats] = useState<DocumentStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [classifying, setClassifying] = useState<string | null>(null)
+  const [docTypes,     setDocTypes]     = useState<DocType[]>([])
+  const [stats,        setStats]        = useState<DocumentStats | null>(null)
+  const [collection,   setCollection]   = useState<DocumentCollection | null>(null)
+  const [sharepoint,   setSharepoint]   = useState<SharePointInfo | null>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [syncing,      setSyncing]      = useState(false)
+  const [classifying,  setClassifying]  = useState<string | null>(null)
   const [classifyType, setClassifyType] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [saving,       setSaving]       = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     const res = await fetch(`/api/cases/${caseId}/documents`)
     if (res.ok) {
       const data = await res.json()
-      setChecklist(data.checklist ?? [])
+      setChecklist(data.checklist    ?? [])
       setUnclassified(data.unclassified ?? [])
-      setDocTypes(data.docTypes ?? [])
-      setStats(data.stats ?? null)
+      setDocTypes(data.docTypes      ?? [])
+      setStats(data.stats            ?? null)
+      setCollection(data.collection  ?? null)
+      setSharepoint(data.sharepoint  ?? null)
     }
     setLoading(false)
   }, [caseId])
 
   useEffect(() => { load() }, [load])
+
+  async function triggerSync() {
+    setSyncing(true)
+    await fetch('/api/admin/sharepoint/sync-case', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ case_id: caseId }),
+    })
+    await load()
+    setSyncing(false)
+  }
 
   async function classify(fileId: string, typeCode: string) {
     setSaving(true)
@@ -707,165 +752,233 @@ function DocumentsSection({
       body: JSON.stringify({ file_id: fileId, document_type_code: typeCode }),
     })
     setSaving(false)
-    if (res.ok) {
-      setClassifying(null)
-      setClassifyType('')
-      load()
-    }
+    if (res.ok) { setClassifying(null); setClassifyType(''); load() }
   }
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
         <p className="text-sm text-gray-400">Loading documents…</p>
       </div>
     )
   }
 
-  const noData = checklist.length === 0 && unclassified.length === 0
-
-  // Build a map of doc type → how many files are already linked (for classify dropdown hints)
   const fileCountByType: Record<string, number> = {}
   checklist.forEach(item => {
     if (item.files.length > 0) fileCountByType[item.document_type_code] = item.files.length
   })
-
-  // The type label the user is about to classify into (for the inline hint)
-  const selectedTypeItem = classifyType
-    ? checklist.find(i => i.document_type_code === classifyType)
-    : null
+  const selectedTypeItem          = classifyType ? checklist.find(i => i.document_type_code === classifyType) : null
   const selectedTypeExistingCount = selectedTypeItem?.files.length ?? 0
+  const collectionStatusBadge     = collection?.collection_status
+    ? (COLLECTION_STATUS_BADGE[collection.collection_status] ?? 'bg-gray-50 text-gray-600 border-gray-200')
+    : null
+  const hasDocsNeeded = (collection?.documents_needed ?? []).length > 0
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Documents</h2>
-          {stats && (
-            <div className="flex items-center gap-3 text-xs text-gray-400">
-              {stats.approved > 0     && <span className="text-green-600">✅ {stats.approved} approved</span>}
-              {stats.received > 0     && <span className="text-blue-600">📄 {stats.received} received</span>}
-              {/* Only alarm rows count as missing — is_required=true and not satisfied */}
-              {checklist.filter(i => rowDisplay(i) === 'alarm').length > 0 && (
-                <span className="text-red-500">❌ {checklist.filter(i => rowDisplay(i) === 'alarm').length} missing</span>
+    <div className="space-y-4">
+
+      {/* ── HubSpot Collection Status Card ─────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Collection Status</h2>
+          <div className="flex items-center gap-3">
+            {sharepoint?.file_url && (
+              <a href={sharepoint.file_url} target="_blank" rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:underline">
+                Open SharePoint folder ↗
+              </a>
+            )}
+            <button
+              onClick={triggerSync}
+              disabled={syncing || !sharepoint?.has_url}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors active:scale-95"
+              title={!sharepoint?.has_url ? 'No SharePoint folder on this case' : 'Pull latest files from SharePoint'}
+            >
+              {syncing ? '⟳ Syncing…' : '⟳ Sync files'}
+            </button>
+          </div>
+        </div>
+
+        <div className="px-6 py-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+
+            {/* Status */}
+            <div>
+              <p className="text-xs text-gray-400 mb-1.5 font-medium uppercase tracking-wide">Status</p>
+              {collection?.collection_status ? (
+                <span className={`inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full border ${collectionStatusBadge}`}>
+                  {collection.collection_status}
+                </span>
+              ) : (
+                <span className="text-sm text-gray-300">—</span>
               )}
-              {stats.unclassified > 0 && <span className="text-yellow-600">📎 {stats.unclassified} unclassified</span>}
+            </div>
+
+            {/* Promise date */}
+            <div>
+              <p className="text-xs text-gray-400 mb-1.5 font-medium uppercase tracking-wide">Promise Date</p>
+              {collection?.promise_date ? (
+                <p className="text-sm font-medium text-gray-800">
+                  {new Date(collection.promise_date + 'T12:00:00').toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric'
+                  })}
+                </p>
+              ) : (
+                <span className="text-sm text-gray-300">—</span>
+              )}
+            </div>
+
+            {/* SharePoint sync info */}
+            <div>
+              <p className="text-xs text-gray-400 mb-1.5 font-medium uppercase tracking-wide">SharePoint Files</p>
+              <p className="text-sm text-gray-700">
+                {sharepoint?.file_count ?? 0} file{(sharepoint?.file_count ?? 0) !== 1 ? 's' : ''}
+                {stats && stats.unclassified > 0 && (
+                  <span className="ml-2 text-xs text-amber-600">· {stats.unclassified} unclassified</span>
+                )}
+              </p>
+              {sharepoint?.synced_at && (
+                <p className="text-xs text-gray-300 mt-0.5">
+                  Synced {new Date(sharepoint.synced_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Notes */}
+          {collection?.collection_notes && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">Notes</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{collection.collection_notes}</p>
             </div>
           )}
-        </div>
-        <div className="flex items-center gap-2">
-          {sharePointUrl && (
-            <a href={sharePointUrl} target="_blank" rel="noopener noreferrer"
-              className="text-xs text-blue-600 hover:underline">
-              Open folder ↗
-            </a>
-          )}
-          <button onClick={load} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">
-            ↻ Refresh
-          </button>
         </div>
       </div>
 
-      {noData ? (
-        <div className="py-10 text-center">
-          <p className="text-gray-400 text-sm">No document data yet</p>
-          {sharePointUrl
-            ? <p className="text-gray-300 text-xs mt-1">Run init-case-checklist + sync-sharepoint-docs to populate</p>
-            : <p className="text-gray-300 text-xs mt-1">No SharePoint folder linked — check HubSpot deal</p>
-          }
-        </div>
-      ) : (
-        <div className="divide-y divide-gray-100">
-
-          {/* Checklist items */}
-          {checklist.map(item => (
-            <ChecklistRow key={item.id} item={item} />
-          ))}
-
-          {/* Unclassified files */}
-          {unclassified.length > 0 && (
-            <div className="px-6 py-5 bg-amber-50/50">
-              {/* Section header with explanation */}
-              <div className="mb-4">
-                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
-                  Unclassified Files ({unclassified.length})
-                </p>
-                <p className="text-xs text-amber-600/80 mt-0.5">
-                  Link each file to a document type. Multiple files can belong to the same type — e.g. several repair orders all link to Repair Orders.
-                </p>
+      {/* ── Docs Needed (from HubSpot) ──────────────────────────────────── */}
+      {hasDocsNeeded && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+              Documents Needed
+              <span className="ml-2 text-xs font-normal text-gray-400 normal-case">from HubSpot · {collection!.documents_needed.length} item{collection!.documents_needed.length !== 1 ? 's' : ''}</span>
+            </h2>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {collection!.documents_needed.map((doc, i) => (
+              <div key={i} className="px-6 py-3 flex items-center gap-3">
+                <span className="text-amber-500 text-sm shrink-0">◉</span>
+                <span className="text-sm text-gray-700">{doc}</span>
               </div>
-
-              <div className="space-y-3">
-                {unclassified.map(f => (
-                  <div key={f.id} className="rounded-lg bg-white border border-amber-100 px-4 py-3">
-                    {/* File info row */}
-                    <div className="flex items-center gap-3 flex-wrap mb-2">
-                      <span className="text-sm text-gray-800 font-medium min-w-0 truncate max-w-sm">{f.name}</span>
-                      {f.size_bytes && <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.size_bytes)}</span>}
-                      {f.web_url && (
-                        <a href={f.web_url} target="_blank" rel="noopener noreferrer"
-                          className="text-xs text-blue-500 hover:underline shrink-0">
-                          Open ↗
-                        </a>
-                      )}
-                    </div>
-
-                    {/* Classify action */}
-                    {classifying === f.id ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <select
-                            className="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white flex-1 min-w-[180px]"
-                            value={classifyType}
-                            onChange={e => setClassifyType(e.target.value)}
-                          >
-                            <option value="">Select document type…</option>
-                            {docTypes.map(t => {
-                              const existing = fileCountByType[t.code] ?? 0
-                              return (
-                                <option key={t.code} value={t.code}>
-                                  {t.label}{existing > 0 ? ` (${existing} already linked)` : ''}
-                                </option>
-                              )
-                            })}
-                          </select>
-                          <button
-                            onClick={() => classifyType && classify(f.id, classifyType)}
-                            disabled={!classifyType || saving}
-                            className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg disabled:opacity-40 shrink-0"
-                          >
-                            {saving ? 'Saving…' : 'Link file'}
-                          </button>
-                          <button
-                            onClick={() => { setClassifying(null); setClassifyType('') }}
-                            className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                        {/* Contextual hint when an already-linked type is selected */}
-                        {selectedTypeExistingCount > 0 && classifyType && (
-                          <p className="text-xs text-blue-600">
-                            ↳ Will add to {selectedTypeItem?.type?.label ?? classifyType} — already has {selectedTypeExistingCount} file{selectedTypeExistingCount !== 1 ? 's' : ''}
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => { setClassifying(f.id); setClassifyType('') }}
-                        className="text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
-                      >
-                        Classify ▾
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       )}
+
+      {/* ── SharePoint Files + Internal Checklist ───────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Files</h2>
+            {stats && (
+              <div className="flex items-center gap-3 text-xs text-gray-400">
+                {stats.approved  > 0 && <span className="text-green-600">✅ {stats.approved} approved</span>}
+                {stats.received  > 0 && <span className="text-blue-600">📄 {stats.received} received</span>}
+                {checklist.filter(i => rowDisplay(i) === 'alarm').length > 0 && (
+                  <span className="text-red-500">❌ {checklist.filter(i => rowDisplay(i) === 'alarm').length} missing</span>
+                )}
+                {stats.unclassified > 0 && <span className="text-amber-600">📎 {stats.unclassified} unclassified</span>}
+              </div>
+            )}
+          </div>
+          <button onClick={load} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">↻ Refresh</button>
+        </div>
+
+        {checklist.length === 0 && unclassified.length === 0 ? (
+          <div className="py-10 text-center">
+            <p className="text-gray-400 text-sm">No files synced yet</p>
+            <p className="text-gray-300 text-xs mt-1">
+              {sharepoint?.has_url
+                ? 'Click "Sync files" to pull from SharePoint'
+                : 'No SharePoint folder linked on this case'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {checklist.map(item => <ChecklistRow key={item.id} item={item} />)}
+
+            {/* Unclassified files */}
+            {unclassified.length > 0 && (
+              <div className="px-6 py-5 bg-amber-50/50">
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                    Unclassified Files ({unclassified.length})
+                  </p>
+                  <p className="text-xs text-amber-600/80 mt-0.5">
+                    Link each file to a document type.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  {unclassified.map(f => (
+                    <div key={f.id} className="rounded-lg bg-white border border-amber-100 px-4 py-3">
+                      <div className="flex items-center gap-3 flex-wrap mb-2">
+                        <span className="text-sm text-gray-800 font-medium min-w-0 truncate max-w-sm">{f.name}</span>
+                        {f.size_bytes && <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.size_bytes)}</span>}
+                        {f.web_url && (
+                          <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
+                        )}
+                      </div>
+                      {classifying === f.id ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                              className="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white flex-1 min-w-[180px]"
+                              value={classifyType}
+                              onChange={e => setClassifyType(e.target.value)}
+                            >
+                              <option value="">Select document type…</option>
+                              {docTypes.map(t => {
+                                const existing = fileCountByType[t.code] ?? 0
+                                return (
+                                  <option key={t.code} value={t.code}>
+                                    {t.label}{existing > 0 ? ` (${existing} already linked)` : ''}
+                                  </option>
+                                )
+                              })}
+                            </select>
+                            <button
+                              onClick={() => classifyType && classify(f.id, classifyType)}
+                              disabled={!classifyType || saving}
+                              className="text-xs px-3 py-1.5 bg-lemon-400 text-black rounded-lg disabled:opacity-40 shrink-0 active:scale-95"
+                            >
+                              {saving ? 'Saving…' : 'Link file'}
+                            </button>
+                            <button
+                              onClick={() => { setClassifying(null); setClassifyType('') }}
+                              className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
+                            >Cancel</button>
+                          </div>
+                          {selectedTypeExistingCount > 0 && classifyType && (
+                            <p className="text-xs text-blue-600">
+                              ↳ Will add to {selectedTypeItem?.type?.label ?? classifyType} — already has {selectedTypeExistingCount} file{selectedTypeExistingCount !== 1 ? 's' : ''}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setClassifying(f.id); setClassifyType('') }}
+                          className="text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors active:scale-95"
+                        >Classify ▾</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1862,7 +1975,6 @@ export default function CaseDetailPage() {
           {activeTab === 'documents' && (
             <DocumentsSection
               caseId={params.id as string}
-              sharePointUrl={c.sharepoint_folder_url}
             />
           )}
 
