@@ -198,7 +198,7 @@ export async function createDriveSubscription(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      changeType:           'created,updated,deleted',
+      changeType:           'updated',
       notificationUrl:      WEBHOOK_ENDPOINT,
       resource:             `/drives/${driveId}/root`,
       expirationDateTime:   expiry,
