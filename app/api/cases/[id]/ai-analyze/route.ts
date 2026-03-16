@@ -24,20 +24,25 @@ export async function POST(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   ).schema('core')
 
-  // Resolve case — select only columns guaranteed to exist
+  // Resolve case — select only id to guarantee no missing-column errors
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
   const { data: caseRow, error: caseErr } = await db
     .from('cases')
-    .select('id, client_first_name, client_last_name, stage')
+    .select('id')
     .eq(isUUID ? 'id' : 'hubspot_deal_id', id)
     .single()
 
   if (caseErr || !caseRow) {
-    console.error('[ai-analyze] case lookup failed', { id, error: caseErr?.message })
-    return NextResponse.json({ error: 'Case not found' }, { status: 404 })
+    console.error('[ai-analyze] case lookup failed', { id, isUUID, error: caseErr?.message, code: caseErr?.code })
+    return NextResponse.json({ error: `Case not found (id=${id}, err=${caseErr?.message ?? 'null row'})` }, { status: 404 })
   }
 
-  const clientName = [caseRow.client_first_name, caseRow.client_last_name].filter(Boolean).join(' ') || null
+  // Fetch client name separately — best effort
+  let clientName: string | null = null
+  try {
+    const { data: nameRow } = await db.from('cases').select('client_first_name, client_last_name').eq('id', caseRow.id).single()
+    if (nameRow) clientName = [nameRow.client_first_name, nameRow.client_last_name].filter(Boolean).join(' ') || null
+  } catch { /* ignore */ }
 
   // Try to read cached AI analysis (columns may not exist yet if migration pending)
   let cachedAnalysis: Record<string, unknown> | null = null
