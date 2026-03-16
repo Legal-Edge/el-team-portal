@@ -57,26 +57,44 @@ export async function POST(
     cachedAt       = (aiRow as Record<string, unknown> | null)?.ai_analyzed_at as string ?? null
   } catch { /* migration not yet run — columns don't exist, skip cache */ }
 
-  // Return cached if recent (< 1 hour) and not forced
+  // Return cached if recent (< 24 hours) and not forced
   if (cachedAnalysis && cachedAt && !force) {
     const age = Date.now() - new Date(cachedAt).getTime()
-    if (age < 60 * 60 * 1000) {
-      return NextResponse.json({ analysis: cachedAnalysis, cached: true })
+    if (age < 24 * 60 * 60 * 1000) {
+      // Still load file coverage so we can show pending docs
+      const { data: allFiles } = await db
+        .from('document_files')
+        .select('file_name, ai_extraction')
+        .eq('case_id', caseRow.id)
+        .eq('is_deleted', false)
+      const pendingFiles = (allFiles ?? []).filter(f => f.ai_extraction == null).map(f => f.file_name)
+      return NextResponse.json({
+        analysis:       cachedAnalysis,
+        cached:         true,
+        analyzed_at:    cachedAt,
+        files_analyzed: (allFiles ?? []).filter(f => f.ai_extraction != null).length,
+        files_pending:  pendingFiles,
+      })
     }
   }
 
-  // Load all extracted documents for this case
-  const { data: files } = await db
+  // Load ALL documents for this case (extracted + pending)
+  const { data: allFiles } = await db
     .from('document_files')
-    .select('file_name, document_type_code, ai_extraction')
+    .select('id, file_name, document_type_code, ai_extraction, ai_extracted_at')
     .eq('case_id', caseRow.id)
     .eq('is_deleted', false)
-    .not('ai_extraction', 'is', null)
     .order('created_at_source', { ascending: true })
 
-  if (!files || files.length === 0) {
+  const files         = (allFiles ?? []).filter(f => f.ai_extraction != null)
+  const pendingFiles  = (allFiles ?? []).filter(f => f.ai_extraction == null)
+
+  if (files.length === 0) {
     return NextResponse.json({
-      error: 'No extracted documents found. Open each document first to extract, then analyze.',
+      error: 'No extracted documents yet. Open each PDF first (Haiku extracts automatically), then analyze.',
+      files_total:    (allFiles ?? []).length,
+      files_analyzed: 0,
+      files_pending:  pendingFiles.map(f => f.file_name),
     }, { status: 422 })
   }
 
@@ -114,14 +132,22 @@ export async function POST(
     caseContext,
   )
 
-  // Cache on case (best-effort — columns may not exist if migration pending)
-  try {
-    await db.from('cases').update({
-      ai_analysis:       analysis,
-      ai_analyzed_at:    new Date().toISOString(),
-      ai_analyzed_model: model,
-    }).eq('id', caseRow.id)
-  } catch { /* migration not yet run — cache skipped */ }
+  const analyzedAt = new Date().toISOString()
 
-  return NextResponse.json({ analysis, cached: false })
+  // Cache on case
+  const { error: updateErr } = await db.from('cases').update({
+    ai_analysis:       analysis,
+    ai_analyzed_at:    analyzedAt,
+    ai_analyzed_model: model,
+  }).eq('id', caseRow.id)
+
+  if (updateErr) console.error('[ai-analyze] cache write failed', updateErr.message)
+
+  return NextResponse.json({
+    analysis,
+    cached:         false,
+    analyzed_at:    analyzedAt,
+    files_analyzed: files.length,
+    files_pending:  pendingFiles.map(f => f.file_name),
+  })
 }

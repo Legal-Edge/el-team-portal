@@ -718,10 +718,13 @@ const STRENGTH_STYLE: Record<string, string> = {
 }
 
 function CaseAnalysisPanel({ caseId }: { caseId: string }) {
-  const [analysis,  setAnalysis]  = useState<Record<string, unknown> | null>(null)
-  const [loading,   setLoading]   = useState(false)
-  const [error,     setError]     = useState<string | null>(null)
-  const [collapsed, setCollapsed] = useState(true)
+  const [analysis,      setAnalysis]      = useState<Record<string, unknown> | null>(null)
+  const [analyzedAt,    setAnalyzedAt]    = useState<string | null>(null)
+  const [filesAnalyzed, setFilesAnalyzed] = useState<number>(0)
+  const [filesPending,  setFilesPending]  = useState<string[]>([])
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState<string | null>(null)
+  const [collapsed,     setCollapsed]     = useState(false)
 
   async function runAnalysis(force = false) {
     setLoading(true); setError(null)
@@ -731,30 +734,47 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
       body: JSON.stringify({ force }),
     })
     const data = await res.json()
-    if (!res.ok) { setError(data.error ?? 'Analysis failed'); setLoading(false); return }
-    setAnalysis(data.analysis)
-    setCollapsed(false)
     setLoading(false)
+    if (!res.ok) { setError(data.error ?? 'Analysis failed'); return }
+    setAnalysis(data.analysis)
+    setAnalyzedAt(data.analyzed_at ?? null)
+    setFilesAnalyzed(data.files_analyzed ?? 0)
+    setFilesPending(data.files_pending ?? [])
+    setCollapsed(false)
   }
 
+  // Auto-load cached analysis on mount
+  useEffect(() => { runAnalysis(false) }, [caseId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const strength = analysis?.case_strength as string | undefined
+
+  function formatAnalyzedAt(ts: string | null) {
+    if (!ts) return null
+    const d = new Date(ts)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+      ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-base">✦</span>
-          <div>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-base shrink-0">✦</span>
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold text-gray-700">Case AI Analysis</h2>
-            <p className="text-xs text-gray-400">Claude Sonnet · reads all extracted documents</p>
+            <p className="text-xs text-gray-400 truncate">
+              {analyzedAt
+                ? `Last analyzed ${formatAnalyzedAt(analyzedAt)} · ${filesAnalyzed} doc${filesAnalyzed !== 1 ? 's' : ''}`
+                : 'Claude Sonnet · cross-document lemon law review'}
+            </p>
           </div>
           {strength && (
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize ${STRENGTH_STYLE[strength] ?? STRENGTH_STYLE.insufficient_data}`}>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize shrink-0 ${STRENGTH_STYLE[strength] ?? STRENGTH_STYLE.insufficient_data}`}>
               {strength.replace('_', ' ')} case
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {analysis && (
             <button onClick={() => setCollapsed(c => !c)}
               className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2">
@@ -762,19 +782,34 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
             </button>
           )}
           <button
-            onClick={() => runAnalysis(!!analysis)}
+            onClick={() => runAnalysis(true)}
             disabled={loading}
             className="text-xs px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors active:scale-95"
           >
             {loading ? (
               <span className="flex items-center gap-2">
                 <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
-                Analyzing…
+                {analysis ? 'Analyzing…' : 'Loading…'}
               </span>
             ) : analysis ? '↻ Re-analyze' : 'Analyze Case'}
           </button>
         </div>
       </div>
+
+      {/* Pending docs warning */}
+      {!loading && filesPending.length > 0 && (
+        <div className="mx-6 mb-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <p className="text-xs font-semibold text-amber-700 mb-1">
+            {filesPending.length} document{filesPending.length !== 1 ? 's' : ''} not yet included in analysis
+          </p>
+          <p className="text-xs text-amber-600 mb-1">Open {filesPending.length === 1 ? 'this PDF' : 'these PDFs'} to extract, then re-analyze:</p>
+          <ul className="space-y-0.5">
+            {filesPending.map((name, i) => (
+              <li key={i} className="text-xs text-amber-700 flex gap-1.5"><span className="opacity-50">·</span>{name}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {error && (
         <div className="px-6 pb-4">
