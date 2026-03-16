@@ -58,7 +58,8 @@ async function getAttorneyStats(staffId: string) {
   const [{ count: myActive }, { count: dueSoon }, { count: needsReview }] = await Promise.all([
     db.from('cases').select('*', { count: 'exact', head: true }).eq('attorney_id', staffId).in('case_status', ACTIVE_STAGES),
     db.from('cases').select('*', { count: 'exact', head: true }).eq('attorney_id', staffId).lte('filing_deadline', weekEnd).gte('filing_deadline', now.toISOString()),
-    db.from('communications').select('*', { count: 'exact', head: true }).eq('needs_review', true).eq('is_deleted', false),
+    // Operational question → comms_review_state (not communications history table)
+    db.from('comms_review_state').select('*', { count: 'exact', head: true }).eq('needs_review', true),
   ])
 
   return { myActive: myActive ?? 0, dueSoon: dueSoon ?? 0, needsReview: needsReview ?? 0 }
@@ -69,7 +70,8 @@ async function getManagerStats() {
   const [{ count: totalCases }, { count: intakePending }, { count: commsReview }] = await Promise.all([
     db.from('cases').select('*', { count: 'exact', head: true }).in('case_status', ACTIVE_STAGES),
     db.from('cases').select('*', { count: 'exact', head: true }).in('case_status', INTAKE_STAGES),
-    db.from('communications').select('*', { count: 'exact', head: true }).eq('needs_review', true).eq('is_deleted', false),
+    // Operational question → comms_review_state (not communications history table)
+    db.from('comms_review_state').select('*', { count: 'exact', head: true }).eq('needs_review', true),
   ])
 
   return { totalCases: totalCases ?? 0, intakePending: intakePending ?? 0, commsReview: commsReview ?? 0 }

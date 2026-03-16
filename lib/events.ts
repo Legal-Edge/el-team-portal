@@ -52,6 +52,12 @@ export const PLATFORM_EVENTS = {
   // Referrals
   REFERRAL_SUBMITTED:    'referral.submitted',
 
+  // Tasks — emitted by DB trigger (core.emit_task_event), not application code
+  TASK_CREATED:          'task.created',
+  TASK_STATUS_CHANGED:   'task.status_changed',
+  TASK_COMPLETED:        'task.completed',
+  TASK_CANCELLED:        'task.cancelled',
+
   // AI
   AI_OUTPUT_GENERATED:   'ai.output_generated',
 

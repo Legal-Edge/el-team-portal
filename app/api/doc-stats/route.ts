@@ -31,28 +31,28 @@ export async function GET() {
 
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
+  // All "what is current?" queries go to operational state tables per architecture rule.
+  // communications.needs_review and document_files.is_classified are DEPRECATED.
   const [missingReq, unclassified, needsReview, recentUploads] = await Promise.all([
-    // Required checklist items not yet received
+    // Missing required docs → core.case_document_checklist (operational state)
     db.from('case_document_checklist')
       .select('*', { count: 'exact', head: true })
       .in('status', ['required', 'requested'])
       .eq('is_required', true)
       .eq('is_deleted', false),
 
-    // Documents not yet classified
-    db.from('document_files')
+    // Unclassified docs → core.document_review_state (operational state)
+    db.from('document_review_state')
       .select('*', { count: 'exact', head: true })
-      .eq('is_classified', false)
-      .eq('is_deleted', false),
+      .eq('is_classified', false),
 
-    // Classified but not reviewed
-    db.from('document_files')
+    // Classified but not reviewed → core.document_review_state (operational state)
+    db.from('document_review_state')
       .select('*', { count: 'exact', head: true })
       .eq('is_classified', true)
-      .eq('is_reviewed', false)
-      .eq('is_deleted', false),
+      .eq('is_reviewed', false),
 
-    // Uploaded in last 24h
+    // Recent uploads → core.document_files (file identity / history — asking "when uploaded?" is a history question)
     db.from('document_files')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', since24h)

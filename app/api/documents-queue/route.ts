@@ -107,13 +107,15 @@ export async function PATCH(req: NextRequest) {
 
   let update: Record<string, unknown> = { updated_at: new Date().toISOString() }
 
+  // All classification + review state writes go to document_review_state (not document_files).
+  // document_files is the immutable file identity record per the architecture rule.
   if (action === 'classify') {
     update = {
       ...update,
-      is_classified:        true,
+      is_classified:         true,
       classification_source: 'manual',
-      classified_at:        new Date().toISOString(),
-      classified_by:        staffId,
+      classified_at:         new Date().toISOString(),
+      classified_by:         staffId,
       ...(document_type_code ? { document_type_code } : {}),
     }
   } else if (action === 'approve') {
@@ -136,10 +138,10 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
   }
 
+  // Write to document_review_state (operational state table)
   const { error } = await db
-    .from('document_files')
-    .update(update)
-    .eq('id', doc_id)
+    .from('document_review_state')
+    .upsert({ doc_id, ...update }, { onConflict: 'doc_id' })
 
   if (error) {
     console.error('[documents-queue] PATCH error:', error.message)
