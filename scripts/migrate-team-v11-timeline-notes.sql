@@ -89,6 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_timeline_notes_visibility
   WHERE is_deleted = FALSE;
 
 -- ── Trigger ────────────────────────────────────────────────────
+DROP TRIGGER IF EXISTS trg_timeline_notes_updated_at ON core.timeline_notes;
 CREATE TRIGGER trg_timeline_notes_updated_at
   BEFORE UPDATE ON core.timeline_notes
   FOR EACH ROW EXECUTE FUNCTION core.set_updated_at();
@@ -194,7 +195,11 @@ RETURNS TABLE (
       (n.visibility = 'private' AND n.author_id = p_staff_id)
     )
 
-  ORDER BY ts DESC
+  -- is_pinned DESC floats pinned notes to top of page 1.
+  -- Note: cursor pagination via p_before_ts (ts-based) can produce duplicates
+  -- for pinned notes with old timestamps on pages 2+. Acceptable for now —
+  -- revisit when building the timeline UI (separate pinned fetch + paginate rest).
+  ORDER BY is_pinned DESC, ts DESC
   LIMIT p_limit;
 $$;
 
