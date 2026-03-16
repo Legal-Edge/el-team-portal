@@ -72,13 +72,30 @@ export async function POST(req: NextRequest) {
     console.log(`[webhook] DELETE deal ${dealId}: ${results[dealId]}`)
   }
 
+  // Which deal IDs came from a deal.creation event (need retry on 404)
+  const creationIds = new Set<string>()
+  for (const e of events) {
+    if (e.subscriptionType === 'deal.creation') creationIds.add(String(e.objectId))
+  }
+
   // ── Upserts ───────────────────────────────────────────────────────────────
   for (const dealId of upserts) {
     try {
-      const deal = await fetchHsDeal(dealId)
+      // HubSpot fires deal.creation webhooks before the deal is queryable via API.
+      // Retry up to 3× with exponential backoff for creation events to avoid
+      // false-positive 'deleted_on_404' outcomes.
+      let deal = await fetchHsDeal(dealId)
+      if (!deal && creationIds.has(dealId)) {
+        const delays = [1500, 3000, 6000]
+        for (const ms of delays) {
+          await new Promise(r => setTimeout(r, ms))
+          deal = await fetchHsDeal(dealId)
+          if (deal) break
+        }
+      }
 
       if (!deal) {
-        // 404 — deal deleted between event fire and fetch
+        // Still 404 after retries — deal was deleted immediately after creation
         await deleteCase(client, dealId, {
           emitEvents: true,
           source:     EVENT_SOURCES.HUBSPOT_WEBHOOK,
