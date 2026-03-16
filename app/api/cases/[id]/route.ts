@@ -41,5 +41,23 @@ export async function GET(
     // Table may not exist yet
   }
 
-  return NextResponse.json({ case: data, intake })
+  // Fetch intake status from case_state (non-fatal)
+  let intakeStatus: string | null = null
+  try {
+    const { data: caseState } = await db
+      .from('case_state')
+      .select('intake_status')
+      .eq('case_id', data.id)
+      .maybeSingle()
+    intakeStatus = caseState?.intake_status ?? null
+  } catch {
+    // case_state may be empty for this case
+  }
+
+  return NextResponse.json({
+    case: data,
+    intake,
+    intakeStatus,
+    userRole: (session.user as { role?: string }).role ?? 'staff',
+  })
 }

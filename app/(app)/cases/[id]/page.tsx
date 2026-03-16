@@ -866,10 +866,93 @@ export default function CaseDetailPage() {
   const [userCanSms, setUserCanSms] = useState(false)
   const [isLive, setIsLive] = useState(false)
   const [statusFlash, setStatusFlash] = useState(false)
+  const [intakeStatus, setIntakeStatus] = useState<string | null>(null)
+  const [intakeSaving, setIntakeSaving] = useState(false)
+  const [intakeError, setIntakeError] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string>('staff')
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'intake') ?? 'overview'
   const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>(initialTab)
   const esRef = useRef<EventSource | null>(null)
+
+  // ── Intake status transitions ────────────────────────────────────────────
+  const INTAKE_STATUS_LABELS: Record<string, string> = {
+    not_started:            'Not Started',
+    intake_batch_1_needed:  'Batch 1 Needed',
+    intake_batch_2_needed:  'Batch 2 Needed',
+    intake_batch_3_needed:  'Batch 3 Needed',
+    intake_batch_4_needed:  'Batch 4 Needed',
+    intake_batch_5_needed:  'Batch 5 Needed',
+    intake_batch_6_needed:  'Batch 6 Needed',
+    intake_batch_7_needed:  'Batch 7 Needed',
+    intake_under_review:    'Under Review',
+    intake_docs_needed:     'Docs Needed',
+    intake_attorney_review: 'Attorney Review',
+    intake_case_approved:   'Case Approved',
+    legal_case_active:      'Case Active',
+    legal_case_resolved:    'Case Resolved',
+  }
+  const ALL_INTAKE_STATUSES = Object.keys(INTAKE_STATUS_LABELS)
+  // Staff-controlled transitions (what can be selected from current status)
+  const TRANSITIONS: Record<string, string[]> = {
+    not_started:            ['intake_under_review'],
+    intake_batch_1_needed:  ['intake_under_review'],
+    intake_batch_2_needed:  ['intake_under_review'],
+    intake_batch_3_needed:  ['intake_under_review'],
+    intake_batch_4_needed:  ['intake_under_review'],
+    intake_batch_5_needed:  ['intake_under_review'],
+    intake_batch_6_needed:  ['intake_under_review'],
+    intake_batch_7_needed:  ['intake_under_review'],
+    intake_under_review:    ['intake_docs_needed', 'intake_attorney_review'],
+    intake_docs_needed:     ['intake_under_review', 'intake_attorney_review'],
+    intake_attorney_review: ['intake_case_approved', 'intake_docs_needed'],
+    intake_case_approved:   ['legal_case_active'],
+    legal_case_active:      ['legal_case_resolved'],
+    legal_case_resolved:    [],
+  }
+  const INTAKE_STATUS_COLOR: Record<string, string> = {
+    not_started:            'bg-gray-100 text-gray-500',
+    intake_under_review:    'bg-blue-50 text-blue-700',
+    intake_docs_needed:     'bg-orange-50 text-orange-700',
+    intake_attorney_review: 'bg-purple-50 text-purple-700',
+    intake_case_approved:   'bg-green-50 text-green-700',
+    legal_case_active:      'bg-emerald-50 text-emerald-700',
+    legal_case_resolved:    'bg-gray-100 text-gray-500',
+  }
+  function intakeBadgeColor(status: string): string {
+    if (status.startsWith('intake_batch_')) return 'bg-yellow-50 text-yellow-700'
+    return INTAKE_STATUS_COLOR[status] ?? 'bg-gray-100 text-gray-500'
+  }
+
+  const canUpdateIntake = ['admin', 'attorney', 'manager'].includes(userRole)
+  const allowedTransitions = intakeStatus
+    ? (userRole === 'admin' ? ALL_INTAKE_STATUSES.filter(s => s !== intakeStatus) : (TRANSITIONS[intakeStatus] ?? []))
+    : []
+
+  async function handleIntakeStatusChange(newStatus: string) {
+    if (!caseData || !newStatus || newStatus === intakeStatus) return
+    const prev = intakeStatus
+    setIntakeStatus(newStatus)   // optimistic
+    setIntakeSaving(true)
+    setIntakeError(null)
+    try {
+      const res = await fetch(`/api/cases/${caseData.hubspot_deal_id}/intake-status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setIntakeStatus(prev)   // revert
+        setIntakeError(err.error ?? 'Failed to update intake status')
+      }
+    } catch {
+      setIntakeStatus(prev)
+      setIntakeError('Network error — status not saved')
+    } finally {
+      setIntakeSaving(false)
+    }
+  }
 
   // Update tab title when client name loads
   useEffect(() => {
@@ -887,6 +970,8 @@ export default function CaseDetailPage() {
         const data = await res.json()
         setCaseData(data.case)
         setIntake(data.intake ?? null)
+        setIntakeStatus(data.intakeStatus ?? null)
+        setUserRole(data.userRole ?? 'staff')
       }
       setLoading(false)
     }
@@ -1326,6 +1411,38 @@ export default function CaseDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Intake Status */}
+          {intakeStatus && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Intake Status</p>
+              <span className={`inline-flex px-2.5 py-1 text-xs font-medium rounded-full ${intakeBadgeColor(intakeStatus)}`}>
+                {INTAKE_STATUS_LABELS[intakeStatus] ?? intakeStatus}
+              </span>
+
+              {canUpdateIntake && allowedTransitions.length > 0 && (
+                <div className="mt-3">
+                  <select
+                    value=""
+                    disabled={intakeSaving}
+                    onChange={e => { if (e.target.value) handleIntakeStatusChange(e.target.value) }}
+                    className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400 disabled:opacity-50"
+                  >
+                    <option value="">
+                      {intakeSaving ? 'Saving…' : 'Move to…'}
+                    </option>
+                    {allowedTransitions.map(s => (
+                      <option key={s} value={s}>{INTAKE_STATUS_LABELS[s] ?? s}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {intakeError && (
+                <p className="mt-2 text-xs text-red-500">{intakeError}</p>
+              )}
+            </div>
+          )}
 
           {/* Quick actions */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
