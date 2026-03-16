@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 
 interface CaseIntake {
   id: string
@@ -866,7 +866,9 @@ export default function CaseDetailPage() {
   const [userCanSms, setUserCanSms] = useState(false)
   const [isLive, setIsLive] = useState(false)
   const [statusFlash, setStatusFlash] = useState(false)
-  const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>('overview')
+  const searchParams = useSearchParams()
+  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'intake') ?? 'overview'
+  const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>(initialTab)
   const esRef = useRef<EventSource | null>(null)
 
   // Update tab title when client name loads

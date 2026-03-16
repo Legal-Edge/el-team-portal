@@ -34,21 +34,25 @@ interface NavItem {
 
 const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
   admin: [
-    { label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
-    { label: 'Cases',     href: '/cases',     icon: 'cases'     },
+    { label: 'Dashboard',  href: '/dashboard', icon: 'dashboard' },
+    { label: 'Cases',      href: '/cases',     icon: 'cases'     },
+    { label: 'Comms',      href: '/comms',     icon: 'comms'     },
   ],
   attorney: [
-    { label: 'Dashboard', href: '/dashboard',         icon: 'dashboard' },
-    { label: 'My Cases',  href: '/cases?assigned=me', icon: 'cases-me'  },
-    { label: 'All Cases', href: '/cases',             icon: 'cases'     },
+    { label: 'Dashboard',  href: '/dashboard',         icon: 'dashboard' },
+    { label: 'My Cases',   href: '/cases?assigned=me', icon: 'cases-me'  },
+    { label: 'All Cases',  href: '/cases',             icon: 'cases'     },
+    { label: 'Comms',      href: '/comms',             icon: 'comms'     },
   ],
   manager: [
-    { label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
-    { label: 'Cases',     href: '/cases',     icon: 'cases'     },
+    { label: 'Dashboard',  href: '/dashboard', icon: 'dashboard' },
+    { label: 'Cases',      href: '/cases',     icon: 'cases'     },
+    { label: 'Comms',      href: '/comms',     icon: 'comms'     },
   ],
   staff: [
-    { label: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
-    { label: 'Cases',     href: '/cases',     icon: 'cases'     },
+    { label: 'Dashboard',  href: '/dashboard', icon: 'dashboard' },
+    { label: 'Cases',      href: '/cases',     icon: 'cases'     },
+    { label: 'Comms',      href: '/comms',     icon: 'comms'     },
   ],
 }
 
