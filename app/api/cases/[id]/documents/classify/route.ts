@@ -72,7 +72,7 @@ export async function POST(
 
   // Update the file: link to checklist + mark classified
   const { error: fileErr } = await db
-    .from('case_documents')
+    .from('document_files')
     .update({
       checklist_item_id:    checklistItem!.id,
       document_type_code,

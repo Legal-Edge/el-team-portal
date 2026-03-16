@@ -50,7 +50,7 @@ async function ingestFile(
 ): Promise<{ id: string; action: PipelineAction; alreadyClassified: boolean }> {
   // Check if this file already exists
   const { data: existing } = await db
-    .from('case_documents')
+    .from('document_files')
     .select('id, modified_at_source, is_classified, checklist_item_id')
     .eq('case_id', case_id)
     .eq('sharepoint_item_id', file.sharepoint_item_id)
@@ -87,7 +87,7 @@ async function ingestFile(
   if (existing) {
     // File changed — update metadata, reset classification so it re-runs
     const { data, error } = await db
-      .from('case_documents')
+      .from('document_files')
       .update({
         ...payload,
         // Reset classification so pipeline re-evaluates
@@ -108,7 +108,7 @@ async function ingestFile(
 
   // New file
   const { data, error } = await db
-    .from('case_documents')
+    .from('document_files')
     .insert(payload)
     .select('id')
     .single()
@@ -138,7 +138,7 @@ async function applyClassification(
   if (clErr || !checklistItem) {
     // No checklist item for this type — mark classified but don't link
     // (shouldn't happen if init-case-checklist ran, but handle gracefully)
-    await db.from('case_documents').update({
+    await db.from('document_files').update({
       is_classified: true,
       document_type_code: classification.document_type_code,
       classified_at: now,
@@ -150,7 +150,7 @@ async function applyClassification(
   }
 
   // Link file to checklist item
-  await db.from('case_documents').update({
+  await db.from('document_files').update({
     checklist_item_id: checklistItem.id,
     document_type_code: classification.document_type_code,
     is_classified: true,
@@ -241,7 +241,7 @@ export async function processDocument(
   } else if (classification) {
     // Low confidence — store the suggestion but don't auto-link
     const now = new Date().toISOString()
-    await db.from('case_documents').update({
+    await db.from('document_files').update({
       document_type_code: classification.document_type_code, // suggestion only
       classification_source: classification.source,
       updated_at: now,

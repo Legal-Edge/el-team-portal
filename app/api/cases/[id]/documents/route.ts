@@ -49,7 +49,7 @@ export async function GET(
 
   // Actual files from SharePoint sync
   const { data: files } = await db
-    .from('case_documents')
+    .from('document_files')
     .select(`
       id, name, file_extension, size_bytes, mime_type,
       web_url, document_type_code, checklist_item_id,
