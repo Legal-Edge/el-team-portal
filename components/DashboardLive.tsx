@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { createClient }                              from '@supabase/supabase-js'
 import Link from 'next/link'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -9,9 +10,15 @@ interface DashboardStats {
   totalActive:   number
   settledMonth:  number
   totalPipeline: number
-
   byStage:       Record<string, number>
   fetchedAt:     string
+}
+
+interface CommsStats {
+  awaiting:     number
+  overdue:      number
+  due_soon:     number
+  unread_total: number
 }
 
 interface Props {
@@ -123,11 +130,14 @@ function PipelineChart({ byStage, flash }: { byStage: Record<string, number>; fl
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function DashboardLive({ initial }: Props) {
-  const [stats, setStats]     = useState<DashboardStats>(initial)
-  const [flash, setFlash]     = useState(false)
-  const [isLive, setIsLive]   = useState(false)
-  const flashTimer            = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const esRef                 = useRef<EventSource | null>(null)
+  const [stats,      setStats]      = useState<DashboardStats>(initial)
+  const [flash,      setFlash]      = useState(false)
+  const [isLive,     setIsLive]     = useState(false)
+  const [commsStats, setCommsStats] = useState<CommsStats | null>(null)
+  const [commsFlash, setCommsFlash] = useState(false)
+  const flashTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const commsTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const esRef                       = useRef<EventSource | null>(null)
 
   const refreshStats = useCallback(async () => {
     try {
@@ -138,7 +148,19 @@ export function DashboardLive({ initial }: Props) {
       setFlash(true)
       if (flashTimer.current) clearTimeout(flashTimer.current)
       flashTimer.current = setTimeout(() => setFlash(false), 2000)
-    } catch { /* network error — ignore */ }
+    } catch { /* ignore */ }
+  }, [])
+
+  const refreshCommsStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/comms-stats')
+      if (!res.ok) return
+      const data: CommsStats = await res.json()
+      setCommsStats(data)
+      setCommsFlash(true)
+      if (commsTimer.current) clearTimeout(commsTimer.current)
+      commsTimer.current = setTimeout(() => setCommsFlash(false), 2000)
+    } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {
@@ -159,6 +181,24 @@ export function DashboardLive({ initial }: Props) {
     }
   }, [refreshStats])
 
+  // Fetch comms stats on mount
+  useEffect(() => { refreshCommsStats() }, [refreshCommsStats])
+
+  // Supabase Realtime — live comms_state changes update dashboard KPIs
+  useEffect(() => {
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const ch = sb
+      .channel('dashboard-comms-state')
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'core', table: 'comms_state',
+      }, () => { refreshCommsStats() })
+      .subscribe()
+    return () => { sb.removeChannel(ch) }
+  }, [refreshCommsStats])
+
   return (
     <div className="space-y-6">
       {/* Live indicator */}
@@ -166,6 +206,43 @@ export function DashboardLive({ initial }: Props) {
         <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
         <span className="text-xs text-gray-400">{isLive ? 'Live' : 'Connecting…'}</span>
       </div>
+
+      {/* Comms Health KPIs */}
+      {commsStats && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Comms Health</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <LiveKpiCard
+              label="Awaiting Response"
+              value={commsStats.awaiting}
+              accent={commsStats.awaiting > 0 ? 'bg-orange-400' : 'bg-gray-200'}
+              href="/comms?filter=awaiting"
+              flash={commsFlash}
+            />
+            <LiveKpiCard
+              label="SLA Overdue"
+              value={commsStats.overdue}
+              accent={commsStats.overdue > 0 ? 'bg-red-400' : 'bg-gray-200'}
+              href="/comms?filter=overdue"
+              flash={commsFlash}
+            />
+            <LiveKpiCard
+              label="Due Soon"
+              value={commsStats.due_soon}
+              accent={commsStats.due_soon > 0 ? 'bg-amber-400' : 'bg-gray-200'}
+              href="/comms?filter=due_soon"
+              flash={commsFlash}
+            />
+            <LiveKpiCard
+              label="Unread Messages"
+              value={commsStats.unread_total}
+              accent={commsStats.unread_total > 0 ? 'bg-lemon-400' : 'bg-gray-200'}
+              href="/comms"
+              flash={commsFlash}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Pipeline Chart */}
       <PipelineChart byStage={stats.byStage} flash={flash} />

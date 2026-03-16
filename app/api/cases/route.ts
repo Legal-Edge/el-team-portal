@@ -103,8 +103,30 @@ export async function GET(req: NextRequest) {
     if (g) groupCounts[g] = (groupCounts[g] ?? 0) + cnt
   }
 
+  // Enrich cases with comms_state (batch fetch — one extra query for the page of IDs)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (data ?? []) as any[]
+  const caseIds = rows.map((c) => c.id as string)
+  const commsMap: Record<string, { sla_status: string; unread_count: number; awaiting_response: boolean; response_due_at: string | null }> = {}
+  if (caseIds.length > 0) {
+    const { data: commsRows } = await db
+      .from('comms_state')
+      .select('case_id, sla_status, unread_count, awaiting_response, response_due_at')
+      .in('case_id', caseIds)
+    for (const r of commsRows ?? []) {
+      commsMap[r.case_id] = {
+        sla_status:        r.sla_status,
+        unread_count:      r.unread_count      ?? 0,
+        awaiting_response: r.awaiting_response ?? false,
+        response_due_at:   r.response_due_at   ?? null,
+      }
+    }
+  }
+
+  const enrichedCases = rows.map((c) => ({ ...c, comms_state: commsMap[c.id] ?? null }))
+
   return NextResponse.json({
-    cases: data ?? [],
+    cases: enrichedCases,
     total: count ?? 0,
     stageCounts,
     groupCounts,

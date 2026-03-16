@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef }  from 'react'
+import { createClient }                               from '@supabase/supabase-js'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
@@ -24,6 +25,13 @@ interface Case {
   notes_last_updated:  string | null
   created_at:          string
   updated_at:          string
+  // Comms state (enriched from core.comms_state)
+  comms_state?: {
+    sla_status:        string
+    unread_count:      number
+    awaiting_response: boolean
+    response_due_at:   string | null
+  } | null
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -164,6 +172,41 @@ function CasesContent() {
     }
     connect()
     return () => { esRef.current?.close(); setIsLive(false) }
+  }, [])
+
+  // Supabase Realtime — live comms_state updates in the queue
+  useEffect(() => {
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const ch = sb
+      .channel('cases-queue-comms')
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'core', table: 'comms_state',
+      }, (payload: { new: Record<string, unknown> }) => {
+        const r = payload.new
+        setCases(prev => prev.map(c => {
+          if (c.id !== r.case_id) return c
+          // Flash the updated row
+          setFlashedIds(ids => {
+            const next = new Set(ids).add(c.id)
+            setTimeout(() => setFlashedIds(i => { const n = new Set(i); n.delete(c.id); return n }), 1500)
+            return next
+          })
+          return {
+            ...c,
+            comms_state: {
+              sla_status:        r.sla_status        as string,
+              unread_count:      r.unread_count       as number,
+              awaiting_response: r.awaiting_response  as boolean,
+              response_due_at:   r.response_due_at    as string | null,
+            },
+          }
+        }))
+      })
+      .subscribe()
+    return () => { sb.removeChannel(ch) }
   }, [])
 
   function handleSearch(e: React.FormEvent) {
@@ -314,6 +357,7 @@ function CasesContent() {
                     { col: 'estimated_value',    label: 'Value'         },
                     { col: 'notes_last_updated', label: 'Last Activity' },
                     { col: 'created_at',         label: 'Added'         },
+                    { col: '',                   label: 'Comms'         },
                   ].map(h => (
                     <th key={h.col}
                       onClick={() => toggleSort(h.col)}
@@ -393,8 +437,34 @@ function CasesContent() {
                         )}
                       </td>
                       {/* Added */}
-                      <td className="px-4 py-3.5 pr-6 text-gray-400 text-xs tabular-nums">
+                      <td className="px-4 py-3.5 text-gray-400 text-xs tabular-nums">
                         {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      {/* Comms state */}
+                      <td className="px-4 py-3.5 pr-6">
+                        {c.comms_state && c.comms_state.sla_status !== 'no_contact' ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {/* Unread badge */}
+                            {c.comms_state.unread_count > 0 && (
+                              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-lemon-400 text-xs font-bold text-gray-900">
+                                {c.comms_state.unread_count > 99 ? '99+' : c.comms_state.unread_count}
+                              </span>
+                            )}
+                            {/* Awaiting response dot */}
+                            {c.comms_state.awaiting_response && (
+                              <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Awaiting response" />
+                            )}
+                            {/* SLA badge */}
+                            {c.comms_state.sla_status === 'overdue' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">Overdue</span>
+                            )}
+                            {c.comms_state.sla_status === 'due_soon' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">Due Soon</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-200 text-xs">—</span>
+                        )}
                       </td>
                     </tr>
                   )
