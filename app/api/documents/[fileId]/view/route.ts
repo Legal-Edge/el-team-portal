@@ -1,9 +1,10 @@
 // GET /api/documents/[fileId]/view
-// Fetches a fresh pre-authenticated download URL from Microsoft Graph and
-// redirects to it. Used by the in-app PDF viewer iframe.
 //
-// Graph's @microsoft.graph.downloadUrl is valid for ~60 min and requires no
-// SharePoint session — the browser can load it directly.
+// Proxies the file content through our own server so the iframe stays on
+// team.easylemon.com and avoids CSP / X-Frame-Options blocks from Microsoft CDN.
+//
+// Flow: auth check → look up SharePoint item ID → get fresh Graph download URL
+//       → fetch bytes server-side → stream back as application/pdf
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
@@ -26,7 +27,7 @@ export async function GET(
 
   const { data: file } = await db
     .from('document_files')
-    .select('sharepoint_item_id, sharepoint_drive_id, file_name, web_url')
+    .select('sharepoint_item_id, sharepoint_drive_id, file_name, file_extension')
     .eq('id', fileId)
     .eq('is_deleted', false)
     .single()
@@ -40,28 +41,43 @@ export async function GET(
 
   try {
     const token = await getGraphToken()
-    const res   = await fetch(
+
+    // Get a fresh pre-authenticated download URL from Graph
+    const metaRes = await fetch(
       `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}?$select=id,%40microsoft.graph.downloadUrl`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
-
-    if (!res.ok) {
-      console.error('[doc-view] Graph error:', res.status, await res.text())
-      // Fall back to web_url if Graph fails
-      if (file.web_url) return NextResponse.redirect(file.web_url)
-      return new NextResponse('Failed to fetch download URL', { status: 502 })
+    if (!metaRes.ok) {
+      console.error('[doc-view] Graph meta error:', metaRes.status, await metaRes.text())
+      return new NextResponse('Failed to fetch file metadata', { status: 502 })
     }
 
-    const data        = await res.json()
-    const downloadUrl = data['@microsoft.graph.downloadUrl']
-
+    const meta        = await metaRes.json()
+    const downloadUrl = meta['@microsoft.graph.downloadUrl']
     if (!downloadUrl) {
-      if (file.web_url) return NextResponse.redirect(file.web_url)
       return new NextResponse('No download URL available', { status: 404 })
     }
 
-    // Redirect — browser fetches the file directly from Microsoft's CDN
-    return NextResponse.redirect(downloadUrl)
+    // Fetch the actual file bytes server-side — stays on our domain
+    const fileRes = await fetch(downloadUrl)
+    if (!fileRes.ok) {
+      console.error('[doc-view] file fetch error:', fileRes.status)
+      return new NextResponse('Failed to fetch file', { status: 502 })
+    }
+
+    const contentType = fileRes.headers.get('content-type') ?? 'application/pdf'
+    const buffer      = await fileRes.arrayBuffer()
+    const safeName    = encodeURIComponent(file.file_name ?? 'document.pdf')
+
+    return new NextResponse(buffer, {
+      headers: {
+        'Content-Type':        contentType,
+        'Content-Disposition': `inline; filename="${safeName}"`,
+        'Cache-Control':       'private, max-age=300',
+        // Allow iframe to render from same origin
+        'X-Frame-Options':     'SAMEORIGIN',
+      },
+    })
   } catch (err) {
     console.error('[doc-view] error:', err)
     return new NextResponse('Internal error', { status: 500 })
