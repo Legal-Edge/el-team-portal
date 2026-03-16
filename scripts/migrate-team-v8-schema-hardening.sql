@@ -61,6 +61,12 @@ CREATE TRIGGER trg_staff_roles_updated_at
   BEFORE UPDATE ON staff.staff_roles
   FOR EACH ROW EXECUTE FUNCTION staff.set_updated_at();
 
+-- Guard: add any columns that may be missing if table already existed from a partial run
+ALTER TABLE staff.staff_roles
+  ADD COLUMN IF NOT EXISTS description TEXT,
+  ADD COLUMN IF NOT EXISTS created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 -- Seed canonical roles
 INSERT INTO staff.staff_roles
   (role_name, role_level, can_create_cases, can_edit_all_cases, can_delete_cases,
@@ -99,6 +105,17 @@ CREATE TABLE IF NOT EXISTS staff.staff_users (
 CREATE TRIGGER trg_staff_users_updated_at
   BEFORE UPDATE ON staff.staff_users
   FOR EACH ROW EXECUTE FUNCTION staff.set_updated_at();
+
+-- Guard: add any columns that may be missing if table already existed from a partial run
+ALTER TABLE staff.staff_users
+  ADD COLUMN IF NOT EXISTS hubspot_owner_id   TEXT,
+  ADD COLUMN IF NOT EXISTS time_zone          TEXT NOT NULL DEFAULT 'America/Los_Angeles',
+  ADD COLUMN IF NOT EXISTS avatar_url         TEXT,
+  ADD COLUMN IF NOT EXISTS last_login         TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS login_count        INT  NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS is_deleted         BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_staff_users_email
   ON staff.staff_users (email) WHERE is_deleted = FALSE;
