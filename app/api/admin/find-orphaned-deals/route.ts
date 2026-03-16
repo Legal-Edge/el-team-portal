@@ -18,9 +18,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const shouldDelete = req.nextUrl.searchParams.get('delete') === 'true'
-  // ?offset=N for pagination — scan one page at a time to avoid Vercel timeout
+  // ?offset=N for pagination; ?stage=dropped to narrow scope
   const offsetParam  = parseInt(req.nextUrl.searchParams.get('offset') ?? '0', 10)
   const singlePage   = req.nextUrl.searchParams.has('offset')
+  const stageFilter  = req.nextUrl.searchParams.get('stage') // e.g. 'dropped'
 
   const client = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,14 +33,18 @@ export async function GET(req: NextRequest) {
   let totalScanned = 0
 
   while (true) {
-    // Fetch a page of Supabase deal IDs — newest first (orphans are most likely recent)
-    const { data: rows, error } = await client
+    // Fetch a page of Supabase deal IDs
+    let query = client
       .from('cases')
       .select('id, hubspot_deal_id')
       .eq('is_deleted', false)
       .not('hubspot_deal_id', 'is', null)
       .range(offset, offset + PAGE_SIZE - 1)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: true }) // oldest first for orphan search
+
+    if (stageFilter) query = query.eq('case_status', stageFilter)
+
+    const { data: rows, error } = await query
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!rows || rows.length === 0) break
