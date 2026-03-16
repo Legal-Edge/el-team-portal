@@ -122,9 +122,9 @@ SELECT DISTINCT ON (hubspot_contact_id)
       THEN NULL
     WHEN LENGTH(REGEXP_REPLACE(phone, '[^0-9]', '', 'g')) = 11
       AND LEFT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 1) = '1'
-      THEN '+' || REGEXP_REPLACE(phone, '[^0-9]', '', 'g')
+      THEN CONCAT('+',  REGEXP_REPLACE(phone, '[^0-9]', '', 'g'))
     WHEN LENGTH(REGEXP_REPLACE(phone, '[^0-9]', '', 'g')) = 10
-      THEN '+1' || REGEXP_REPLACE(phone, '[^0-9]', '', 'g')
+      THEN CONCAT('+1', REGEXP_REPLACE(phone, '[^0-9]', '', 'g'))
     ELSE phone   -- keep as-is if format unknown (data quality flag)
   END                                           AS phone,
   'backfill'                                    AS source_system,
