@@ -200,7 +200,7 @@ RETURNS TABLE (
   -- is_pinned DESC floats pinned notes to top; ts DESC for chronological ordering.
   -- Pagination caveat: p_before_ts cursor breaks for pinned notes with old ts on page 2+.
   -- Revisit when building timeline UI (separate pinned fetch + paginate rest).
-  ORDER BY feed.is_pinned DESC, feed.ts DESC
+  ORDER BY 8 DESC, 3 DESC  -- 8=is_pinned, 3=ts
   LIMIT p_limit;
 $$;
 
