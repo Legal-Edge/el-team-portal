@@ -19,6 +19,9 @@ function relativeTime(iso: string | null): string {
 }
 
 function clientName(row: CommsInboxRow): string {
+  // Prefer pre-computed view column; fall back to app-layer concat for safety
+  const full = row.client_full_name?.trim()
+  if (full) return full
   const first = row.client_first_name?.trim() ?? ''
   const last  = row.client_last_name?.trim()  ?? ''
   return [first, last].filter(Boolean).join(' ') || 'Unknown'

@@ -9,6 +9,7 @@ export interface CommsInboxRow {
   hubspot_deal_id:      string
   client_first_name:    string | null
   client_last_name:     string | null
+  client_full_name:     string | null   // pre-computed TRIM(CONCAT(...)) in view
   client_phone:         string | null
   client_email:         string | null
   assigned_attorney:    string | null
