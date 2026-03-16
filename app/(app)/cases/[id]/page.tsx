@@ -831,6 +831,7 @@ function DocumentsSection({
           fileId={viewing.id}
           fileName={viewing.file_name}
           webUrl={viewing.web_url}
+          docType={viewing.document_type_code}
           onClose={() => setViewing(null)}
         />
       )}
@@ -1019,17 +1020,127 @@ function DocumentsSection({
   )
 }
 
+// ── AI Analysis Panel ─────────────────────────────────────────────────────
+function AiAnalysisPanel({ fileId, docType }: { fileId: string; docType: string | null }) {
+  const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null)
+  const [loading,  setLoading]  = useState(true)
+  const [error,    setError]    = useState(false)
+
+  useEffect(() => {
+    setLoading(true); setError(false); setAnalysis(null)
+    fetch(`/api/documents/${fileId}/analyze`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => setAnalysis(d.summary))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false))
+  }, [fileId])
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 px-6">
+      <div className="w-7 h-7 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin" />
+      <p className="text-xs text-center">Analyzing with Claude…<br/><span className="text-gray-300">~10 seconds</span></p>
+    </div>
+  )
+
+  if (error || !analysis) return (
+    <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-gray-400">
+      <p className="text-sm text-center">Analysis unavailable</p>
+      <p className="text-xs text-gray-300 text-center">Make sure ANTHROPIC_API_KEY is set on Vercel</p>
+    </div>
+  )
+
+  const flags: string[] = (analysis.lemon_law_flags as string[]) ?? []
+  const summary = analysis.summary as string | undefined
+
+  return (
+    <div className="h-full overflow-y-auto px-5 py-5 space-y-5">
+      {/* Header */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Analysis</p>
+        <p className="text-xs text-gray-300">Claude · Lemon Law Review</p>
+      </div>
+
+      {/* Summary */}
+      {summary && (
+        <div className="bg-lemon-400/10 border border-lemon-400/30 rounded-xl p-4">
+          <p className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Summary</p>
+          <p className="text-sm text-gray-700 leading-relaxed">{summary}</p>
+        </div>
+      )}
+
+      {/* Flags */}
+      {flags.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Lemon Law Flags</p>
+          <div className="space-y-1.5">
+            {flags.map((flag, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-amber-500 mt-0.5 shrink-0">⚑</span>
+                <span className="text-sm text-gray-700">{flag}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Key fields — render remaining top-level string/number fields */}
+      {(() => {
+        const skip = new Set(['doc_type','summary','lemon_law_flags','key_facts','key_dates'])
+        const entries = Object.entries(analysis).filter(([k, v]) =>
+          !skip.has(k) && v !== null && v !== undefined && v !== ''
+        )
+        if (entries.length === 0) return null
+        return (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Details</p>
+            <div className="space-y-2">
+              {entries.map(([key, val]) => (
+                <div key={key} className="flex items-start gap-2">
+                  <span className="text-xs text-gray-400 capitalize w-32 shrink-0 pt-0.5">
+                    {key.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-sm text-gray-700">
+                    {typeof val === 'boolean' ? (val ? 'Yes' : 'No') : String(val)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* key_facts / key_dates for generic docs */}
+      {Array.isArray(analysis.key_facts) && (analysis.key_facts as string[]).length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Key Facts</p>
+          <ul className="space-y-1">
+            {(analysis.key_facts as string[]).map((f, i) => (
+              <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-gray-300">·</span>{f}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── PDF Viewer Modal ───────────────────────────────────────────────────────
 // Fetches the PDF as a blob client-side → object URL → bypasses frame-ancestors CSP
 function DocViewerModal({
   fileId,
   fileName,
   webUrl,
+  docType,
   onClose,
 }: {
   fileId:   string
   fileName: string
   webUrl:   string | null
+  docType:  string | null
   onClose:  () => void
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
@@ -1038,20 +1149,12 @@ function DocViewerModal({
   useEffect(() => {
     let objectUrl: string
     fetch(`/api/documents/${fileId}/view`, { credentials: 'include' })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.blob()
-      })
-      .then(blob => {
-        objectUrl = URL.createObjectURL(blob)
-        setBlobUrl(objectUrl)
-      })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob() })
+      .then(blob => { objectUrl = URL.createObjectURL(blob); setBlobUrl(objectUrl) })
       .catch(() => setLoadErr(true))
-
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [fileId])
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -1061,7 +1164,7 @@ function DocViewerModal({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="relative flex flex-col bg-white w-full h-full max-w-5xl mx-auto my-6 rounded-2xl shadow-2xl overflow-hidden"
+        className="relative flex flex-col bg-white w-full h-full max-w-7xl mx-auto my-6 rounded-2xl shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -1070,9 +1173,7 @@ function DocViewerModal({
           <div className="flex items-center gap-3 shrink-0">
             {webUrl && (
               <a href={webUrl} target="_blank" rel="noopener noreferrer"
-                className="text-xs text-blue-500 hover:underline">
-                Open in SharePoint ↗
-              </a>
+                className="text-xs text-blue-500 hover:underline">Open in SharePoint ↗</a>
             )}
             <button onClick={onClose}
               className="text-gray-400 hover:text-gray-700 text-xl leading-none transition-colors px-1"
@@ -1080,31 +1181,35 @@ function DocViewerModal({
           </div>
         </div>
 
-        {/* Body */}
-        {loadErr ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-400">
-            <p className="text-sm">Could not load document.</p>
-            {webUrl && (
-              <a href={webUrl} target="_blank" rel="noopener noreferrer"
-                className="text-sm text-blue-500 hover:underline">
-                Open in SharePoint instead ↗
-              </a>
+        {/* Body — PDF left, AI analysis right */}
+        <div className="flex flex-1 min-h-0">
+          {/* PDF viewer */}
+          <div className="flex-1 min-w-0 border-r border-gray-100">
+            {loadErr ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-400">
+                <p className="text-sm">Could not load document.</p>
+                {webUrl && (
+                  <a href={webUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-sm text-blue-500 hover:underline">Open in SharePoint ↗</a>
+                )}
+              </div>
+            ) : !blobUrl ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center gap-3 text-gray-400">
+                  <div className="w-8 h-8 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin" />
+                  <p className="text-sm">Loading document…</p>
+                </div>
+              </div>
+            ) : (
+              <iframe src={blobUrl} className="w-full h-full border-0" title={fileName} />
             )}
           </div>
-        ) : !blobUrl ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3 text-gray-400">
-              <div className="w-8 h-8 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin" />
-              <p className="text-sm">Loading document…</p>
-            </div>
+
+          {/* AI analysis panel */}
+          <div className="w-80 shrink-0 bg-gray-50/50">
+            <AiAnalysisPanel fileId={fileId} docType={docType} />
           </div>
-        ) : (
-          <iframe
-            src={blobUrl}
-            className="flex-1 w-full border-0"
-            title={fileName}
-          />
-        )}
+        </div>
       </div>
     </div>
   )
