@@ -45,6 +45,12 @@ export const DEAL_PROPS = [
   'purchase__lease_date','when_did_you_purchase_or_lease_your_vehicle_',
   'was_it_purchased_or_leased_new_or_used_','did_you_purchase_or_lease_your_car_',
   'which_state_did_you_purchase_or_lease_your_vehicle_',
+  // Document collection fields
+  'documents_needed',
+  'document_collection_notes',
+  'document_promise_date',
+  'document_collection_status',
+  'sharepoint_file_url',
 ]
 
 export const CONTACT_PROPS = ['firstname','lastname','email','phone','mobilephone','state']
@@ -384,6 +390,44 @@ export async function upsertCase(
   // Sync intake state from HubSpot → core.case_state
   if (caseId) {
     await syncIntakeFromHubSpot(client, caseId, caseRow.el_app_status ?? null)
+  }
+
+  // Sync document collection state from HubSpot → core.document_collection_state
+  if (caseId) {
+    const dp = ((deal as { properties?: Record<string, unknown> }).properties ?? {}) as Record<string, unknown>
+    const docsNeeded = dp['documents_needed']
+      ? String(dp['documents_needed']).split(';').map(s => s.trim()).filter(Boolean)
+      : []
+    const promiseDateRaw = dp['document_promise_date']
+    const promiseDate = promiseDateRaw
+      ? String(promiseDateRaw).slice(0, 10)  // YYYY-MM-DD
+      : null
+
+    await client.schema('core')
+      .from('document_collection_state')
+      .upsert({
+        case_id:                 caseId,
+        documents_needed:        docsNeeded,
+        collection_status:       dp['document_collection_status'] ? String(dp['document_collection_status']) : null,
+        collection_notes:        dp['document_collection_notes']  ? String(dp['document_collection_notes'])  : null,
+        promise_date:            promiseDate,
+        synced_from_hubspot_at:  new Date().toISOString(),
+        updated_at:              new Date().toISOString(),
+      }, { onConflict: 'case_id', ignoreDuplicates: false })
+      .then(({ error }) => {
+        if (error) console.error('[pipeline] doc_collection_state upsert error:', error.message)
+      })
+
+    // Store sharepoint_file_url on cases if present
+    if (dp['sharepoint_file_url']) {
+      await client.schema('core')
+        .from('cases')
+        .update({ sharepoint_file_url: String(dp['sharepoint_file_url']) })
+        .eq('id', caseId)
+        .then(({ error }) => {
+          if (error) console.error('[pipeline] sharepoint_file_url update error:', error.message)
+        })
+    }
   }
 
   // Emit events
