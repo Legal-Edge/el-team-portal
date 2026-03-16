@@ -21,6 +21,13 @@ interface CommsStats {
   unread_total: number
 }
 
+interface DocStats {
+  missing_required: number
+  unclassified:     number
+  needs_review:     number
+  recent_uploads:   number
+}
+
 interface Props {
   initial: DashboardStats
 }
@@ -135,8 +142,11 @@ export function DashboardLive({ initial }: Props) {
   const [isLive,     setIsLive]     = useState(false)
   const [commsStats, setCommsStats] = useState<CommsStats | null>(null)
   const [commsFlash, setCommsFlash] = useState(false)
+  const [docStats,   setDocStats]   = useState<DocStats | null>(null)
+  const [docFlash,   setDocFlash]   = useState(false)
   const flashTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const commsTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const docTimer                    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const esRef                       = useRef<EventSource | null>(null)
 
   const refreshStats = useCallback(async () => {
@@ -181,8 +191,21 @@ export function DashboardLive({ initial }: Props) {
     }
   }, [refreshStats])
 
-  // Fetch comms stats on mount
+  const refreshDocStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/doc-stats')
+      if (!res.ok) return
+      const data: DocStats = await res.json()
+      setDocStats(data)
+      setDocFlash(true)
+      if (docTimer.current) clearTimeout(docTimer.current)
+      docTimer.current = setTimeout(() => setDocFlash(false), 2000)
+    } catch { /* ignore */ }
+  }, [])
+
+  // Fetch comms + doc stats on mount
   useEffect(() => { refreshCommsStats() }, [refreshCommsStats])
+  useEffect(() => { refreshDocStats()   }, [refreshDocStats])
 
   // Supabase Realtime — live comms_state changes update dashboard KPIs
   useEffect(() => {
@@ -195,9 +218,16 @@ export function DashboardLive({ initial }: Props) {
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'core', table: 'comms_state',
       }, () => { refreshCommsStats() })
+      // Document file changes (classify / approve / upload) → refresh doc KPIs
+      .on('postgres_changes', {
+        event: '*', schema: 'core', table: 'document_files',
+      }, () => { refreshDocStats() })
+      .on('postgres_changes', {
+        event: '*', schema: 'core', table: 'case_document_checklist',
+      }, () => { refreshDocStats() })
       .subscribe()
     return () => { sb.removeChannel(ch) }
-  }, [refreshCommsStats])
+  }, [refreshCommsStats, refreshDocStats])
 
   return (
     <div className="space-y-6">
@@ -239,6 +269,43 @@ export function DashboardLive({ initial }: Props) {
               accent={commsStats.unread_total > 0 ? 'bg-lemon-400' : 'bg-gray-200'}
               href="/comms"
               flash={commsFlash}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Document Health KPIs */}
+      {docStats && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Document Health</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <LiveKpiCard
+              label="Missing Required Docs"
+              value={docStats.missing_required}
+              accent={docStats.missing_required > 0 ? 'bg-red-400' : 'bg-gray-200'}
+              href="/documents?filter=needs_action"
+              flash={docFlash}
+            />
+            <LiveKpiCard
+              label="Unclassified"
+              value={docStats.unclassified}
+              accent={docStats.unclassified > 0 ? 'bg-gray-400' : 'bg-gray-200'}
+              href="/documents?filter=needs_action"
+              flash={docFlash}
+            />
+            <LiveKpiCard
+              label="Awaiting Review"
+              value={docStats.needs_review}
+              accent={docStats.needs_review > 0 ? 'bg-amber-400' : 'bg-gray-200'}
+              href="/documents?filter=needs_review"
+              flash={docFlash}
+            />
+            <LiveKpiCard
+              label="Uploaded (24h)"
+              value={docStats.recent_uploads}
+              accent={docStats.recent_uploads > 0 ? 'bg-blue-400' : 'bg-gray-200'}
+              href="/documents"
+              flash={docFlash}
             />
           </div>
         </div>

@@ -123,7 +123,28 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const enrichedCases = rows.map((c) => ({ ...c, comms_state: commsMap[c.id] ?? null }))
+  // Enrich cases with doc_state (batch from case_doc_summary view)
+  const docMap: Record<string, { total_docs: number; unclassified: number; needs_review: number; missing_required: number }> = {}
+  if (caseIds.length > 0) {
+    const { data: docRows } = await db
+      .from('case_doc_summary')
+      .select('case_id, total_docs, unclassified, needs_review, missing_required')
+      .in('case_id', caseIds)
+    for (const r of docRows ?? []) {
+      docMap[r.case_id] = {
+        total_docs:       r.total_docs       ?? 0,
+        unclassified:     r.unclassified      ?? 0,
+        needs_review:     r.needs_review      ?? 0,
+        missing_required: r.missing_required  ?? 0,
+      }
+    }
+  }
+
+  const enrichedCases = rows.map((c) => ({
+    ...c,
+    comms_state: commsMap[c.id] ?? null,
+    doc_state:   docMap[c.id]   ?? null,
+  }))
 
   return NextResponse.json({
     cases: enrichedCases,

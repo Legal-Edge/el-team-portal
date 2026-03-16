@@ -32,6 +32,13 @@ interface Case {
     awaiting_response: boolean
     response_due_at:   string | null
   } | null
+  // Doc state (enriched from core.case_doc_summary)
+  doc_state?: {
+    total_docs:       number
+    unclassified:     number
+    needs_review:     number
+    missing_required: number
+  } | null
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -358,6 +365,7 @@ function CasesContent() {
                     { col: 'notes_last_updated', label: 'Last Activity' },
                     { col: 'created_at',         label: 'Added'         },
                     { col: '',                   label: 'Comms'         },
+                    { col: '',                   label: 'Docs'          },
                   ].map(h => (
                     <th key={h.col}
                       onClick={() => toggleSort(h.col)}
@@ -465,6 +473,36 @@ function CasesContent() {
                         ) : (
                           <span className="text-gray-200 text-xs">—</span>
                         )}
+                      </td>
+                      {/* Doc state */}
+                      <td className="px-4 py-3.5 pr-6">
+                        {(() => {
+                          const ds = c.doc_state
+                          if (!ds || ds.total_docs === 0) return <span className="text-gray-200 text-xs">—</span>
+                          const hasAlarm = ds.missing_required > 0 && ['document_collection', 'attorney_review'].includes(c.case_status)
+                          return (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {hasAlarm && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">
+                                  🔴 {ds.missing_required} missing
+                                </span>
+                              )}
+                              {ds.unclassified > 0 && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                                  {ds.unclassified} unclassified
+                                </span>
+                              )}
+                              {ds.needs_review > 0 && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                                  {ds.needs_review} to review
+                                </span>
+                              )}
+                              {ds.total_docs > 0 && ds.missing_required === 0 && ds.unclassified === 0 && ds.needs_review === 0 && (
+                                <span className="text-[10px] text-emerald-500 font-medium">✓ {ds.total_docs}</span>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
                     </tr>
                   )
