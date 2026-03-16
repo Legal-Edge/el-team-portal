@@ -49,10 +49,10 @@ export async function GET(
     // Files from SharePoint
     db.from('document_files')
       .select(`
-        id, name, file_extension, size_bytes, mime_type,
+        id, file_name, file_extension, size_bytes, mime_type,
         web_url, document_type_code, checklist_item_id,
-        is_classified, classified_by, classified_at, classification_source,
-        created_at_source, modified_at_source, created_by, synced_at
+        is_classified, classified_at, classification_source,
+        created_at_source, modified_at_source, synced_at
       `)
       .eq('case_id', caseId)
       .eq('is_deleted', false)

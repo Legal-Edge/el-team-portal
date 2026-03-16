@@ -77,7 +77,7 @@ export async function POST(
       checklist_item_id:    checklistItem!.id,
       document_type_code,
       is_classified:        true,
-      classified_by:        classifiedBy,
+      classified_by:        null,  // UUID FK — manual classification tracked via classification_source
       classified_at:        now,
       classification_source: 'manual',
       updated_at:           now,

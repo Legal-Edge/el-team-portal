@@ -476,18 +476,16 @@ interface ChecklistItem {
 
 interface CaseFile {
   id: string
-  name: string
+  file_name: string
   file_extension: string | null
   size_bytes: number | null
   web_url: string | null
   document_type_code: string | null
   checklist_item_id: string | null
   is_classified: boolean
-  classified_by: string | null
   classified_at: string | null
   classification_source: string | null
   created_at_source: string | null
-  created_by: string | null
 }
 
 interface DocumentStats {
@@ -660,7 +658,7 @@ function ChecklistRow({ item }: { item: ChecklistItem }) {
           {item.files.map(f => (
             <div key={f.id} className="flex items-center gap-2 text-xs text-gray-500">
               <span className="shrink-0">📎</span>
-              <span className="truncate max-w-sm">{f.name}</span>
+              <span className="truncate max-w-sm">{f.file_name}</span>
               {f.size_bytes && <span className="text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
               {f.web_url && (
                 <a
@@ -922,7 +920,7 @@ function DocumentsSection({
                   {unclassified.map(f => (
                     <div key={f.id} className="rounded-lg bg-white border border-amber-100 px-4 py-3">
                       <div className="flex items-center gap-3 flex-wrap mb-2">
-                        <span className="text-sm text-gray-800 font-medium min-w-0 truncate max-w-sm">{f.name}</span>
+                        <span className="text-sm text-gray-800 font-medium min-w-0 truncate max-w-sm">{f.file_name}</span>
                         {f.size_bytes && <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.size_bytes)}</span>}
                         {f.web_url && (
                           <a href={f.web_url} target="_blank" rel="noopener noreferrer"

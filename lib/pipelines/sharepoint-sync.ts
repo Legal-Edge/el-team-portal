@@ -95,15 +95,14 @@ export async function syncCaseFiles(
         }
 
         // File changed — update metadata, reset classification
-        await db.from('document_files').update({
-          name:               file.name,
+        const { error: updateErr } = await db.from('document_files').update({
+          file_name:          file.name,           // DB column is file_name
           file_extension:     file.file_extension,
           size_bytes:         file.size_bytes,
           mime_type:          file.mime_type,
           web_url:            file.web_url,
           download_url:       file.download_url,
           modified_at_source: file.modified_at_source,
-          modified_by:        file.modified_by,
           synced_at:          now,
           updated_at:         now,
           // Reset classification only if not manually classified
@@ -113,6 +112,7 @@ export async function syncCaseFiles(
             is_classified:         false,
           } : {}),
         }).eq('id', existing.id)
+        if (updateErr) throw new Error(updateErr.message)
         result.updated++
         continue
       }
@@ -146,33 +146,34 @@ export async function syncCaseFiles(
         }
       }
 
-      await db.from('document_files').insert({
+      const { error: insertErr } = await db.from('document_files').insert({
         case_id:               caseId,
         sharepoint_item_id:    file.sharepoint_item_id,
         sharepoint_drive_id:   file.sharepoint_drive_id,
-        name:                  file.name,
+        source:                'sharepoint',
+        file_name:             file.name,          // DB column is file_name
         file_extension:        file.file_extension,
-        size_bytes:             file.size_bytes,
+        size_bytes:            file.size_bytes,
         mime_type:             file.mime_type,
         web_url:               file.web_url,
         download_url:          file.download_url,
         created_at_source:     file.created_at_source,
         modified_at_source:    file.modified_at_source,
-        created_by:            file.created_by,
-        modified_by:           file.modified_by,
-        // Classification
+        // Classification — classified_by is UUID FK; leave null for auto-classification
         document_type_code:    autoClassified ? classification!.document_type_code : null,
         classification_source: autoClassified ? classification!.source : null,
         is_classified:         autoClassified ?? false,
         classified_at:         autoClassified ? now : null,
-        classified_by:         autoClassified ? `pipeline:${classification!.source}` : null,
+        classified_by:         null,               // UUID FK — not applicable for pipeline
         checklist_item_id:     checklistItemId,
         // State
-        is_deleted:   false,
-        synced_at:    now,
-        created_at:   now,
-        updated_at:   now,
+        is_deleted:  false,
+        synced_at:   now,
+        created_at:  now,
+        updated_at:  now,
       })
+
+      if (insertErr) throw new Error(insertErr.message)
       result.inserted++
     } catch (err) {
       result.errors++
