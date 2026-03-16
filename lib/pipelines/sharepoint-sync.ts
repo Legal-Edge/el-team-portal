@@ -103,6 +103,8 @@ export async function syncCaseFiles(
           web_url:            file.web_url,
           download_url:       file.download_url,
           modified_at_source: file.modified_at_source,
+          created_by_name:    file.created_by,
+          modified_by_name:   file.modified_by,
           synced_at:          now,
           updated_at:         now,
           // Reset classification only if not manually classified
