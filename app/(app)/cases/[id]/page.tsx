@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useParams, useRouter, useSearchParams }    from 'next/navigation'
 import { createClient as sbCreate }                  from '@supabase/supabase-js'
 import TasksSection                                  from '@/components/case/TasksSection'
@@ -749,7 +749,6 @@ function DocumentsSection({
   const [loading,     setLoading]     = useState(true)
   const [syncing,     setSyncing]     = useState(false)
   const [classifying, setClassifying] = useState<string | null>(null)
-  const [classifyType,setClassifyType]= useState('')
   const [saving,      setSaving]      = useState(false)
 
   const load = useCallback(async () => {
@@ -786,7 +785,7 @@ function DocumentsSection({
       body: JSON.stringify({ file_id: fileId, document_type_code: typeCode }),
     })
     setSaving(false)
-    if (res.ok) { setClassifying(null); setClassifyType(''); load() }
+    if (res.ok) { setClassifying(null); load() }
   }
 
   if (loading) {
@@ -979,21 +978,18 @@ function DocumentsSection({
                           f={f}
                           docTypes={docTypes}
                           classifying={classifying}
-                          classifyType={classifyType}
                           saving={saving}
-                          onStartClassify={() => { setClassifying(f.id); setClassifyType('') }}
-                          onCancelClassify={() => { setClassifying(null); setClassifyType('') }}
-                          onTypeChange={setClassifyType}
-                          onSave={async () => {
-                            if (!classifyType) return
+                          onStartClassify={() => setClassifying(f.id)}
+                          onCancelClassify={() => setClassifying(null)}
+                          onSave={async (code: string) => {
                             setSaving(true)
                             const res = await fetch(`/api/cases/${caseId}/documents/classify`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ file_id: f.id, document_type_code: classifyType }),
+                              body: JSON.stringify({ file_id: f.id, document_type_code: code }),
                             })
                             setSaving(false)
-                            if (res.ok) { setClassifying(null); setClassifyType(''); load() }
+                            if (res.ok) { setClassifying(null); load() }
                           }}
                         />
                       ))}
@@ -1011,20 +1007,73 @@ function DocumentsSection({
   )
 }
 
+// ── Classify dropdown — opens immediately, alphabetical, app-styled ────────
+function ClassifyDropdown({
+  docTypes,
+  saving,
+  onSelect,
+  onCancel,
+}: {
+  docTypes: DocType[]
+  saving: boolean
+  onSelect: (code: string) => void
+  onCancel: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const sorted = useMemo(
+    () => [...docTypes].sort((a, b) => a.label.localeCompare(b.label)),
+    [docTypes]
+  )
+
+  // Close on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onCancel()
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onCancel])
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <div className="absolute left-0 top-1 z-50 w-64 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+        <div className="px-3 py-2 border-b border-gray-100">
+          <p className="text-xs font-medium text-gray-500">Select document type</p>
+        </div>
+        <div className="max-h-60 overflow-y-auto">
+          {sorted.map(t => (
+            <button
+              key={t.code}
+              disabled={saving}
+              onClick={() => onSelect(t.code)}
+              className="w-full text-left px-3 py-2.5 text-sm text-gray-700 hover:bg-lemon-400/10 hover:text-gray-900 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0"
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="px-3 py-2 border-t border-gray-100">
+          <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Shared file row used inside each group ──────────────────────────────────
 function FileRow({
-  f, docTypes, classifying, classifyType, saving,
-  onStartClassify, onCancelClassify, onTypeChange, onSave,
+  f, docTypes, classifying, saving,
+  onStartClassify, onCancelClassify, onSave,
 }: {
   f: CaseFile
   docTypes: DocType[]
   classifying: string | null
-  classifyType: string
   saving: boolean
   onStartClassify: () => void
   onCancelClassify: () => void
-  onTypeChange: (v: string) => void
-  onSave: () => void
+  onSave: (code: string) => void
 }) {
   const isUnclassified = !f.is_classified
   return (
@@ -1053,29 +1102,23 @@ function FileRow({
       </div>
       {/* Classify control — only for unclassified */}
       {isUnclassified && (
-        classifying === f.id ? (
-          <div className="flex items-center gap-2 flex-wrap mt-1">
-            <select
-              className="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white flex-1 min-w-[180px]"
-              value={classifyType}
-              onChange={e => onTypeChange(e.target.value)}
-            >
-              <option value="">Select document type…</option>
-              {docTypes.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
-            </select>
+        <div className="relative">
+          {classifying === f.id ? (
+            <ClassifyDropdown
+              docTypes={docTypes}
+              saving={saving}
+              onSelect={onSave}
+              onCancel={onCancelClassify}
+            />
+          ) : (
             <button
-              onClick={onSave}
-              disabled={!classifyType || saving}
-              className="text-xs px-3 py-1.5 bg-lemon-400 text-black rounded-lg disabled:opacity-40 shrink-0 active:scale-95"
-            >{saving ? 'Saving…' : 'Classify'}</button>
-            <button onClick={onCancelClassify} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Cancel</button>
-          </div>
-        ) : (
-          <button
-            onClick={onStartClassify}
-            className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-3 py-1 rounded-lg hover:bg-amber-100 transition-colors active:scale-95"
-          >Classify ▾</button>
-        )
+              onClick={onStartClassify}
+              className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-3 py-1 rounded-lg hover:bg-amber-100 transition-colors active:scale-95"
+            >
+              Classify ▾
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
