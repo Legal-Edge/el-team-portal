@@ -13,6 +13,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://nllspzmypvtxewrmsred.supabase.co",
       "connect-src 'self' https://nllspzmypvtxewrmsred.supabase.co wss://realtime.supabase.co wss://nllspzmypvtxewrmsred.supabase.co https://login.microsoftonline.com https://graph.microsoft.com https://app.aloware.com",
+      "frame-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self' https://login.microsoftonline.com",
