@@ -9,7 +9,7 @@ const STAGE_GROUPS: Record<string, string> = {
   document_collection: 'active',
   attorney_review:     'active',
   info_needed:         'active',
-  sign_up:             'retained',
+  sign_up:             'active',
   retained:            'retained',
   settled:             'settled',
   dropped:             'dropped',
@@ -17,8 +17,8 @@ const STAGE_GROUPS: Record<string, string> = {
 
 // All stages per group
 const GROUP_STAGES: Record<string, string[]> = {
-  active:   ['intake','nurture','document_collection','attorney_review','info_needed'],
-  retained: ['sign_up','retained'],
+  active:   ['intake','nurture','document_collection','attorney_review','info_needed','sign_up'],
+  retained: ['retained'],
   settled:  ['settled'],
   dropped:  ['dropped'],
 }

@@ -260,8 +260,8 @@ function CasesContent() {
 
   // Sub-stage filter (only shown when a group is active)
   const GROUP_STAGES: Record<string, string[]> = {
-    active:   ['intake','nurture','document_collection','attorney_review','info_needed'],
-    retained: ['sign_up','retained'],
+    active:   ['intake','nurture','document_collection','attorney_review','info_needed','sign_up'],
+    retained: ['retained'],
     settled:  ['settled'],
     dropped:  ['dropped'],
   }
