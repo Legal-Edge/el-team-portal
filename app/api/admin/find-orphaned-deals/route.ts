@@ -18,6 +18,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const shouldDelete = req.nextUrl.searchParams.get('delete') === 'true'
+  // ?offset=N for pagination — scan one page at a time to avoid Vercel timeout
+  const offsetParam  = parseInt(req.nextUrl.searchParams.get('offset') ?? '0', 10)
+  const singlePage   = req.nextUrl.searchParams.has('offset')
 
   const client = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,7 +28,7 @@ export async function GET(req: NextRequest) {
   ).schema('core')
 
   const orphans: string[] = []
-  let offset = 0
+  let offset = offsetParam
   let totalScanned = 0
 
   while (true) {
@@ -84,8 +87,11 @@ export async function GET(req: NextRequest) {
     if (rows.length < PAGE_SIZE) break
     offset += PAGE_SIZE
 
-    // Safety: cap at 50k scanned to avoid timeout
-    if (totalScanned >= 50000) break
+    // In paginated mode, only scan one page per call
+    if (singlePage) break
+
+    // Safety: cap at 500 per call to avoid timeout
+    if (totalScanned >= 500) break
   }
 
   // Optionally soft-delete orphans
@@ -103,6 +109,8 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     total_scanned: totalScanned,
+    offset_start:  offsetParam,
+    next_offset:   orphans.length === 0 ? offset : null,
     orphans_found: orphans.length,
     orphan_deal_ids: orphans,
     deleted: deleted.length > 0 ? deleted : undefined,
