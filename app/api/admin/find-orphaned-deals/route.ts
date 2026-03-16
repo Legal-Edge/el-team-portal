@@ -29,14 +29,14 @@ export async function GET(req: NextRequest) {
   let totalScanned = 0
 
   while (true) {
-    // Fetch a page of Supabase deal IDs
+    // Fetch a page of Supabase deal IDs — newest first (orphans are most likely recent)
     const { data: rows, error } = await client
       .from('cases')
       .select('id, hubspot_deal_id')
       .eq('is_deleted', false)
       .not('hubspot_deal_id', 'is', null)
       .range(offset, offset + PAGE_SIZE - 1)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!rows || rows.length === 0) break
