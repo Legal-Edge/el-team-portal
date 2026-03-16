@@ -887,6 +887,21 @@ export default function CaseDetailPage() {
   const [notePinned, setNotePinned] = useState(false)
   const [noteSaving, setNoteSaving] = useState(false)
   const [noteError, setNoteError] = useState<string | null>(null)
+
+  // ── Unified timeline state ────────────────────────────────────────────────
+  type TimelineSource = 'event' | 'comm' | 'note'
+  type TimelineFilter = 'all' | 'notes' | 'comms' | 'events'
+  interface TimelineItem {
+    source:      TimelineSource; id: string; ts: string; item_type: string
+    body:        string | null;  author_ref: string | null; author_name: string | null
+    visibility:  string;         is_pinned: boolean; payload: Record<string, unknown> | null
+  }
+  const [timelineItems,     setTimelineItems]     = useState<TimelineItem[]>([])
+  const [timelineLoading,   setTimelineLoading]   = useState(false)
+  const [timelineHasMore,   setTimelineHasMore]   = useState(false)
+  const [timelineCursor,    setTimelineCursor]     = useState<string | null>(null)
+  const [timelineFilter,    setTimelineFilter]     = useState<TimelineFilter>('all')
+  const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'intake') ?? 'overview'
   const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>(initialTab)
@@ -973,6 +988,35 @@ export default function CaseDetailPage() {
     } finally { setNotesLoading(false) }
   }
 
+  async function loadTimeline(opts?: { cursor?: string | null; append?: boolean }) {
+    if (!params.id) return
+    const cursor = opts?.cursor ?? null
+    const append = opts?.append ?? false
+    if (!append) setTimelineLoading(true)
+    try {
+      const urlParams = new URLSearchParams({ limit: '50' })
+      if (cursor) urlParams.set('before_ts', cursor)
+      const res = await fetch(`/api/cases/${params.id}/timeline?${urlParams}`)
+      if (!res.ok) return
+      const d = await res.json()
+      const newItems: TimelineItem[] = d.items ?? []
+      if (append) {
+        setTimelineItems(prev => {
+          const ids = new Set(prev.map(i => i.id))
+          return [...prev, ...newItems.filter(i => !ids.has(i.id))]
+        })
+        setSeenIds(prev => { const next = new Set(prev); newItems.forEach(i => next.add(i.id)); return next })
+      } else {
+        setTimelineItems(newItems)
+        setSeenIds(new Set(newItems.map(i => i.id)))
+      }
+      setTimelineHasMore(d.has_more ?? false)
+      setTimelineCursor(d.next_cursor ?? null)
+    } finally {
+      setTimelineLoading(false)
+    }
+  }
+
   async function handleCreateNote() {
     if (!noteBody.trim()) return
     setNoteSaving(true); setNoteError(null)
@@ -986,27 +1030,32 @@ export default function CaseDetailPage() {
         const e = await res.json().catch(() => ({}))
         setNoteError(e.error ?? 'Failed to create note')
       } else {
-        const d = await res.json()
-        setNotes(prev => [d.note, ...prev])
         setNoteBody(''); setNoteType('general'); setNoteVisibility('internal')
         setNotePinned(false); setShowNoteForm(false)
+        loadTimeline()   // refresh full timeline
       }
     } finally { setNoteSaving(false) }
   }
 
   async function handleTogglePin(noteId: string, currentPinned: boolean) {
     const newPinned = !currentPinned
-    setNotes(prev => prev.map(n => n.id === noteId ? { ...n, is_pinned: newPinned } : n))
+    setTimelineItems(prev => prev.map(i => i.id === noteId ? { ...i, is_pinned: newPinned } : i))
     try {
       const res = await fetch(`/api/cases/${params.id}/notes/${noteId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_pinned: newPinned }),
       })
-      if (!res.ok) setNotes(prev => prev.map(n => n.id === noteId ? { ...n, is_pinned: currentPinned } : n))
-      else setNotes(prev => [...prev].sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0)))
+      if (!res.ok) {
+        setTimelineItems(prev => prev.map(i => i.id === noteId ? { ...i, is_pinned: currentPinned } : i))
+      } else {
+        setTimelineItems(prev =>
+          [...prev.map(i => i.id === noteId ? { ...i, is_pinned: newPinned } : i)]
+            .sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0) || new Date(b.ts).getTime() - new Date(a.ts).getTime())
+        )
+      }
     } catch {
-      setNotes(prev => prev.map(n => n.id === noteId ? { ...n, is_pinned: currentPinned } : n))
+      setTimelineItems(prev => prev.map(i => i.id === noteId ? { ...i, is_pinned: currentPinned } : i))
     }
   }
 
@@ -1102,9 +1151,9 @@ export default function CaseDetailPage() {
   }, [params.id])
 
   useEffect(() => { loadComms(commChannel) }, [commChannel, loadComms])
-  // Load notes when comms tab opens (or on initial mount)
+  // Load unified timeline when comms tab opens
   useEffect(() => {
-    if (activeTab === 'comms' && notes.length === 0 && !notesLoading) loadNotes()
+    if (activeTab === 'comms' && timelineItems.length === 0 && !timelineLoading) loadTimeline()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
@@ -1347,202 +1396,271 @@ export default function CaseDetailPage() {
           )}
 
           {/* ── Comms tab ── */}
-          {activeTab === 'comms' && (
-            <>
-            {/* ── Timeline Notes ── */}
-            <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
-              {/* Notes header */}
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Notes</span>
-                  {notes.length > 0 && <span className="text-xs text-gray-400 tabular-nums">{notes.length}</span>}
-                </div>
-                <button
-                  onClick={() => { setShowNoteForm(v => !v); setNoteError(null) }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-lemon-400 hover:bg-lemon-500 text-gray-900 transition-all active:scale-95"
+          {activeTab === 'comms' && (() => {
+            // ── Derived timeline data ────────────────────────────────────────
+            const pinnedItems   = timelineItems.filter(i => i.source === 'note' && i.is_pinned)
+            const filteredItems = timelineItems.filter(i => {
+              if (i.source === 'note' && i.is_pinned) return false  // shown in pinned section
+              if (timelineFilter === 'notes')  return i.source === 'note'
+              if (timelineFilter === 'comms')  return i.source === 'comm'
+              if (timelineFilter === 'events') return i.source === 'event'
+              return true
+            })
+            const itemCounts = {
+              notes:  timelineItems.filter(i => i.source === 'note').length,
+              comms:  timelineItems.filter(i => i.source === 'comm').length,
+              events: timelineItems.filter(i => i.source === 'event').length,
+            }
+
+            // ── Item rendering config ────────────────────────────────────────
+            const ITEM_ICON: Record<string, string> = {
+              // Events
+              'case.created': '🎉', 'case.stage_changed': '➡️', 'case.updated': '✏️',
+              'document.uploaded': '📄', 'document.classified': '🏷️', 'document.reviewed': '✅',
+              'intake.submitted': '📋', 'intake.step_completed': '✔️',
+              'sms.received': '💬', 'sms.sent': '💬', 'call.completed': '📞', 'call.missed': '📵',
+              'voicemail.received': '📨', 'email.received': '✉️', 'email.sent': '✉️',
+              // Comms
+              sms: '💬', call: '📞', email: '✉️',
+              // Note types
+              general: '📝', call_summary: '📞', verbal_update: '💬',
+              attorney_note: '⚖️', case_manager_note: '📋', milestone: '🏁',
+              client_communication: '👤', intake_note: '📝',
+            }
+            const ITEM_COLOR: Record<string, string> = {
+              event: 'bg-amber-50 text-amber-700',
+              comm:  'bg-gray-100 text-gray-600',
+              note:  'bg-blue-50 text-blue-700',
+            }
+            const VIS_CFG: Record<string, { label: string; cls: string }> = {
+              public:     { label: 'Public',     cls: 'bg-green-50 text-green-700'  },
+              internal:   { label: 'Internal',   cls: 'bg-blue-50 text-blue-700'    },
+              restricted: { label: 'Restricted', cls: 'bg-orange-50 text-orange-700'},
+              private:    { label: 'Private',    cls: 'bg-purple-50 text-purple-700'},
+            }
+            const EVENT_LABEL: Record<string, string> = {
+              'case.created': 'Case Created', 'case.stage_changed': 'Stage Changed',
+              'case.updated': 'Case Updated', 'document.uploaded': 'Document Uploaded',
+              'document.classified': 'Doc Classified', 'document.reviewed': 'Doc Reviewed',
+              'intake.submitted': 'Intake Submitted', 'intake.step_completed': 'Step Completed',
+              'sms.received': 'SMS Received', 'sms.sent': 'SMS Sent',
+              'call.completed': 'Call Completed', 'call.missed': 'Missed Call',
+              'voicemail.received': 'Voicemail', 'email.received': 'Email Received', 'email.sent': 'Email Sent',
+            }
+
+            function renderItem(item: ReturnType<typeof timelineItems[0]['source'] extends infer S ? () => { source: S; id: string; ts: string; item_type: string; body: string | null; author_ref: string | null; author_name: string | null; visibility: string; is_pinned: boolean; payload: Record<string, unknown> | null } : never>) {
+              const icon     = ITEM_ICON[item.item_type] ?? (item.source === 'event' ? '⚡' : item.source === 'comm' ? '💬' : '📝')
+              const srcColor = ITEM_COLOR[item.source] ?? 'bg-gray-100 text-gray-500'
+              const vis      = VIS_CFG[item.visibility]
+              const pinCan   = (canManageNotes || staffId === item.author_ref) && item.source === 'note'
+
+              const authorLine = item.source === 'note'
+                ? (item.author_name ?? 'Unknown')
+                : item.source === 'comm'
+                  ? (item.author_ref ?? '')
+                  : (item.author_ref ?? '')
+
+              const typeLabel = item.source === 'event'
+                ? (EVENT_LABEL[item.item_type] ?? item.item_type)
+                : item.source === 'comm'
+                  ? item.item_type.toUpperCase()
+                  : (NOTE_TYPE_LABELS[item.item_type] ?? item.item_type)
+
+              return (
+                <div
+                  key={item.id}
+                  className={`px-6 py-4 group hover:bg-gray-50 transition-colors ${item.is_pinned ? 'border-l-2 border-l-yellow-400' : ''}`}
                 >
-                  <span>{showNoteForm ? '✕ Cancel' : '+ Add Note'}</span>
-                </button>
-              </div>
+                  <div className="flex items-start gap-3">
+                    {/* Source/type icon */}
+                    <div className="shrink-0 mt-0.5 text-lg leading-none">{icon}</div>
 
-              {/* Add Note form */}
-              {showNoteForm && (
-                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 space-y-3">
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <label className="text-xs text-gray-400 font-medium block mb-1">Type</label>
-                      <select
-                        value={noteType}
-                        onChange={e => setNoteType(e.target.value)}
-                        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
-                      >
-                        {Object.entries(NOTE_TYPE_LABELS).map(([k, v]) => (
-                          <option key={k} value={k}>{v}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
-                      <select
-                        value={noteVisibility}
-                        onChange={e => setNoteVisibility(e.target.value)}
-                        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
-                      >
-                        <option value="internal">Internal (team)</option>
-                        <option value="public">Public</option>
-                        {canManageNotes && <option value="restricted">Restricted (admin/attorney/manager)</option>}
-                        <option value="private">Private (only me)</option>
-                      </select>
-                    </div>
-                    <div className="flex items-end pb-2">
-                      <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={notePinned}
-                          onChange={e => setNotePinned(e.target.checked)}
-                          className="w-3.5 h-3.5 accent-yellow-400"
-                        />
-                        Pin
-                      </label>
-                    </div>
-                  </div>
-                  <textarea
-                    value={noteBody}
-                    onChange={e => setNoteBody(e.target.value)}
-                    placeholder="Write a note…"
-                    rows={3}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-lemon-400 resize-none"
-                  />
-                  {noteError && <p className="text-xs text-red-500">{noteError}</p>}
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => { setShowNoteForm(false); setNoteBody(''); setNoteError(null) }}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleCreateNote}
-                      disabled={noteSaving || !noteBody.trim()}
-                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-all active:scale-95"
-                    >
-                      {noteSaving ? 'Saving…' : 'Save Note'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Notes list */}
-              {notesLoading ? (
-                <div className="py-8 text-center text-gray-400 text-sm">Loading notes…</div>
-              ) : notes.length === 0 ? (
-                <div className="py-8 text-center text-gray-400 text-sm">No notes yet</div>
-              ) : (
-                <div className="divide-y divide-gray-50">
-                  {notes.map(note => {
-                    const vis   = VISIBILITY_CONFIG[note.visibility] ?? VISIBILITY_CONFIG.internal
-                    const pinCan = canManageNotes || note.is_mine
-                    return (
-                      <div
-                        key={note.id}
-                        className={`px-6 py-4 group transition-colors hover:bg-gray-50 ${note.is_pinned ? 'border-l-2 border-l-yellow-400' : ''}`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            {/* Badges row */}
-                            <div className="flex items-center gap-2 flex-wrap mb-2">
-                              {note.is_pinned && (
-                                <span className="text-yellow-500 text-xs font-medium">📌 Pinned</span>
-                              )}
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                                {NOTE_TYPE_LABELS[note.note_type] ?? note.note_type}
-                              </span>
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${vis.cls}`}>
-                                <span>{vis.icon}</span>
-                                {vis.label}
-                              </span>
-                            </div>
-                            {/* Body */}
-                            <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{note.body}</p>
-                            {/* Meta */}
-                            <p className="mt-2 text-xs text-gray-400">
-                              {note.author_name} · {fmtNoteTime(note.created_at)}
-                            </p>
-                          </div>
-                          {/* Pin toggle */}
-                          {pinCan && (
-                            <button
-                              onClick={() => handleTogglePin(note.id, note.is_pinned)}
-                              title={note.is_pinned ? 'Unpin' : 'Pin'}
-                              className="opacity-0 group-hover:opacity-100 shrink-0 text-gray-300 hover:text-yellow-500 transition-all"
-                            >
-                              {note.is_pinned ? '📌' : '☆'}
-                            </button>
-                          )}
-                        </div>
+                    <div className="flex-1 min-w-0">
+                      {/* Badge row */}
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        {item.is_pinned && <span className="text-yellow-500 text-xs font-medium">📌</span>}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${srcColor}`}>
+                          {typeLabel}
+                        </span>
+                        {vis && item.source === 'note' && (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${vis.cls}`}>
+                            {vis.label}
+                          </span>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
 
-            {/* ── Communications ── */}
-            <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
-              {/* Comm header */}
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Communications</span>
-                  {commTotal > 0 && <span className="text-xs text-gray-400 tabular-nums">{commTotal} total</span>}
-                  {canSeeInternal && <span className="text-xs text-purple-500 font-medium">🔒 = internal only</span>}
+                      {/* Body */}
+                      {item.body && (
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
+                      )}
+                      {!item.body && item.source === 'event' && item.payload && (
+                        <p className="text-xs text-gray-400 font-mono">
+                          {JSON.stringify(item.payload).slice(0, 120)}
+                        </p>
+                      )}
+
+                      {/* Meta: author + time */}
+                      <p className="mt-1.5 text-xs text-gray-400">
+                        {authorLine && <span className="mr-1.5">{authorLine} ·</span>}
+                        {fmtNoteTime(item.ts)}
+                      </p>
+                    </div>
+
+                    {/* Pin toggle (notes only, hover reveal) */}
+                    {pinCan && (
+                      <button
+                        onClick={() => handleTogglePin(item.id, item.is_pinned)}
+                        title={item.is_pinned ? 'Unpin' : 'Pin'}
+                        className="opacity-0 group-hover:opacity-100 shrink-0 text-gray-300 hover:text-yellow-500 transition-all mt-0.5"
+                      >
+                        {item.is_pinned ? '📌' : '☆'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {/* Channel filter */}
-                {commTotal > 0 && (
-                  <div className="flex gap-1 flex-wrap">
-                    {[
-                      { key: '',      label: 'All' },
-                      { key: 'call',  label: `Calls${commCounts.call  ? ` (${commCounts.call})`  : ''}` },
-                      { key: 'sms',   label: `SMS${commCounts.sms    ? ` (${commCounts.sms})`    : ''}` },
-                      { key: 'email', label: `Email${commCounts.email ? ` (${commCounts.email})` : ''}` },
-                      { key: 'note',  label: `Notes${commCounts.note  ? ` (${commCounts.note})`  : ''}` },
-                    ]
-                      .filter(t => t.key === '' || commCounts[t.key])
-                      .map(tab => (
-                        <button
-                          key={tab.key}
-                          onClick={() => setCommChannel(tab.key)}
-                          className={`px-3 py-1 text-xs font-medium rounded-lg transition-all duration-150 active:scale-95 ${
-                            commChannel === tab.key
-                              ? 'bg-lemon-400 text-gray-900'
-                              : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
-                          }`}
+              )
+            }
+
+            return (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
+
+                {/* ── Timeline header ── */}
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+                  {/* Filter tabs */}
+                  <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                    {([
+                      { id: 'all',    label: `All (${timelineItems.length})` },
+                      { id: 'notes',  label: `Notes${itemCounts.notes  ? ` (${itemCounts.notes})`  : ''}` },
+                      { id: 'comms',  label: `Comms${itemCounts.comms  ? ` (${itemCounts.comms})`  : ''}` },
+                      { id: 'events', label: `Events${itemCounts.events ? ` (${itemCounts.events})` : ''}` },
+                    ] as { id: typeof timelineFilter; label: string }[]).map(f => (
+                      <button
+                        key={f.id}
+                        onClick={() => setTimelineFilter(f.id)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all active:scale-95 ${
+                          timelineFilter === f.id
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Add note + refresh */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => loadTimeline()}
+                      className="text-gray-400 hover:text-gray-600 transition-colors text-sm"
+                      title="Refresh timeline"
+                    >↻</button>
+                    <button
+                      onClick={() => { setShowNoteForm(v => !v); setNoteError(null) }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-lemon-400 hover:bg-lemon-500 text-gray-900 transition-all active:scale-95"
+                    >
+                      {showNoteForm ? '✕ Cancel' : '+ Add Note'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── Add Note form ── */}
+                {showNoteForm && (
+                  <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 space-y-3">
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Type</label>
+                        <select
+                          value={noteType}
+                          onChange={e => setNoteType(e.target.value)}
+                          className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
                         >
-                          {tab.label}
-                        </button>
-                      ))}
+                          {Object.entries(NOTE_TYPE_LABELS).map(([k, v]) => (
+                            <option key={k} value={k}>{v}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
+                        <select
+                          value={noteVisibility}
+                          onChange={e => setNoteVisibility(e.target.value)}
+                          className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
+                        >
+                          <option value="internal">Internal (team)</option>
+                          <option value="public">Public</option>
+                          {canManageNotes && <option value="restricted">Restricted</option>}
+                          <option value="private">Private (only me)</option>
+                        </select>
+                      </div>
+                      <div className="flex items-end pb-2">
+                        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                          <input type="checkbox" checked={notePinned} onChange={e => setNotePinned(e.target.checked)} className="w-3.5 h-3.5 accent-yellow-400" />
+                          Pin
+                        </label>
+                      </div>
+                    </div>
+                    <textarea
+                      value={noteBody}
+                      onChange={e => setNoteBody(e.target.value)}
+                      placeholder="Write a note…"
+                      rows={3}
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-lemon-400 resize-none"
+                    />
+                    {noteError && <p className="text-xs text-red-500">{noteError}</p>}
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => { setShowNoteForm(false); setNoteBody(''); setNoteError(null) }} className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-700">Cancel</button>
+                      <button onClick={handleCreateNote} disabled={noteSaving || !noteBody.trim()} className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-all active:scale-95">
+                        {noteSaving ? 'Saving…' : 'Save Note'}
+                      </button>
+                    </div>
                   </div>
                 )}
-              </div>
-              {/* Comm list */}
-              {commsLoading ? (
-                <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
-              ) : comms.length === 0 ? (
-                <div className="py-12 text-center">
-                  <p className="text-gray-400 text-sm">No communications synced yet</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-100">
-                  {comms.map(comm => <CommRow key={comm.id} comm={comm} />)}
-                </div>
-              )}
-              {/* SMS compose */}
-              {userCanSms && commCounts.sms > 0 && (commChannel === '' || commChannel === 'sms') && (
-                <SmsCompose caseId={params.id as string} onSent={() => loadComms(commChannel)} />
-              )}
-            </div>
-            </>
-          )}
 
+                {/* ── Pinned notes (always visible at top when filter = all|notes) ── */}
+                {pinnedItems.length > 0 && (timelineFilter === 'all' || timelineFilter === 'notes') && (
+                  <div className="border-b border-yellow-100 bg-yellow-50/40">
+                    <p className="px-6 pt-3 pb-1 text-xs font-semibold text-yellow-600 uppercase tracking-widest">📌 Pinned</p>
+                    <div className="divide-y divide-yellow-100">
+                      {pinnedItems.map(item => renderItem(item))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Main timeline feed ── */}
+                {timelineLoading ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">Loading timeline…</div>
+                ) : filteredItems.length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    {timelineFilter === 'all' ? 'No timeline activity yet' : `No ${timelineFilter} found`}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {filteredItems.map(item => renderItem(item))}
+                  </div>
+                )}
+
+                {/* ── Load more ── */}
+                {timelineHasMore && (
+                  <div className="px-6 py-3 border-t border-gray-100">
+                    <button
+                      onClick={() => loadTimeline({ cursor: timelineCursor, append: true })}
+                      disabled={timelineLoading}
+                      className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-40 transition-colors"
+                    >
+                      {timelineLoading ? 'Loading…' : 'Load older items'}
+                    </button>
+                  </div>
+                )}
+
+                {/* ── SMS Compose ── */}
+                {userCanSms && (timelineFilter === 'all' || timelineFilter === 'comms') && (
+                  <SmsCompose caseId={params.id as string} onSent={() => loadTimeline()} />
+                )}
+
+              </div>
+            )
+          })()}
+\n
           {/* ── Documents tab ── */}
           {activeTab === 'documents' && (
             <DocumentsSection
