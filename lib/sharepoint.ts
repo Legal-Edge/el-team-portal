@@ -153,8 +153,10 @@ export async function listCaseFiles(
 ): Promise<SharePointFileInfo[]> {
   const files: SharePointFileInfo[] = []
 
+  // Note: @microsoft.graph.downloadUrl is an annotation returned automatically
+  // for file items — do NOT include it in $select or it breaks the clause
   let path = `/drives/${driveId}/items/${driveItemId}/children` +
-    `?$select=id,name,file,size,webUrl,@microsoft.graph.downloadUrl,createdDateTime,lastModifiedDateTime,createdBy,lastModifiedBy` +
+    `?$select=id,name,file,size,webUrl,createdDateTime,lastModifiedDateTime,createdBy,lastModifiedBy` +
     `&$top=200`
 
   while (path) {
