@@ -18,6 +18,7 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/case-counts',         // case count stats (token-protected)
     '/api/admin/sync-missing-deals',  // gap-closing sync (token-protected)
     '/api/admin/cron',                // Vercel cron jobs (CRON_SECRET-protected)
+    '/api/admin/count-check',         // HubSpot vs Supabase count reconciliation (token-protected)
     '/api/webhooks/hubspot-team',     // HubSpot real-time webhook (token-protected)
   ]
   
@@ -48,6 +49,6 @@ export default auth((req: NextRequest & { auth: any }) => {
 // Configure which routes should be processed by the middleware
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
