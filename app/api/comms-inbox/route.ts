@@ -24,19 +24,6 @@ export interface CommsInboxRow {
   sla_sort:             number
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  intake:              'Intake',
-  nurture:             'Nurture',
-  document_collection: 'Doc Collection',
-  attorney_review:     'Attorney Review',
-  info_needed:         'Info Needed',
-  sign_up:             'Sign Up',
-  retained:            'Retained',
-  settled:             'Settled',
-  dropped:             'Dropped',
-}
-export { STAGE_LABELS }
-
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
