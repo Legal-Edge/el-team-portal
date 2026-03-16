@@ -750,6 +750,7 @@ function DocumentsSection({
   const [syncing,     setSyncing]     = useState(false)
   const [classifying, setClassifying] = useState<string | null>(null)
   const [saving,      setSaving]      = useState(false)
+  const [viewing,     setViewing]     = useState<CaseFile | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -823,6 +824,16 @@ function DocumentsSection({
 
   return (
     <div className="space-y-4">
+
+      {/* ── PDF Viewer Modal ──────────────────────────────────────────── */}
+      {viewing && (
+        <DocViewerModal
+          fileId={viewing.id}
+          fileName={viewing.file_name}
+          webUrl={viewing.web_url}
+          onClose={() => setViewing(null)}
+        />
+      )}
 
       {/* ── HubSpot Collection Status Card ─────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -979,6 +990,7 @@ function DocumentsSection({
                           docTypes={docTypes}
                           classifying={classifying}
                           saving={saving}
+                          onView={() => setViewing(f)}
                           onStartClassify={() => setClassifying(f.id)}
                           onCancelClassify={() => setClassifying(null)}
                           onSave={async (code: string) => {
@@ -1002,6 +1014,66 @@ function DocumentsSection({
             })}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── PDF Viewer Modal ───────────────────────────────────────────────────────
+function DocViewerModal({
+  fileId,
+  fileName,
+  webUrl,
+  onClose,
+}: {
+  fileId:   string
+  fileName: string
+  webUrl:   string | null
+  onClose:  () => void
+}) {
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      {/* Modal panel */}
+      <div
+        className="relative flex flex-col bg-white w-full h-full max-w-5xl mx-auto my-6 rounded-2xl shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0 bg-white">
+          <p className="text-sm font-medium text-gray-800 truncate max-w-lg">{fileName}</p>
+          <div className="flex items-center gap-3 shrink-0">
+            {webUrl && (
+              <a
+                href={webUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-500 hover:underline"
+              >
+                Open in SharePoint ↗
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-700 text-xl leading-none transition-colors px-1"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        {/* PDF iframe */}
+        <iframe
+          src={`/api/documents/${fileId}/view`}
+          className="flex-1 w-full border-0"
+          title={fileName}
+        />
       </div>
     </div>
   )
@@ -1078,27 +1150,43 @@ function ClassifyDropdown({
 // ── Shared file row used inside each group ──────────────────────────────────
 function FileRow({
   f, docTypes, classifying, saving,
-  onStartClassify, onCancelClassify, onSave,
+  onView, onStartClassify, onCancelClassify, onSave,
 }: {
   f: CaseFile
   docTypes: DocType[]
   classifying: string | null
   saving: boolean
+  onView: () => void
   onStartClassify: () => void
   onCancelClassify: () => void
   onSave: (code: string) => void
 }) {
   const isUnclassified = !f.is_classified
+  const isPdf = f.file_extension?.toLowerCase() === 'pdf' || f.file_name.toLowerCase().endsWith('.pdf')
+
   return (
     <div className={`rounded-lg border px-4 py-3 ${isUnclassified ? 'border-amber-100 bg-amber-50/30' : 'border-gray-100 bg-gray-50/30'}`}>
       {/* Name + size + open */}
       <div className="flex items-center gap-2 flex-wrap mb-1">
-        <span className="text-sm text-gray-800 font-medium truncate max-w-sm">{f.file_name}</span>
+        {isPdf ? (
+          <button
+            onClick={onView}
+            className="text-sm text-gray-800 font-medium truncate max-w-sm hover:text-lemon-600 hover:underline text-left transition-colors"
+            title="Click to preview"
+          >
+            {f.file_name}
+          </button>
+        ) : (
+          <span className="text-sm text-gray-800 font-medium truncate max-w-sm">{f.file_name}</span>
+        )}
         {f.type_label && !isUnclassified && (
           <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">{f.type_label}</span>
         )}
         {f.size_bytes && <span className="text-xs text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
-        {f.web_url && (
+        {isPdf && (
+          <button onClick={onView} className="text-xs text-blue-500 hover:underline shrink-0">Preview ↗</button>
+        )}
+        {!isPdf && f.web_url && (
           <a href={f.web_url} target="_blank" rel="noopener noreferrer"
             className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
         )}
