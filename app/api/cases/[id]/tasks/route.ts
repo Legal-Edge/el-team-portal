@@ -36,18 +36,19 @@ function getCoreDb() {
 // GET — list tasks for a case (all statuses, newest first)
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { id } = await params
   const db = getCoreDb()
 
   // Resolve case UUID from hubspot_deal_id slug
   const { data: caseRow } = await db
     .from('cases')
     .select('id')
-    .eq('hubspot_deal_id', params.id)
+    .eq('hubspot_deal_id', id)
     .eq('is_deleted', false)
     .single()
 
@@ -99,11 +100,12 @@ export async function GET(
 // POST — create a task
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { id } = await params
   const db      = getCoreDb()
   const staffId = (session.user as { staffId?: string }).staffId ?? null
   const body    = await req.json()
@@ -115,7 +117,7 @@ export async function POST(
   const { data: caseRow } = await db
     .from('cases')
     .select('id')
-    .eq('hubspot_deal_id', params.id)
+    .eq('hubspot_deal_id', id)
     .eq('is_deleted', false)
     .single()
 

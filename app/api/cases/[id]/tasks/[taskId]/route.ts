@@ -8,11 +8,12 @@ import { createClient }               from '@supabase/supabase-js'
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string; taskId: string } }
+  { params }: { params: Promise<{ id: string; taskId: string }> }
 ) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { taskId } = await params
   const staffId = (session.user as { staffId?: string }).staffId ?? null
   const body    = await req.json()
   const { action } = body
@@ -50,7 +51,7 @@ export async function PATCH(
   const { error } = await db
     .from('tasks')
     .update(update)
-    .eq('id', params.taskId)
+    .eq('id', taskId)
     .eq('is_deleted', false)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
