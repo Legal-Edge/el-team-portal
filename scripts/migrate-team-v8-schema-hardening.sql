@@ -1,38 +1,65 @@
 -- ============================================================
 -- Migration: team-v8 — Schema Hardening
 -- ============================================================
--- 1. staff schema — staff_roles + staff_users (required by auth.ts)
--- 2. Fix core.case_documents collision → core.document_files
--- 3. core.tasks
--- 4. ALTER core.cases — assigned_attorney, case_number
--- 5. Comms pipeline trigger → core.comms_state auto-population
--- 6. Backfill core.comms_state from existing communications
+-- 1. set_updated_at trigger functions (core + staff)
+-- 2. staff schema — staff_roles + staff_users (required by auth.ts)
+-- 3. Fix core.case_documents collision → core.document_files
+-- 4. core.tasks
+-- 5. ALTER core.cases — assigned_attorney, case_number
+-- 6. Comms pipeline trigger → core.comms_state auto-population
+-- 7. Backfill core.comms_state (CTE-based, safe)
 -- ============================================================
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 1. STAFF SCHEMA
+-- 1. set_updated_at trigger functions
+-- ═══════════════════════════════════════════════════════════════
+-- Defined for both schemas so triggers in each work independently.
+
+CREATE OR REPLACE FUNCTION core.set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION staff.set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END;
+$$;
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 2. STAFF SCHEMA
 -- ═══════════════════════════════════════════════════════════════
 
 CREATE SCHEMA IF NOT EXISTS staff;
 
 -- ── staff.staff_roles — permission catalog ────────────────────
 CREATE TABLE IF NOT EXISTS staff.staff_roles (
-  id                     UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  role_name              TEXT        UNIQUE NOT NULL,
-  role_level             INT         NOT NULL DEFAULT 0,
+  id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  role_name               TEXT        UNIQUE NOT NULL,
+  role_level              INT         NOT NULL DEFAULT 0,
     -- Higher = more access. 0=staff, 10=paralegal, 20=manager, 30=attorney, 100=admin
-  can_create_cases       BOOLEAN     NOT NULL DEFAULT FALSE,
-  can_edit_all_cases     BOOLEAN     NOT NULL DEFAULT FALSE,
-  can_delete_cases       BOOLEAN     NOT NULL DEFAULT FALSE,
-  can_access_financials  BOOLEAN     NOT NULL DEFAULT FALSE,
-  can_manage_staff       BOOLEAN     NOT NULL DEFAULT FALSE,
-  can_access_ai_tools    BOOLEAN     NOT NULL DEFAULT FALSE,
-  can_approve_settlements BOOLEAN    NOT NULL DEFAULT FALSE,
-  description            TEXT,
-  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  can_create_cases        BOOLEAN     NOT NULL DEFAULT FALSE,
+  can_edit_all_cases      BOOLEAN     NOT NULL DEFAULT FALSE,
+  can_delete_cases        BOOLEAN     NOT NULL DEFAULT FALSE,
+  can_access_financials   BOOLEAN     NOT NULL DEFAULT FALSE,
+  can_manage_staff        BOOLEAN     NOT NULL DEFAULT FALSE,
+  can_access_ai_tools     BOOLEAN     NOT NULL DEFAULT FALSE,
+  can_approve_settlements BOOLEAN     NOT NULL DEFAULT FALSE,
+  description             TEXT,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TRIGGER trg_staff_roles_updated_at
+  BEFORE UPDATE ON staff.staff_roles
+  FOR EACH ROW EXECUTE FUNCTION staff.set_updated_at();
 
 -- Seed canonical roles
 INSERT INTO staff.staff_roles
@@ -69,13 +96,17 @@ CREATE TABLE IF NOT EXISTS staff.staff_users (
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TRIGGER trg_staff_users_updated_at
+  BEFORE UPDATE ON staff.staff_users
+  FOR EACH ROW EXECUTE FUNCTION staff.set_updated_at();
+
 CREATE INDEX IF NOT EXISTS idx_staff_users_email
   ON staff.staff_users (email) WHERE is_deleted = FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_staff_users_role
   ON staff.staff_users (primary_role_id) WHERE is_deleted = FALSE;
 
--- Seed initial staff (Nov as admin — update password/azure_ad_object_id as needed)
+-- Seed initial staff (Nov as admin)
 INSERT INTO staff.staff_users (email, first_name, last_name, display_name, primary_role_id, status)
 SELECT
   'novaj@rockpointgrowth.com',
@@ -95,16 +126,13 @@ GRANT SELECT ON ALL TABLES IN SCHEMA staff TO authenticated;
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 2. FIX core.case_documents COLLISION
+-- 3. FIX core.case_documents COLLISION
 -- ═══════════════════════════════════════════════════════════════
--- The team-v6 migration dropped the original SharePoint file-tracking
--- table and replaced it with a minimal workflow state table.
--- That table is redundant with core.case_document_checklist.
--- Drop it (no data) and restore proper file tracking as core.document_files.
+-- Drop the minimal team-v6 replacement (no data, redundant with checklist).
+-- Restore proper file tracking as core.document_files.
 
 DROP TABLE IF EXISTS core.case_documents CASCADE;
 
--- core.document_files — actual files (SharePoint items, portal uploads)
 CREATE TABLE IF NOT EXISTS core.document_files (
   id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id               UUID        NOT NULL REFERENCES core.cases(id) ON DELETE CASCADE,
@@ -115,7 +143,7 @@ CREATE TABLE IF NOT EXISTS core.document_files (
   source                TEXT        NOT NULL DEFAULT 'sharepoint'
                                     CHECK (source IN ('sharepoint','portal_upload','email_attachment','staff_upload')),
 
-  -- SharePoint Graph identity (nullable for non-SharePoint files)
+  -- SharePoint Graph identity (nullable for non-SharePoint sources)
   sharepoint_item_id    TEXT,
   sharepoint_drive_id   TEXT,
 
@@ -129,7 +157,7 @@ CREATE TABLE IF NOT EXISTS core.document_files (
   web_url               TEXT,
   download_url          TEXT,
 
-  -- Timestamps from source
+  -- Timestamps from source system
   created_at_source     TIMESTAMPTZ,
   modified_at_source    TIMESTAMPTZ,
 
@@ -137,7 +165,8 @@ CREATE TABLE IF NOT EXISTS core.document_files (
   is_classified         BOOLEAN     NOT NULL DEFAULT FALSE,
   classified_by         UUID        REFERENCES staff.staff_users(id),
   classified_at         TIMESTAMPTZ,
-  classification_source TEXT        CHECK (classification_source IN ('manual','auto','ai')),
+  -- 'rule' covers automated filename/metadata rules (e.g. "RO*.pdf → repair_order")
+  classification_source TEXT        CHECK (classification_source IN ('manual','auto','ai','rule')),
 
   -- Review
   is_reviewed           BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -145,19 +174,22 @@ CREATE TABLE IF NOT EXISTS core.document_files (
   reviewed_at           TIMESTAMPTZ,
   review_notes          TEXT,
 
-  -- Uploader (for non-SharePoint sources)
+  -- Uploader for non-SharePoint sources
   uploaded_by           UUID        REFERENCES staff.staff_users(id),
 
   -- Audit
   synced_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_deleted            BOOLEAN     NOT NULL DEFAULT FALSE,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT document_files_sharepoint_unique
-    UNIQUE (case_id, sharepoint_item_id)
-    DEFERRABLE INITIALLY DEFERRED
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Partial unique index: only enforce uniqueness when sharepoint_item_id is present.
+-- Rows from portal uploads, email attachments, etc. have NULL sharepoint_item_id
+-- and must not be blocked by the constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_document_files_sharepoint
+  ON core.document_files (case_id, sharepoint_item_id)
+  WHERE sharepoint_item_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_document_files_case_id
   ON core.document_files (case_id);
@@ -165,48 +197,54 @@ CREATE INDEX IF NOT EXISTS idx_document_files_checklist
   ON core.document_files (checklist_item_id) WHERE checklist_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_document_files_type
   ON core.document_files (document_type_code);
-CREATE INDEX IF NOT EXISTS idx_document_files_classified
-  ON core.document_files (is_classified) WHERE is_classified = FALSE;
+CREATE INDEX IF NOT EXISTS idx_document_files_unclassified
+  ON core.document_files (case_id, created_at) WHERE is_classified = FALSE AND is_deleted = FALSE;
+
+CREATE TRIGGER trg_document_files_updated_at
+  BEFORE UPDATE ON core.document_files
+  FOR EACH ROW EXECUTE FUNCTION core.set_updated_at();
 
 GRANT ALL    ON core.document_files TO service_role;
 GRANT SELECT ON core.document_files TO authenticated;
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 3. core.tasks
+-- 4. core.tasks
 -- ═══════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS core.tasks (
-  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_id        UUID        NOT NULL REFERENCES core.cases(id) ON DELETE CASCADE,
-  created_by     UUID        REFERENCES staff.staff_users(id),
-  assigned_to    UUID        REFERENCES staff.staff_users(id),
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id         UUID        NOT NULL REFERENCES core.cases(id) ON DELETE CASCADE,
+  created_by      UUID        REFERENCES staff.staff_users(id),
+  assigned_to     UUID        REFERENCES staff.staff_users(id),
 
-  title          TEXT        NOT NULL,
-  description    TEXT,
-  task_type      TEXT        NOT NULL DEFAULT 'general'
-                             CHECK (task_type IN (
-                               'general','follow_up','document_request',
-                               'demand_letter','settlement','court_filing',
-                               'call','email','review','intake_follow_up'
-                             )),
-  priority       TEXT        NOT NULL DEFAULT 'normal'
-                             CHECK (priority IN ('low','normal','high','urgent')),
-  task_status    TEXT        NOT NULL DEFAULT 'open'
-                             CHECK (task_status IN ('open','in_progress','completed','cancelled')),
+  title           TEXT        NOT NULL,
+  description     TEXT,
+  task_type       TEXT        NOT NULL DEFAULT 'general'
+                              CHECK (task_type IN (
+                                'general','follow_up','document_request',
+                                'demand_letter','settlement','court_filing',
+                                'call','email','review','intake_follow_up'
+                              )),
+  priority        TEXT        NOT NULL DEFAULT 'normal'
+                              CHECK (priority IN ('low','normal','high','urgent')),
+  task_status     TEXT        NOT NULL DEFAULT 'open'
+                              CHECK (task_status IN (
+                                'open','in_progress','blocked','completed','cancelled'
+                              )),
 
-  due_at         TIMESTAMPTZ,
-  completed_at   TIMESTAMPTZ,
-  completed_by   UUID        REFERENCES staff.staff_users(id),
-  cancelled_at   TIMESTAMPTZ,
-  cancelled_by   UUID        REFERENCES staff.staff_users(id),
+  due_at          TIMESTAMPTZ,
+  completed_at    TIMESTAMPTZ,
+  completed_by    UUID        REFERENCES staff.staff_users(id),
+  cancelled_at    TIMESTAMPTZ,
+  cancelled_by    UUID        REFERENCES staff.staff_users(id),
 
   -- Link to the event that created this task (optional)
-  source_event_id BIGINT     REFERENCES core.events(id) ON DELETE SET NULL,
+  source_event_id BIGINT      REFERENCES core.events(id) ON DELETE SET NULL,
 
-  is_deleted     BOOLEAN     NOT NULL DEFAULT FALSE,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  is_deleted      BOOLEAN     NOT NULL DEFAULT FALSE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_case_id
@@ -214,9 +252,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_case_id
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to
   ON core.tasks (assigned_to, task_status) WHERE is_deleted = FALSE;
 CREATE INDEX IF NOT EXISTS idx_tasks_due_at
-  ON core.tasks (due_at) WHERE task_status = 'open' AND is_deleted = FALSE;
+  ON core.tasks (due_at) WHERE task_status IN ('open','in_progress','blocked') AND is_deleted = FALSE;
 
--- auto-update updated_at
 CREATE TRIGGER trg_tasks_updated_at
   BEFORE UPDATE ON core.tasks
   FOR EACH ROW EXECUTE FUNCTION core.set_updated_at();
@@ -226,7 +263,7 @@ GRANT SELECT ON core.tasks TO authenticated;
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 4. ALTER core.cases — assigned_attorney + case_number
+-- 5. ALTER core.cases — assigned_attorney + case_number
 -- ═══════════════════════════════════════════════════════════════
 
 ALTER TABLE core.cases
@@ -255,19 +292,31 @@ CREATE TRIGGER trg_generate_case_number
   BEFORE INSERT ON core.cases
   FOR EACH ROW EXECUTE FUNCTION core.generate_case_number();
 
--- Backfill case_number for all existing cases (ordered by created_at)
+-- Backfill case_number for all existing cases (in creation order)
 UPDATE core.cases
-SET case_number = 'EL-' || TO_CHAR(created_at, 'YYYY') || '-'
-  || LPAD(nextval('core.case_number_seq')::TEXT, 5, '0')
-WHERE case_number IS NULL
-  AND is_deleted = FALSE;
+SET case_number = sub.new_number
+FROM (
+  SELECT
+    id,
+    'EL-' || TO_CHAR(created_at, 'YYYY') || '-'
+      || LPAD(ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('year', created_at) ORDER BY created_at, id)::TEXT, 5, '0') AS new_number
+  FROM core.cases
+  WHERE case_number IS NULL
+    AND is_deleted = FALSE
+) sub
+WHERE core.cases.id = sub.id;
+
+-- Advance the sequence past the backfilled rows so new inserts don't collide
+SELECT setval('core.case_number_seq',
+  COALESCE((SELECT MAX(CAST(SPLIT_PART(case_number, '-', 3) AS INT))
+            FROM core.cases
+            WHERE case_number IS NOT NULL), 0) + 1
+);
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 5. COMMS PIPELINE — DB trigger to auto-populate core.comms_state
+-- 6. COMMS PIPELINE — DB trigger → core.comms_state
 -- ═══════════════════════════════════════════════════════════════
--- Fires on every INSERT or UPDATE to core.communications.
--- Recalculates comms state for the affected case in real time.
 
 CREATE OR REPLACE FUNCTION core.update_comms_state()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -285,10 +334,10 @@ BEGIN
   v_case_id := COALESCE(NEW.case_id, OLD.case_id);
   IF v_case_id IS NULL THEN RETURN NEW; END IF;
 
-  -- Last inbound + outbound timestamps
+  -- Last inbound + outbound timestamps for this case
   SELECT
-    MAX(occurred_at) FILTER (WHERE direction = 'inbound'  AND is_deleted = FALSE),
-    MAX(occurred_at) FILTER (WHERE direction = 'outbound' AND is_deleted = FALSE)
+    MAX(occurred_at) FILTER (WHERE direction = 'inbound'  AND NOT is_deleted),
+    MAX(occurred_at) FILTER (WHERE direction = 'outbound' AND NOT is_deleted)
   INTO v_last_inbound, v_last_outbound
   FROM core.communications
   WHERE case_id = v_case_id;
@@ -299,24 +348,24 @@ BEGIN
   FROM core.communications
   WHERE case_id   = v_case_id
     AND direction = 'inbound'
-    AND is_deleted = FALSE
+    AND NOT is_deleted
   ORDER BY occurred_at DESC NULLS LAST
   LIMIT 1;
 
-  -- Unread: inbound messages since last outbound (or all inbound if no outbound yet)
+  -- Unread: inbound messages since last outbound (or all inbound if never replied)
   SELECT COUNT(*)
   INTO v_unread_count
   FROM core.communications
   WHERE case_id   = v_case_id
     AND direction = 'inbound'
-    AND is_deleted = FALSE
+    AND NOT is_deleted
     AND (v_last_outbound IS NULL OR occurred_at > v_last_outbound);
 
-  -- Awaiting response: true when most recent message was inbound
+  -- Awaiting response: most recent comm was inbound
   v_awaiting := (v_last_inbound IS NOT NULL)
     AND (v_last_outbound IS NULL OR v_last_inbound > v_last_outbound);
 
-  -- SLA calculation
+  -- SLA
   IF v_awaiting AND v_last_inbound IS NOT NULL THEN
     v_response_due := v_last_inbound + (v_sla_hours || ' hours')::INTERVAL;
     v_sla_status   :=
@@ -358,10 +407,64 @@ CREATE TRIGGER trg_update_comms_state
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 6. BACKFILL core.comms_state from existing communications
+-- 7. BACKFILL core.comms_state (CTE-based, safe)
 -- ═══════════════════════════════════════════════════════════════
--- One-time bulk calculation for all cases with existing communications.
+-- Step 1: aggregate per-case inbound/outbound timestamps in one pass
+-- Step 2: join to get last_inbound_channel and unread_count as scalar subqueries
+-- Step 3: derive awaiting_response, response_due_at, sla_status inline
+-- Step 4: single upsert into core.comms_state
 
+WITH
+-- Step 1: per-case aggregates (direction + timestamp only)
+agg AS (
+  SELECT
+    case_id,
+    MAX(occurred_at) FILTER (WHERE direction = 'inbound'  AND NOT is_deleted) AS last_inbound_at,
+    MAX(occurred_at) FILTER (WHERE direction = 'outbound' AND NOT is_deleted) AS last_outbound_at
+  FROM core.communications
+  WHERE case_id IS NOT NULL
+  GROUP BY case_id
+),
+
+-- Step 2: derive awaiting_response from the two timestamps
+with_awaiting AS (
+  SELECT
+    agg.*,
+    CASE
+      WHEN agg.last_inbound_at IS NULL                               THEN FALSE
+      WHEN agg.last_outbound_at IS NULL                              THEN TRUE
+      WHEN agg.last_inbound_at > agg.last_outbound_at                THEN TRUE
+      ELSE FALSE
+    END AS awaiting_response
+  FROM agg
+),
+
+-- Step 3: add last_inbound_channel and unread_count as correlated scalar subqueries
+-- (safe: runs once per distinct case_id row, not per-communication row)
+with_detail AS (
+  SELECT
+    w.*,
+    (
+      SELECT channel
+      FROM   core.communications x
+      WHERE  x.case_id   = w.case_id
+        AND  x.direction = 'inbound'
+        AND  NOT x.is_deleted
+      ORDER  BY x.occurred_at DESC NULLS LAST
+      LIMIT  1
+    ) AS last_inbound_channel,
+    (
+      SELECT COUNT(*)::INT
+      FROM   core.communications x
+      WHERE  x.case_id   = w.case_id
+        AND  x.direction = 'inbound'
+        AND  NOT x.is_deleted
+        AND  (w.last_outbound_at IS NULL OR x.occurred_at > w.last_outbound_at)
+    ) AS unread_count
+  FROM with_awaiting w
+)
+
+-- Step 4: compute SLA and upsert
 INSERT INTO core.comms_state (
   case_id,
   last_inbound_at,
@@ -374,70 +477,40 @@ INSERT INTO core.comms_state (
   updated_at
 )
 SELECT
-  c.case_id,
-  MAX(c.occurred_at) FILTER (WHERE c.direction = 'inbound'  AND c.is_deleted = FALSE) AS last_inbound_at,
-  MAX(c.occurred_at) FILTER (WHERE c.direction = 'outbound' AND c.is_deleted = FALSE) AS last_outbound_at,
-  (
-    SELECT channel FROM core.communications x
-    WHERE x.case_id = c.case_id AND x.direction = 'inbound' AND x.is_deleted = FALSE
-    ORDER BY x.occurred_at DESC NULLS LAST LIMIT 1
-  ) AS last_inbound_channel,
-  -- awaiting_response
+  case_id,
+  last_inbound_at,
+  last_outbound_at,
+  last_inbound_channel,
+  awaiting_response,
   CASE
-    WHEN MAX(c.occurred_at) FILTER (WHERE c.direction = 'inbound' AND c.is_deleted = FALSE) IS NULL
-      THEN FALSE
-    WHEN MAX(c.occurred_at) FILTER (WHERE c.direction = 'outbound' AND c.is_deleted = FALSE) IS NULL
-      THEN TRUE
-    WHEN MAX(c.occurred_at) FILTER (WHERE c.direction = 'inbound' AND c.is_deleted = FALSE)
-       > MAX(c.occurred_at) FILTER (WHERE c.direction = 'outbound' AND c.is_deleted = FALSE)
-      THEN TRUE
-    ELSE FALSE
-  END AS awaiting_response,
-  NULL AS response_due_at,     -- recalculated below
-  'ok' AS sla_status,          -- recalculated below
-  COUNT(*) FILTER (
-    WHERE c.direction = 'inbound'
-      AND c.is_deleted = FALSE
-      AND (
-        MAX(c.occurred_at) FILTER (WHERE c.direction = 'outbound' AND c.is_deleted = FALSE) IS NULL
-        OR c.occurred_at > MAX(c.occurred_at) FILTER (WHERE c.direction = 'outbound' AND c.is_deleted = FALSE)
-      )
-  ) AS unread_count,
-  NOW() AS updated_at
-FROM core.communications c
-WHERE c.case_id IS NOT NULL
-GROUP BY c.case_id
+    WHEN awaiting_response AND last_inbound_at IS NOT NULL
+    THEN last_inbound_at + INTERVAL '24 hours'
+    ELSE NULL
+  END AS response_due_at,
+  CASE
+    WHEN last_inbound_at IS NULL             THEN 'no_contact'
+    WHEN NOT awaiting_response               THEN 'ok'
+    WHEN NOW() > last_inbound_at + INTERVAL '24 hours'       THEN 'overdue'
+    WHEN NOW() > last_inbound_at + INTERVAL '20 hours'       THEN 'due_soon'
+    ELSE 'ok'
+  END AS sla_status,
+  unread_count,
+  NOW()
+FROM with_detail
 ON CONFLICT (case_id) DO UPDATE SET
   last_inbound_at      = EXCLUDED.last_inbound_at,
   last_outbound_at     = EXCLUDED.last_outbound_at,
   last_inbound_channel = EXCLUDED.last_inbound_channel,
   awaiting_response    = EXCLUDED.awaiting_response,
+  response_due_at      = EXCLUDED.response_due_at,
+  sla_status           = EXCLUDED.sla_status,
   unread_count         = EXCLUDED.unread_count,
   updated_at           = EXCLUDED.updated_at;
 
--- Fix SLA status for awaiting cases
-UPDATE core.comms_state
-SET
-  response_due_at = last_inbound_at + INTERVAL '24 hours',
-  sla_status = CASE
-    WHEN NOW() > last_inbound_at + INTERVAL '24 hours'       THEN 'overdue'
-    WHEN NOW() > last_inbound_at + INTERVAL '20 hours'       THEN 'due_soon'
-    ELSE 'ok'
-  END,
-  updated_at = NOW()
-WHERE awaiting_response = TRUE
-  AND last_inbound_at IS NOT NULL;
-
--- Mark no_contact cases
-UPDATE core.comms_state
-SET sla_status = 'no_contact', updated_at = NOW()
-WHERE last_inbound_at IS NULL;
-
 
 -- ═══════════════════════════════════════════════════════════════
--- Realtime on new tables
+-- Realtime + schema reload
 -- ═══════════════════════════════════════════════════════════════
 ALTER TABLE core.tasks REPLICA IDENTITY FULL;
 
--- Reload schema cache
 NOTIFY pgrst, 'reload schema';
