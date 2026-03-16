@@ -195,11 +195,12 @@ RETURNS TABLE (
       (n.visibility = 'private' AND n.author_id = p_staff_id)
     )
 
-  -- is_pinned DESC floats pinned notes to top of page 1.
-  -- Note: cursor pagination via p_before_ts (ts-based) can produce duplicates
-  -- for pinned notes with old timestamps on pages 2+. Acceptable for now —
-  -- revisit when building the timeline UI (separate pinned fetch + paginate rest).
-  ORDER BY is_pinned DESC, ts DESC
+  ) feed
+  -- Wrap in subquery so ORDER BY can reference column names across UNION branches.
+  -- is_pinned DESC floats pinned notes to top; ts DESC for chronological ordering.
+  -- Pagination caveat: p_before_ts cursor breaks for pinned notes with old ts on page 2+.
+  -- Revisit when building timeline UI (separate pinned fetch + paginate rest).
+  ORDER BY feed.is_pinned DESC, feed.ts DESC
   LIMIT p_limit;
 $$;
 
