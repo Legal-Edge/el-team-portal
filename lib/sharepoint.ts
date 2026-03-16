@@ -65,8 +65,15 @@ async function graphGet<T>(path: string): Promise<T> {
   return res.json()
 }
 
-// ── Resolve a SharePoint sharing URL to a driveItem ──────────────────────────
-// Format: https://rockpointgrowth.sharepoint.com/:f:/s/Legal/...
+// ── Resolve a SharePoint URL to a driveItem ───────────────────────────────────
+// Handles two URL formats in use:
+//
+//   1. Sharing link:  https://rockpointgrowth.sharepoint.com/:f:/s/Legal/EjpdAB...
+//      → resolved via /shares/{base64url-shareId}/driveItem
+//
+//   2. Direct path:   https://rockpointgrowth.sharepoint.com/sites/Legal/Shared%20Documents/Lemon%20Law/...
+//      → resolved via /drives/{driveId}/root:/{relative-path}
+//
 export async function resolveSharePointUrl(sharingUrl: string): Promise<{
   driveId: string
   itemId:  string
@@ -74,21 +81,49 @@ export async function resolveSharePointUrl(sharingUrl: string): Promise<{
   webUrl:  string
 } | null> {
   try {
-    const encoded = Buffer.from(sharingUrl).toString('base64url')
-    const shareId = `u!${encoded}`
-    const item = await graphGet<{
-      id: string
-      name: string
-      webUrl: string
-      parentReference: { driveId: string }
-    }>(`/shares/${shareId}/driveItem`)
+    // ── Format 1: sharing link (/:/s/ or /:f:/s/) ────────────────────────────
+    if (sharingUrl.includes('/:') && sharingUrl.includes(':/s/')) {
+      const encoded = Buffer.from(sharingUrl).toString('base64url')
+      const shareId = `u!${encoded}`
+      const item = await graphGet<{
+        id: string
+        name: string
+        webUrl: string
+        parentReference: { driveId: string }
+      }>(`/shares/${shareId}/driveItem`)
 
-    return {
-      driveId: item.parentReference?.driveId ?? DOCUMENTS_DRIVE_ID,
-      itemId:  item.id,
-      name:    item.name,
-      webUrl:  item.webUrl,
+      return {
+        driveId: item.parentReference?.driveId ?? DOCUMENTS_DRIVE_ID,
+        itemId:  item.id,
+        name:    item.name,
+        webUrl:  item.webUrl,
+      }
     }
+
+    // ── Format 2: direct path (/sites/Legal/Shared%20Documents/...) ──────────
+    const SHARED_DOCS_MARKER = '/Shared Documents/'
+    const decoded = decodeURIComponent(sharingUrl)
+    const markerIdx = decoded.indexOf(SHARED_DOCS_MARKER)
+    if (markerIdx !== -1) {
+      const relativePath = decoded.slice(markerIdx + SHARED_DOCS_MARKER.length)
+      const encodedPath  = relativePath.split('/').map(encodeURIComponent).join('/')
+      const item = await graphGet<{
+        id: string
+        name: string
+        webUrl: string
+        parentReference: { driveId: string }
+      }>(`/drives/${DOCUMENTS_DRIVE_ID}/root:/${encodedPath}`)
+
+      return {
+        driveId: item.parentReference?.driveId ?? DOCUMENTS_DRIVE_ID,
+        itemId:  item.id,
+        name:    item.name,
+        webUrl:  item.webUrl,
+      }
+    }
+
+    console.error('[sharepoint] resolveSharePointUrl: unrecognised URL format:', sharingUrl)
+    return null
   } catch (err) {
     console.error('[sharepoint] resolveSharePointUrl error:', err)
     return null
