@@ -709,6 +709,166 @@ const COLLECTION_STATUS_BADGE: Record<string, string> = {
   'Client Traveling':                 'bg-gray-50 text-gray-600 border-gray-200',
 }
 
+// ── Stage 2: Case-level Sonnet analysis panel ─────────────────────────────
+const STRENGTH_STYLE: Record<string, string> = {
+  strong:            'bg-green-50 border-green-200 text-green-700',
+  moderate:          'bg-yellow-50 border-yellow-200 text-yellow-700',
+  weak:              'bg-orange-50 border-orange-200 text-orange-700',
+  insufficient_data: 'bg-gray-50 border-gray-200 text-gray-500',
+}
+
+function CaseAnalysisPanel({ caseId }: { caseId: string }) {
+  const [analysis,  setAnalysis]  = useState<Record<string, unknown> | null>(null)
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState(true)
+
+  async function runAnalysis(force = false) {
+    setLoading(true); setError(null)
+    const res = await fetch(`/api/cases/${caseId}/ai-analyze`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    })
+    const data = await res.json()
+    if (!res.ok) { setError(data.error ?? 'Analysis failed'); setLoading(false); return }
+    setAnalysis(data.analysis)
+    setCollapsed(false)
+    setLoading(false)
+  }
+
+  const strength = analysis?.case_strength as string | undefined
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-base">✦</span>
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700">Case AI Analysis</h2>
+            <p className="text-xs text-gray-400">Claude Sonnet · reads all extracted documents</p>
+          </div>
+          {strength && (
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize ${STRENGTH_STYLE[strength] ?? STRENGTH_STYLE.insufficient_data}`}>
+              {strength.replace('_', ' ')} case
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {analysis && (
+            <button onClick={() => setCollapsed(c => !c)}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2">
+              {collapsed ? 'Show ▾' : 'Hide ▴'}
+            </button>
+          )}
+          <button
+            onClick={() => runAnalysis(!!analysis)}
+            disabled={loading}
+            className="text-xs px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors active:scale-95"
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                Analyzing…
+              </span>
+            ) : analysis ? '↻ Re-analyze' : 'Analyze Case'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="px-6 pb-4">
+          <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+        </div>
+      )}
+
+      {analysis && !collapsed && (
+        <div className="border-t border-gray-100 px-6 py-5 space-y-5">
+          {/* Summary */}
+          {!!analysis.summary && (
+            <div className="bg-lemon-400/10 border border-lemon-400/30 rounded-xl p-4">
+              <p className="text-sm text-gray-700 leading-relaxed">{analysis.summary as string}</p>
+            </div>
+          )}
+
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-4">
+            {analysis.total_repair_attempts != null && (
+              <div className="bg-gray-50 rounded-xl p-4 text-center">
+                <p className="text-2xl font-bold text-gray-800">{String(analysis.total_repair_attempts)}</p>
+                <p className="text-xs text-gray-400 mt-1">Repair Attempts</p>
+              </div>
+            )}
+            {analysis.total_days_out_of_service != null && (
+              <div className="bg-gray-50 rounded-xl p-4 text-center">
+                <p className="text-2xl font-bold text-gray-800">{String(analysis.total_days_out_of_service)}</p>
+                <p className="text-xs text-gray-400 mt-1">Days Out of Service</p>
+              </div>
+            )}
+            {analysis.qualifies_under_state_law != null && (
+              <div className={`rounded-xl p-4 text-center ${!!analysis.qualifies_under_state_law ? 'bg-green-50' : 'bg-gray-50'}`}>
+                <p className={`text-2xl font-bold ${!!analysis.qualifies_under_state_law ? 'text-green-600' : 'text-gray-400'}`}>
+                  {!!analysis.qualifies_under_state_law ? '✓' : '✗'}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">Qualifies</p>
+              </div>
+            )}
+          </div>
+
+          {/* Recurring defects */}
+          {Array.isArray(analysis.recurring_defects) && (analysis.recurring_defects as unknown[]).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recurring Defects</p>
+              <div className="space-y-2">
+                {(analysis.recurring_defects as Array<{complaint: string; attempts: number; dates: string[]}>).map((d, i) => (
+                  <div key={i} className="flex items-start gap-3 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
+                    <span className="text-red-500 font-bold text-sm shrink-0">{d.attempts}×</span>
+                    <div>
+                      <p className="text-sm text-gray-800 font-medium">{d.complaint}</p>
+                      {d.dates?.length > 0 && <p className="text-xs text-gray-400 mt-0.5">{d.dates.join(' · ')}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Key findings */}
+          {Array.isArray(analysis.key_findings) && (analysis.key_findings as string[]).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Key Findings</p>
+              <ul className="space-y-1.5">
+                {(analysis.key_findings as string[]).map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                    <span className="text-lemon-500 shrink-0 mt-0.5">→</span>{f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Recommended next steps */}
+          {Array.isArray(analysis.recommended_next_steps) && (analysis.recommended_next_steps as string[]).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recommended Next Steps</p>
+              <ol className="space-y-1.5 list-decimal list-inside">
+                {(analysis.recommended_next_steps as string[]).map((s, i) => (
+                  <li key={i} className="text-sm text-gray-700">{s}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Qualifies reason */}
+          {!!analysis.qualifies_reason && (
+            <p className="text-xs text-gray-400 italic">{analysis.qualifies_reason as string}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Document groups shown in the Files panel ───────────────────────────────
 const DOC_GROUPS = [
   { key: 'repair_orders',  label: 'Repair Orders',              alwaysShow: true,  codes: ['repair_order'] },
@@ -835,6 +995,9 @@ function DocumentsSection({
           onClose={() => setViewing(null)}
         />
       )}
+
+      {/* ── Case AI Analysis (Sonnet) ───────────────────────────────────── */}
+      <CaseAnalysisPanel caseId={caseId} />
 
       {/* ── HubSpot Collection Status Card ─────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1020,21 +1183,21 @@ function DocumentsSection({
   )
 }
 
-// ── AI Analysis Panel ─────────────────────────────────────────────────────
-function AiAnalysisPanel({ fileId, docType }: { fileId: string; docType: string | null }) {
-  const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null)
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState(false)
+// ── Stage 1: Per-doc extraction panel (Haiku) ─────────────────────────────
+function DocExtractionPanel({ fileId }: { fileId: string }) {
+  const [data,    setData]    = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState(false)
 
   useEffect(() => {
-    setLoading(true); setError(false); setAnalysis(null)
+    setLoading(true); setError(false)
     fetch(`/api/documents/${fileId}/analyze`, {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(d => setAnalysis(d.summary))
+      .then(d => setData(d.extraction))
       .catch(() => setError(true))
       .finally(() => setLoading(false))
   }, [fileId])
@@ -1042,88 +1205,58 @@ function AiAnalysisPanel({ fileId, docType }: { fileId: string; docType: string 
   if (loading) return (
     <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 px-6">
       <div className="w-7 h-7 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin" />
-      <p className="text-xs text-center">Analyzing with Claude…<br/><span className="text-gray-300">~10 seconds</span></p>
+      <p className="text-xs text-center">Extracting with Haiku…<br/><span className="text-gray-300">~5 seconds</span></p>
     </div>
   )
-
-  if (error || !analysis) return (
+  if (error || !data) return (
     <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-gray-400">
-      <p className="text-sm text-center">Analysis unavailable</p>
-      <p className="text-xs text-gray-300 text-center">Make sure ANTHROPIC_API_KEY is set on Vercel</p>
+      <p className="text-sm">Extraction unavailable</p>
     </div>
   )
 
-  const flags: string[] = (analysis.lemon_law_flags as string[]) ?? []
-  const summary = analysis.summary as string | undefined
+  const SKIP = new Set(['doc_type','key_facts','key_dates'])
+  const entries = Object.entries(data).filter(([k, v]) =>
+    !SKIP.has(k) && v !== null && v !== undefined && v !== '' &&
+    !Array.isArray(v) && typeof v !== 'object'
+  )
+  const lists = Object.entries(data).filter(([, v]) => Array.isArray(v) && (v as unknown[]).length > 0)
 
   return (
     <div className="h-full overflow-y-auto px-5 py-5 space-y-5">
-      {/* Header */}
       <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Analysis</p>
-        <p className="text-xs text-gray-300">Claude · Lemon Law Review</p>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Document Extraction</p>
+        <p className="text-xs text-gray-300">Claude Haiku</p>
       </div>
 
-      {/* Summary */}
-      {summary && (
-        <div className="bg-lemon-400/10 border border-lemon-400/30 rounded-xl p-4">
-          <p className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Summary</p>
-          <p className="text-sm text-gray-700 leading-relaxed">{summary}</p>
-        </div>
-      )}
-
-      {/* Flags */}
-      {flags.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Lemon Law Flags</p>
-          <div className="space-y-1.5">
-            {flags.map((flag, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className="text-amber-500 mt-0.5 shrink-0">⚑</span>
-                <span className="text-sm text-gray-700">{flag}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Key fields — render remaining top-level string/number fields */}
-      {(() => {
-        const skip = new Set(['doc_type','summary','lemon_law_flags','key_facts','key_dates'])
-        const entries = Object.entries(analysis).filter(([k, v]) =>
-          !skip.has(k) && v !== null && v !== undefined && v !== ''
-        )
-        if (entries.length === 0) return null
-        return (
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Details</p>
-            <div className="space-y-2">
-              {entries.map(([key, val]) => (
-                <div key={key} className="flex items-start gap-2">
-                  <span className="text-xs text-gray-400 capitalize w-32 shrink-0 pt-0.5">
-                    {key.replace(/_/g, ' ')}
-                  </span>
-                  <span className="text-sm text-gray-700">
-                    {typeof val === 'boolean' ? (val ? 'Yes' : 'No') : String(val)}
-                  </span>
-                </div>
-              ))}
+      {entries.length > 0 && (
+        <div className="space-y-2.5">
+          {entries.map(([key, val]) => (
+            <div key={key} className="flex items-start gap-2">
+              <span className="text-xs text-gray-400 capitalize w-28 shrink-0 pt-0.5 leading-relaxed">
+                {key.replace(/_/g, ' ')}
+              </span>
+              <span className="text-sm text-gray-800 font-medium leading-relaxed">
+                {typeof val === 'boolean' ? (val ? 'Yes' : 'No') : String(val)}
+              </span>
             </div>
-          </div>
-        )
-      })()}
+          ))}
+        </div>
+      )}
 
-      {/* key_facts / key_dates for generic docs */}
-      {Array.isArray(analysis.key_facts) && (analysis.key_facts as string[]).length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Key Facts</p>
+      {lists.map(([key, val]) => (
+        <div key={key}>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+            {key.replace(/_/g, ' ')}
+          </p>
           <ul className="space-y-1">
-            {(analysis.key_facts as string[]).map((f, i) => (
-              <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-gray-300">·</span>{f}</li>
+            {(val as string[]).map((item, i) => (
+              <li key={i} className="text-sm text-gray-700 flex gap-2">
+                <span className="text-gray-300 shrink-0">·</span>{item}
+              </li>
             ))}
           </ul>
         </div>
-      )}
+      ))}
     </div>
   )
 }
@@ -1205,9 +1338,9 @@ function DocViewerModal({
             )}
           </div>
 
-          {/* AI analysis panel */}
-          <div className="w-80 shrink-0 bg-gray-50/50">
-            <AiAnalysisPanel fileId={fileId} docType={docType} />
+          {/* Stage 1: per-doc extraction panel */}
+          <div className="w-80 shrink-0 bg-gray-50/50 border-l border-gray-100">
+            <DocExtractionPanel fileId={fileId} />
           </div>
         </div>
       </div>

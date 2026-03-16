@@ -1,147 +1,200 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AI Document Analyzer — Lemon Law Edition
+// Two-Stage AI Document Analysis Pipeline
 //
-// Sends a PDF to Claude with lemon-law-specific prompts.
-// Output is structured JSON tailored to each document type.
+// Stage 1 — Haiku extraction (per document, runs on first open, cached)
+//   extractDocument(pdfBytes, docType) → structured JSON
+//
+// Stage 2 — Sonnet case analysis (on demand, reads cached extractions)
+//   analyzeCaseDocuments(extractions[], caseContext) → case-level findings
 // ─────────────────────────────────────────────────────────────────────────────
 
-import Anthropic, { toFile } from '@anthropic-ai/sdk'
+import Anthropic from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 
-const MODEL = 'claude-sonnet-4-20250514'
+export const EXTRACTION_MODEL = 'claude-haiku-4-5'
+export const ANALYSIS_MODEL   = 'claude-sonnet-4-20250514'
 
-// ── State lemon law thresholds (add more as needed) ───────────────────────
+// ── State lemon law thresholds ────────────────────────────────────────────
 const STATE_LAW: Record<string, string> = {
-  CA: 'California (Song-Beverly): 4 repair attempts for same defect, OR 2 attempts for safety defect, OR 30+ calendar days out of service — within 18 months or 18,000 miles (whichever first). Manufacturer must repurchase or replace.',
-  TX: 'Texas: 4 repair attempts for same defect, OR 2 attempts for serious safety hazard, OR 30+ days out of service — within 24 months or 24,000 miles.',
-  FL: 'Florida: 3 repair attempts for same defect, OR 15+ days out of service — within 24 months or 24,000 miles.',
-  NY: 'New York: 4 repair attempts for same defect, OR 30+ days out of service — within 24 months or 18,000 miles.',
-  WA: 'Washington: 4 repair attempts, OR 30+ days out of service — within 24 months or 24,000 miles.',
-  IL: 'Illinois: 4 repair attempts, OR 30+ days out of service — within 12 months or 12,000 miles (whichever first).',
-  AZ: 'Arizona: 4 repair attempts, OR 30+ days out of service — within 24 months or 24,000 miles.',
+  CA: 'California (Song-Beverly): 4 repair attempts for same defect, OR 2 for safety defect, OR 30+ days out of service — within 18 months/18,000 miles.',
+  TX: 'Texas: 4 repair attempts, OR 2 for serious safety hazard, OR 30+ days out of service — within 24 months/24,000 miles.',
+  FL: 'Florida: 3 repair attempts, OR 15+ days out of service — within 24 months/24,000 miles.',
+  NY: 'New York: 4 repair attempts, OR 30+ days out of service — within 24 months/18,000 miles.',
+  WA: 'Washington: 4 repair attempts, OR 30+ days out of service — within 24 months/24,000 miles.',
+  IL: 'Illinois: 4 repair attempts, OR 30+ days out of service — within 12 months/12,000 miles.',
+  AZ: 'Arizona: 4 repair attempts, OR 30+ days out of service — within 24 months/24,000 miles.',
   CO: 'Colorado: 4 repair attempts, OR 30+ days out of service — within 1 year.',
-  NJ: 'New Jersey: 3 repair attempts for same defect (or 1 attempt for life-threatening defect), OR 20+ days out of service — within 24 months or 18,000 miles.',
-  GA: 'Georgia: 3 repair attempts for same defect, OR 30+ days out of service — within 24 months or 24,000 miles.',
-  DEFAULT: 'Federal Magnuson-Moss Warranty Act: 3–4 reasonable repair attempts for same defect, or substantial time out of service. Many states have additional consumer protections.',
+  NJ: 'New Jersey: 3 repair attempts (1 for life-threatening defect), OR 20+ days out of service — within 24 months/18,000 miles.',
+  GA: 'Georgia: 3 repair attempts, OR 30+ days out of service — within 24 months/24,000 miles.',
+  DEFAULT: 'Federal Magnuson-Moss: 3–4 reasonable repair attempts for same defect, or substantial time out of service.',
 }
 
-function getStateLaw(stateCode: string | null | undefined): string {
-  const code = (stateCode ?? '').toUpperCase().trim()
-  return STATE_LAW[code] ?? STATE_LAW.DEFAULT
+function getStateLaw(state?: string | null) {
+  return STATE_LAW[(state ?? '').toUpperCase().trim()] ?? STATE_LAW.DEFAULT
 }
 
-// ── System prompt ─────────────────────────────────────────────────────────
-function buildSystemPrompt(docType: string | null, caseContext: CaseContext): string {
-  const law = getStateLaw(caseContext.state)
-  return `You are an experienced lemon law attorney reviewing case documents for ${caseContext.client_name ?? 'a client'}.
-
-Vehicle: ${caseContext.vehicle ?? 'unknown'}
-State: ${caseContext.state ?? 'unknown'}
-Applicable law: ${law}
-
-Your task: analyze the attached document and return a JSON object with the fields below.
-Be precise, factual, and highlight anything legally significant for a lemon law claim.
-Do NOT include any text outside the JSON object.
-
-${docType === 'repair_order' ? REPAIR_ORDER_SCHEMA : docType === 'purchase_agreement' ? PURCHASE_SCHEMA : GENERIC_SCHEMA}`
+// ── Shared helpers ────────────────────────────────────────────────────────
+function parseJson(text: string): Record<string, unknown> {
+  const match = text.match(/\{[\s\S]*\}/)
+  try { return match ? JSON.parse(match[0]) : { raw: text } }
+  catch { return { raw: text } }
 }
 
-const REPAIR_ORDER_SCHEMA = `Return exactly this JSON shape (use null for missing fields):
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 1 — Haiku extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EXTRACTION_PROMPTS: Record<string, string> = {
+  repair_order: `Extract the following fields from this repair order. Return ONLY valid JSON, no other text.
 {
   "doc_type": "repair_order",
+  "ro_number": string | null,
   "dealer_name": string | null,
   "repair_date_in": "YYYY-MM-DD" | null,
   "repair_date_out": "YYYY-MM-DD" | null,
   "days_in_shop": number | null,
   "mileage_in": number | null,
   "mileage_out": number | null,
-  "vehicle_info": string | null,
   "vin": string | null,
-  "complaint": string,
+  "complaint": string | null,
   "diagnosis": string | null,
-  "work_performed": string,
+  "work_performed": string | null,
   "repair_status": "completed" | "unable_to_duplicate" | "parts_on_order" | "customer_declined" | "other",
   "warranty_repair": boolean | null,
-  "lemon_law_flags": string[],
-  "summary": string
-}
+  "labor_hours": number | null
+}`,
 
-lemon_law_flags examples: "unable to duplicate", "same complaint as prior RO", "safety-related defect", "extended time in shop", "parts unavailable".
-summary: 1-2 sentence plain-English assessment of this RO's significance to the lemon law case.`
-
-const PURCHASE_SCHEMA = `Return exactly this JSON shape (use null for missing fields):
+  purchase_agreement: `Extract the following fields from this purchase or lease agreement. Return ONLY valid JSON, no other text.
 {
   "doc_type": "purchase_agreement",
+  "dealer_name": string | null,
+  "purchase_date": "YYYY-MM-DD" | null,
   "vehicle_year": number | null,
   "vehicle_make": string | null,
   "vehicle_model": string | null,
   "vin": string | null,
-  "purchase_date": "YYYY-MM-DD" | null,
   "purchase_price": number | null,
   "is_lease": boolean,
+  "monthly_payment": number | null,
   "warranty_type": string | null,
-  "dealer_name": string | null,
-  "lemon_law_flags": string[],
-  "summary": string
-}
+  "down_payment": number | null
+}`,
 
-summary: 1-2 sentence note on anything relevant (purchase date affects warranty window, lease vs buy affects remedy, etc.)`
+  vehicle_registration: `Extract the following fields from this vehicle registration. Return ONLY valid JSON, no other text.
+{
+  "doc_type": "vehicle_registration",
+  "registration_date": "YYYY-MM-DD" | null,
+  "expiration_date": "YYYY-MM-DD" | null,
+  "vehicle_year": number | null,
+  "vehicle_make": string | null,
+  "vehicle_model": string | null,
+  "vin": string | null,
+  "license_plate": string | null,
+  "registered_state": string | null,
+  "owner_name": string | null
+}`,
 
-const GENERIC_SCHEMA = `Return exactly this JSON shape (use null for missing fields):
+  default: `Extract all key facts from this document. Return ONLY valid JSON, no other text.
 {
   "doc_type": "other",
   "document_description": string,
   "key_dates": string[],
   "key_facts": string[],
-  "lemon_law_flags": string[],
-  "summary": string
+  "vin": string | null,
+  "vehicle_info": string | null,
+  "dealer_name": string | null
+}`,
 }
 
-summary: 1-2 sentence plain-English assessment of this document's significance to the lemon law case.`
-
-// ── Case context passed to the analyzer ──────────────────────────────────
-export interface CaseContext {
-  client_name?: string | null
-  vehicle?:     string | null
-  state?:       string | null
-}
-
-// ── Main analysis function ────────────────────────────────────────────────
-export async function analyzeDocument(
-  pdfBytes:    ArrayBuffer,
-  docType:     string | null,
-  caseContext: CaseContext,
-): Promise<{ summary: Record<string, unknown>; model: string }> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
+export async function extractDocument(
+  pdfBytes: ArrayBuffer,
+  docType:  string | null,
+): Promise<{ extraction: Record<string, unknown>; model: string }> {
+  const client    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const prompt    = EXTRACTION_PROMPTS[docType ?? ''] ?? EXTRACTION_PROMPTS.default
   const base64Pdf = Buffer.from(pdfBytes).toString('base64')
-  const systemPrompt = buildSystemPrompt(docType, caseContext)
 
   const response = await client.beta.messages.create({
-    model:      MODEL,
-    max_tokens: 1024,
-    system:     systemPrompt,
+    model:      EXTRACTION_MODEL,
+    max_tokens: 512,
+    system:     'You are a document extraction assistant. Extract structured data from legal/automotive documents. Return ONLY valid JSON.',
     messages: [{
       role:    'user',
       content: [
-        {
-          type:   'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
-        } as BetaContentBlockParam,
-        {
-          type: 'text',
-          text: 'Analyze this document and return the JSON.',
-        } as BetaContentBlockParam,
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf } } as BetaContentBlockParam,
+        { type: 'text', text: prompt } as BetaContentBlockParam,
       ],
     }],
     betas: ['pdfs-2024-09-25'],
   })
 
   const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
+  return { extraction: parseJson(text), model: EXTRACTION_MODEL }
+}
 
-  // Extract JSON — Claude sometimes wraps in code fences
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { raw: text }
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 2 — Sonnet case analysis
+// ─────────────────────────────────────────────────────────────────────────────
 
-  return { summary: parsed, model: MODEL }
+export interface CaseContext {
+  client_name?: string | null
+  vehicle?:     string | null
+  state?:       string | null
+}
+
+export interface DocExtractionRecord {
+  file_name:          string
+  document_type_code: string | null
+  ai_extraction:      Record<string, unknown>
+}
+
+export async function analyzeCaseDocuments(
+  docs:        DocExtractionRecord[],
+  caseContext: CaseContext,
+): Promise<{ analysis: Record<string, unknown>; model: string }> {
+  const client  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const stateLaw = getStateLaw(caseContext.state)
+
+  const docsSummary = docs.map((d, i) =>
+    `Document ${i + 1} — ${d.file_name} (${d.document_type_code ?? 'other'}):\n${JSON.stringify(d.ai_extraction, null, 2)}`
+  ).join('\n\n---\n\n')
+
+  const systemPrompt = `You are an experienced lemon law attorney reviewing a case file.
+
+Client: ${caseContext.client_name ?? 'unknown'}
+Vehicle: ${caseContext.vehicle ?? 'unknown'}
+State: ${caseContext.state ?? 'unknown'}
+Applicable law: ${stateLaw}
+
+Analyze the extracted document data below and return a JSON case analysis. Return ONLY valid JSON.`
+
+  const userPrompt = `${docsSummary}
+
+---
+
+Based on all documents above, return this exact JSON:
+{
+  "case_strength": "strong" | "moderate" | "weak" | "insufficient_data",
+  "case_strength_reason": string,
+  "total_repair_attempts": number | null,
+  "total_days_out_of_service": number | null,
+  "date_range": { "first_repair": "YYYY-MM-DD" | null, "last_repair": "YYYY-MM-DD" | null },
+  "unique_defects": string[],
+  "recurring_defects": [{ "complaint": string, "attempts": number, "dates": string[] }],
+  "qualifies_under_state_law": boolean | null,
+  "qualifies_reason": string,
+  "key_findings": string[],
+  "recommended_next_steps": string[],
+  "summary": string
+}`
+
+  const response = await client.messages.create({
+    model:      ANALYSIS_MODEL,
+    max_tokens: 1024,
+    system:     systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  })
+
+  const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
+  return { analysis: parseJson(text), model: ANALYSIS_MODEL }
 }
