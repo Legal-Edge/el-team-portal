@@ -21,16 +21,19 @@ const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 
 export interface TimelineItem {
-  source:      'event' | 'comm' | 'note'
-  id:          string
-  ts:          string
-  item_type:   string
-  body:        string | null
-  author_ref:  string | null
-  author_name: string | null   // resolved for notes (author_ref is UUID there)
-  visibility:  string
-  is_pinned:   boolean
-  payload:     Record<string, unknown> | null
+  source:       'event' | 'comm' | 'note'
+  id:           string
+  ts:           string
+  item_type:    string
+  body:         string | null
+  author_ref:   string | null
+  author_name:  string | null   // resolved for notes (author_ref is UUID there)
+  visibility:   string
+  is_pinned:    boolean
+  payload:      Record<string, unknown> | null
+  // Comm enrichments (populated for source='comm')
+  direction:    'inbound' | 'outbound' | null
+  needs_review: boolean
 }
 
 type Params = { params: Promise<{ id: string }> }
@@ -100,6 +103,20 @@ export async function GET(req: NextRequest, { params }: Params) {
     }
   }
 
+  // Batch-fetch direction + needs_review for comm items
+  const commIds = items.filter(r => r.source === 'comm').map(r => r.id as string)
+  const commMeta: Record<string, { direction: string | null; needs_review: boolean }> = {}
+  if (commIds.length > 0) {
+    const { data: commRows } = await db
+      .schema('core')
+      .from('communications')
+      .select('id, direction, needs_review')
+      .in('id', commIds)
+    for (const c of commRows ?? []) {
+      commMeta[c.id] = { direction: c.direction ?? null, needs_review: Boolean(c.needs_review) }
+    }
+  }
+
   const result: TimelineItem[] = items.map(r => ({
     source:      r.source      as TimelineItem['source'],
     id:          r.id          as string,
@@ -111,8 +128,10 @@ export async function GET(req: NextRequest, { params }: Params) {
       ? (authorMap[r.author_ref as string] ?? 'Unknown')
       : null,
     visibility:  (r.visibility as string) ?? 'internal',
-    is_pinned:   Boolean(r.is_pinned),
-    payload:     (r.payload    as Record<string, unknown> | null) ?? null,
+    is_pinned:    Boolean(r.is_pinned),
+    payload:      (r.payload    as Record<string, unknown> | null) ?? null,
+    direction:    (r.source === 'comm' ? (commMeta[r.id as string]?.direction ?? null) : null) as TimelineItem['direction'],
+    needs_review: r.source === 'comm' ? (commMeta[r.id as string]?.needs_review ?? false) : false,
   }))
 
   const nextCursor = hasMore ? result[result.length - 1]?.ts ?? null : null

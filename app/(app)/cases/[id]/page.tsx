@@ -870,7 +870,9 @@ export default function CaseDetailPage() {
   const [intakeSaving, setIntakeSaving] = useState(false)
   const [intakeError, setIntakeError] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('staff')
-  const [staffId, setStaffId] = useState<string | null>(null)
+  const [staffId,   setStaffId]   = useState<string | null>(null)
+  const [staffName, setStaffName] = useState<string | null>(null)
+  const [caseUUID,  setCaseUUID]  = useState<string | null>(null)
 
   // ── Notes state ──────────────────────────────────────────────────────────
   interface TimelineNote {
@@ -892,9 +894,11 @@ export default function CaseDetailPage() {
   type TimelineSource = 'event' | 'comm' | 'note'
   type TimelineFilter = 'all' | 'notes' | 'comms' | 'events'
   interface TimelineItem {
-    source:      TimelineSource; id: string; ts: string; item_type: string
-    body:        string | null;  author_ref: string | null; author_name: string | null
-    visibility:  string;         is_pinned: boolean; payload: Record<string, unknown> | null
+    source:       TimelineSource; id: string; ts: string; item_type: string
+    body:         string | null;  author_ref: string | null; author_name: string | null
+    visibility:   string;         is_pinned: boolean; payload: Record<string, unknown> | null
+    direction:    'inbound' | 'outbound' | null
+    needs_review: boolean
   }
   const [timelineItems,     setTimelineItems]     = useState<TimelineItem[]>([])
   const [timelineLoading,   setTimelineLoading]   = useState(false)
@@ -902,6 +906,7 @@ export default function CaseDetailPage() {
   const [timelineCursor,    setTimelineCursor]     = useState<string | null>(null)
   const [timelineFilter,    setTimelineFilter]     = useState<TimelineFilter>('all')
   const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
+  const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'intake') ?? 'overview'
   const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'intake'>(initialTab)
@@ -1105,6 +1110,8 @@ export default function CaseDetailPage() {
         setIntakeStatus(data.intakeStatus ?? null)
         setUserRole(data.userRole ?? 'staff')
         setStaffId(data.staffId ?? null)
+        setStaffName(data.staffName ?? null)
+        setCaseUUID(data.case?.id ?? null)
       }
       setLoading(false)
     }
@@ -1156,6 +1163,108 @@ export default function CaseDetailPage() {
     if (activeTab === 'comms' && timelineItems.length === 0 && !timelineLoading) loadTimeline()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
+
+  // ── Supabase Realtime — live timeline updates ─────────────────────────────
+  // Subscribes once the case UUID is known. Listens for INSERTs on
+  // core.communications, core.events, and core.timeline_notes, filtered
+  // by case_id. Visibility rules applied client-side before inserting.
+  useEffect(() => {
+    if (!caseUUID) return
+    const { createClient: sbCreate } = require('@supabase/supabase-js')
+    const sb = sbCreate(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const ELEVATED = ['admin', 'attorney', 'manager']
+
+    function flashItem(id: string) {
+      setNewItemIds(prev => new Set(prev).add(id))
+      setTimeout(() => setNewItemIds(prev => { const n = new Set(prev); n.delete(id); return n }), 3000)
+    }
+
+    function prependItem(item: TimelineItem) {
+      setSeenIds(prev => { if (prev.has(item.id)) return prev; return new Set(prev).add(item.id) })
+      setTimelineItems(prev => {
+        if (prev.find(i => i.id === item.id)) return prev
+        return [item, ...prev]
+      })
+      flashItem(item.id)
+    }
+
+    const ch = sb
+      .channel(`case-timeline-${caseUUID}`)
+
+      // ── New communications ──
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'core', table: 'communications',
+        filter: `case_id=eq.${caseUUID}`,
+      }, (payload: { new: Record<string, unknown> }) => {
+        const r = payload.new
+        const isInternal = Boolean(r.is_internal)
+        if (isInternal && !ELEVATED.includes(userRole)) return  // visibility gate
+        prependItem({
+          source: 'comm', id: r.id as string, ts: r.occurred_at as string,
+          item_type:   r.channel as string,
+          body:        (r.snippet ?? r.body ?? null) as string | null,
+          author_ref:  (r.from_number ?? r.sender_email ?? null) as string | null,
+          author_name: null,
+          visibility:  isInternal ? 'internal' : 'public',
+          is_pinned:   false,
+          payload:     null,
+          direction:   (r.direction ?? null) as TimelineItem['direction'],
+          needs_review: Boolean(r.needs_review),
+        })
+      })
+
+      // ── New events ──
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'core', table: 'events',
+        filter: `case_id=eq.${caseUUID}`,
+      }, (payload: { new: Record<string, unknown> }) => {
+        const r = payload.new
+        prependItem({
+          source: 'event', id: String(r.id), ts: r.occurred_at as string,
+          item_type:    r.event_type as string,
+          body:         null,
+          author_ref:   (r.actor ?? null) as string | null,
+          author_name:  null,
+          visibility:   'internal',
+          is_pinned:    false,
+          payload:      (r.payload ?? null) as Record<string, unknown> | null,
+          direction:    null,
+          needs_review: false,
+        })
+      })
+
+      // ── New timeline notes ──
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'core', table: 'timeline_notes',
+        filter: `case_id=eq.${caseUUID}`,
+      }, (payload: { new: Record<string, unknown> }) => {
+        const r = payload.new
+        const vis = r.visibility as string
+        // Visibility gate
+        if (vis === 'restricted' && !ELEVATED.includes(userRole)) return
+        if (vis === 'private' && r.author_id !== staffId) return
+        prependItem({
+          source: 'note', id: r.id as string, ts: r.created_at as string,
+          item_type:    r.note_type as string,
+          body:         r.body as string,
+          author_ref:   r.author_id as string,
+          author_name:  r.author_id === staffId ? (staffName ?? 'Me') : null,
+          visibility:   vis,
+          is_pinned:    Boolean(r.is_pinned),
+          payload:      null,
+          direction:    null,
+          needs_review: false,
+        })
+      })
+
+      .subscribe()
+
+    return () => { sb.removeChannel(ch) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseUUID])
 
   if (loading) {
     return (
@@ -1448,43 +1557,90 @@ export default function CaseDetailPage() {
               'voicemail.received': 'Voicemail', 'email.received': 'Email Received', 'email.sent': 'Email Sent',
             }
 
-            function renderItem(item: ReturnType<typeof timelineItems[0]['source'] extends infer S ? () => { source: S; id: string; ts: string; item_type: string; body: string | null; author_ref: string | null; author_name: string | null; visibility: string; is_pinned: boolean; payload: Record<string, unknown> | null } : never>) {
+            // ── Phone formatter ──────────────────────────────────────────────
+            function formatPhone(raw: string | null): string {
+              if (!raw) return ''
+              const d = raw.replace(/\D/g, '')
+              if (d.length === 11 && d[0] === '1') return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`
+              if (d.length === 10)                  return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`
+              return raw
+            }
+
+            // ── Item renderer ────────────────────────────────────────────────
+            function renderItem(item: TimelineItem) {
+              const isNew    = newItemIds.has(item.id)
               const icon     = ITEM_ICON[item.item_type] ?? (item.source === 'event' ? '⚡' : item.source === 'comm' ? '💬' : '📝')
-              const srcColor = ITEM_COLOR[item.source] ?? 'bg-gray-100 text-gray-500'
               const vis      = VIS_CFG[item.visibility]
               const pinCan   = (canManageNotes || staffId === item.author_ref) && item.source === 'note'
 
-              const authorLine = item.source === 'note'
+              // Direction styling for comms
+              const isInbound  = item.source === 'comm' && item.direction === 'inbound'
+              const isOutbound = item.source === 'comm' && item.direction === 'outbound'
+              const dirBorder  = isInbound  ? 'border-l-2 border-l-blue-300'
+                               : isOutbound ? 'border-l-2 border-l-gray-200'
+                               : item.is_pinned ? 'border-l-2 border-l-yellow-400'
+                               : ''
+
+              // Author display
+              const rawAuthor  = item.source === 'note'
                 ? (item.author_name ?? 'Unknown')
                 : item.source === 'comm'
-                  ? (item.author_ref ?? '')
+                  ? (item.item_type === 'sms' || item.item_type === 'call'
+                      ? formatPhone(item.author_ref)
+                      : (item.author_ref ?? ''))
                   : (item.author_ref ?? '')
 
+              // Type label
               const typeLabel = item.source === 'event'
                 ? (EVENT_LABEL[item.item_type] ?? item.item_type)
                 : item.source === 'comm'
                   ? item.item_type.toUpperCase()
                   : (NOTE_TYPE_LABELS[item.item_type] ?? item.item_type)
 
+              // Comm source color: inbound=blue, outbound=gray, note=blue, event=amber
+              const srcColor = item.source === 'comm'
+                ? (isInbound ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600')
+                : (ITEM_COLOR[item.source] ?? 'bg-gray-100 text-gray-500')
+
               return (
                 <div
                   key={item.id}
-                  className={`px-6 py-4 group hover:bg-gray-50 transition-colors ${item.is_pinned ? 'border-l-2 border-l-yellow-400' : ''}`}
+                  className={`px-6 py-4 group transition-colors ${
+                    isNew ? 'bg-lemon-400/10' : 'hover:bg-gray-50'
+                  } ${dirBorder}`}
                 >
                   <div className="flex items-start gap-3">
-                    {/* Source/type icon */}
+                    {/* Icon */}
                     <div className="shrink-0 mt-0.5 text-lg leading-none">{icon}</div>
 
                     <div className="flex-1 min-w-0">
                       {/* Badge row */}
                       <div className="flex items-center gap-2 flex-wrap mb-1.5">
                         {item.is_pinned && <span className="text-yellow-500 text-xs font-medium">📌</span>}
+                        {isNew && <span className="text-xs font-semibold text-lemon-600 bg-lemon-400/20 px-1.5 py-0.5 rounded">NEW</span>}
+
+                        {/* Direction for comms */}
+                        {item.source === 'comm' && item.direction && (
+                          <span className={`text-xs font-medium ${isInbound ? 'text-blue-500' : 'text-gray-400'}`}>
+                            {isInbound ? '← Inbound' : '→ Outbound'}
+                          </span>
+                        )}
+
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${srcColor}`}>
                           {typeLabel}
                         </span>
+
+                        {/* Visibility badge (notes only) */}
                         {vis && item.source === 'note' && (
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${vis.cls}`}>
                             {vis.label}
+                          </span>
+                        )}
+
+                        {/* Needs review flag */}
+                        {item.needs_review && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                            ⚠ Needs Review
                           </span>
                         )}
                       </div>
@@ -1494,19 +1650,19 @@ export default function CaseDetailPage() {
                         <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
                       )}
                       {!item.body && item.source === 'event' && item.payload && (
-                        <p className="text-xs text-gray-400 font-mono">
+                        <p className="text-xs text-gray-400 font-mono truncate">
                           {JSON.stringify(item.payload).slice(0, 120)}
                         </p>
                       )}
 
-                      {/* Meta: author + time */}
+                      {/* Meta */}
                       <p className="mt-1.5 text-xs text-gray-400">
-                        {authorLine && <span className="mr-1.5">{authorLine} ·</span>}
+                        {rawAuthor && <span className="mr-1.5 font-medium text-gray-500">{rawAuthor} ·</span>}
                         {fmtNoteTime(item.ts)}
                       </p>
                     </div>
 
-                    {/* Pin toggle (notes only, hover reveal) */}
+                    {/* Pin toggle */}
                     {pinCan && (
                       <button
                         onClick={() => handleTogglePin(item.id, item.is_pinned)}
