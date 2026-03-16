@@ -237,8 +237,8 @@ export function DashboardLive({ initial }: Props) {
         <span className="text-xs text-gray-400">{isLive ? 'Live' : 'Connecting…'}</span>
       </div>
 
-      {/* Comms Health KPIs */}
-      {commsStats && (
+      {/* Comms Health KPIs — hidden until comms pipeline is live */}
+      {false && commsStats && (
         <div>
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Comms Health</h2>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -274,8 +274,8 @@ export function DashboardLive({ initial }: Props) {
         </div>
       )}
 
-      {/* Document Health KPIs */}
-      {docStats && (
+      {/* Document Health KPIs — hidden until doc pipeline is live */}
+      {false && docStats && (
         <div>
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Document Health</h2>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
