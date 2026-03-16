@@ -30,6 +30,9 @@ export async function GET(req: NextRequest) {
   const startedAt = new Date()
 
   // ── Read cursor ────────────────────────────────────────────────────────────
+  // ?since=ISO_DATE overrides cursor for manual backfill (does NOT advance cursor)
+  const sinceOverride = req.nextUrl.searchParams.get('since')
+
   const { data: stateRow } = await coreDb
     .from('sync_state')
     .select('value')
@@ -37,7 +40,7 @@ export async function GET(req: NextRequest) {
     .maybeSingle()
 
   // 2-minute buffer overlap to guard against clock skew
-  const rawCursor     = stateRow?.value ?? new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const rawCursor     = sinceOverride ?? stateRow?.value ?? new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const modifiedSince = new Date(new Date(rawCursor).getTime() - 2 * 60 * 1000).toISOString()
 
   // ── Create sync_log row ────────────────────────────────────────────────────
@@ -90,8 +93,8 @@ export async function GET(req: NextRequest) {
     if      (totalErrored > 0 && totalSynced === 0) runStatus = 'error'
     else if (totalErrored > 0)                       runStatus = 'partial'
 
-    // Advance cursor on success / partial
-    if (runStatus !== 'error') {
+    // Advance cursor on success / partial — skip when using manual since override
+    if (runStatus !== 'error' && !sinceOverride) {
       await coreDb.from('sync_state').upsert({
         key:        'last_delta_sync_at',
         value:      startedAt.toISOString(),
