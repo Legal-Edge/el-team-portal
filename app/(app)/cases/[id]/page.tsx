@@ -1020,6 +1020,7 @@ function DocumentsSection({
 }
 
 // ── PDF Viewer Modal ───────────────────────────────────────────────────────
+// Fetches the PDF as a blob client-side → object URL → bypasses frame-ancestors CSP
 function DocViewerModal({
   fileId,
   fileName,
@@ -1031,6 +1032,25 @@ function DocViewerModal({
   webUrl:   string | null
   onClose:  () => void
 }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loadErr, setLoadErr] = useState(false)
+
+  useEffect(() => {
+    let objectUrl: string
+    fetch(`/api/documents/${fileId}/view`, { credentials: 'include' })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.blob()
+      })
+      .then(blob => {
+        objectUrl = URL.createObjectURL(blob)
+        setBlobUrl(objectUrl)
+      })
+      .catch(() => setLoadErr(true))
+
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [fileId])
+
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -1040,7 +1060,6 @@ function DocViewerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      {/* Modal panel */}
       <div
         className="relative flex flex-col bg-white w-full h-full max-w-5xl mx-auto my-6 rounded-2xl shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
@@ -1050,30 +1069,42 @@ function DocViewerModal({
           <p className="text-sm font-medium text-gray-800 truncate max-w-lg">{fileName}</p>
           <div className="flex items-center gap-3 shrink-0">
             {webUrl && (
-              <a
-                href={webUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-500 hover:underline"
-              >
+              <a href={webUrl} target="_blank" rel="noopener noreferrer"
+                className="text-xs text-blue-500 hover:underline">
                 Open in SharePoint ↗
               </a>
             )}
-            <button
-              onClick={onClose}
+            <button onClick={onClose}
               className="text-gray-400 hover:text-gray-700 text-xl leading-none transition-colors px-1"
-              aria-label="Close"
-            >
-              ✕
-            </button>
+              aria-label="Close">✕</button>
           </div>
         </div>
-        {/* PDF iframe */}
-        <iframe
-          src={`/api/documents/${fileId}/view`}
-          className="flex-1 w-full border-0"
-          title={fileName}
-        />
+
+        {/* Body */}
+        {loadErr ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-400">
+            <p className="text-sm">Could not load document.</p>
+            {webUrl && (
+              <a href={webUrl} target="_blank" rel="noopener noreferrer"
+                className="text-sm text-blue-500 hover:underline">
+                Open in SharePoint instead ↗
+              </a>
+            )}
+          </div>
+        ) : !blobUrl ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3 text-gray-400">
+              <div className="w-8 h-8 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin" />
+              <p className="text-sm">Loading document…</p>
+            </div>
+          </div>
+        ) : (
+          <iframe
+            src={blobUrl}
+            className="flex-1 w-full border-0"
+            title={fileName}
+          />
+        )}
       </div>
     </div>
   )
