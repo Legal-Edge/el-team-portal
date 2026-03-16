@@ -486,6 +486,9 @@ interface CaseFile {
   classified_at: string | null
   classification_source: string | null
   created_at_source: string | null
+  modified_at_source: string | null
+  created_by_name: string | null
+  modified_by_name: string | null
 }
 
 interface DocumentStats {
@@ -656,21 +659,30 @@ function ChecklistRow({ item }: { item: ChecklistItem }) {
       {expanded && hasFiles && (
         <div className="mt-2.5 ml-8 space-y-1.5">
           {item.files.map(f => (
-            <div key={f.id} className="flex items-center gap-2 text-xs text-gray-500">
-              <span className="shrink-0">📎</span>
-              <span className="truncate max-w-sm">{f.file_name}</span>
-              {f.size_bytes && <span className="text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
-              {f.web_url && (
-                <a
-                  href={f.web_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-500 hover:underline shrink-0"
-                  onClick={e => e.stopPropagation()}
-                >
-                  Open ↗
-                </a>
-              )}
+            <div key={f.id} className="flex flex-col gap-0.5 py-1">
+              <div className="flex items-center gap-2 text-xs text-gray-600 flex-wrap">
+                <span className="shrink-0">📎</span>
+                <span className="font-medium truncate max-w-xs">{f.file_name}</span>
+                {f.size_bytes && <span className="text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
+                {f.web_url && (
+                  <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+                    className="text-blue-500 hover:underline shrink-0"
+                    onClick={e => e.stopPropagation()}>
+                    Open ↗
+                  </a>
+                )}
+              </div>
+              <div className="flex items-center gap-3 ml-5 text-xs text-gray-400 flex-wrap">
+                {f.created_at_source && (
+                  <span>Uploaded {new Date(f.created_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                )}
+                {f.created_by_name && (
+                  <span>by {f.created_by_name}</span>
+                )}
+                {f.modified_at_source && f.modified_at_source !== f.created_at_source && (
+                  <span className="text-gray-300">· Modified {new Date(f.modified_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -919,12 +931,21 @@ function DocumentsSection({
                 <div className="space-y-3">
                   {unclassified.map(f => (
                     <div key={f.id} className="rounded-lg bg-white border border-amber-100 px-4 py-3">
-                      <div className="flex items-center gap-3 flex-wrap mb-2">
+                      <div className="flex items-center gap-3 flex-wrap mb-1">
                         <span className="text-sm text-gray-800 font-medium min-w-0 truncate max-w-sm">{f.file_name}</span>
                         {f.size_bytes && <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.size_bytes)}</span>}
                         {f.web_url && (
                           <a href={f.web_url} target="_blank" rel="noopener noreferrer"
                             className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mb-2 text-xs text-gray-400 flex-wrap">
+                        {f.created_at_source && (
+                          <span>Uploaded {new Date(f.created_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        )}
+                        {f.created_by_name && <span>by {f.created_by_name}</span>}
+                        {f.modified_at_source && f.modified_at_source !== f.created_at_source && (
+                          <span className="text-gray-300">· Modified {new Date(f.modified_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                         )}
                       </div>
                       {classifying === f.id ? (

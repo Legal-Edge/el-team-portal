@@ -52,7 +52,8 @@ export async function GET(
         id, file_name, file_extension, size_bytes, mime_type,
         web_url, document_type_code, checklist_item_id,
         is_classified, classified_at, classification_source,
-        created_at_source, modified_at_source, synced_at
+        created_at_source, modified_at_source, synced_at,
+        created_by_name, modified_by_name
       `)
       .eq('case_id', caseId)
       .eq('is_deleted', false)

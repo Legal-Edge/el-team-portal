@@ -159,6 +159,8 @@ export async function syncCaseFiles(
         download_url:          file.download_url,
         created_at_source:     file.created_at_source,
         modified_at_source:    file.modified_at_source,
+        created_by_name:       file.created_by,
+        modified_by_name:      file.modified_by,
         // Classification — classified_by is UUID FK; leave null for auto-classification
         document_type_code:    autoClassified ? classification!.document_type_code : null,
         classification_source: autoClassified ? classification!.source : null,
