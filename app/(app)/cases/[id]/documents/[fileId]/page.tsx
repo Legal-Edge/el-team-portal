@@ -46,7 +46,7 @@ function sortedFiles(files: FileItem[]): FileItem[] {
 // ── Extraction field config ───────────────────────────────────────────────
 const SKIP_FIELDS    = new Set(['doc_type', 'raw'])
 const TEXTAREA_FIELDS= new Set(['complaint','diagnosis','work_performed','document_description'])
-const ARRAY_FIELDS   = new Set(['key_facts','key_dates','vin','vehicle_info'])
+const ARRAY_FIELDS   = new Set(['key_facts','key_dates','vehicle_info'])
 const SELECT_FIELDS: Record<string, string[]> = {
   repair_status: ['completed','unable_to_duplicate','parts_on_order','customer_declined','other'],
 }
