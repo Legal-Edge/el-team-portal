@@ -39,6 +39,7 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(CATEGORIES.ma
 export default function AiKnowledgePage() {
   const [entries,  setEntries]  = useState<KbEntry[]>([])
   const [loading,  setLoading]  = useState(true)
+  const [loadErr,  setLoadErr]  = useState<string | null>(null)
   const [adding,   setAdding]   = useState(false)
   const [editing,  setEditing]  = useState<KbEntry | null>(null)
   const [saving,   setSaving]   = useState(false)
@@ -53,9 +54,10 @@ export default function AiKnowledgePage() {
   })
 
   async function load() {
-    setLoading(true)
+    setLoading(true); setLoadErr(null)
     const res = await fetch('/api/admin/ai-knowledge', { credentials: 'include' })
     const data = await res.json()
+    if (!res.ok) { setLoadErr(data.error ?? `HTTP ${res.status}`); setLoading(false); return }
     setEntries(data.entries ?? [])
     setLoading(false)
   }
@@ -197,6 +199,13 @@ export default function AiKnowledgePage() {
       )}
 
       {/* Entries by category */}
+      {loadErr && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4">
+          <p className="text-sm font-medium text-red-700">Failed to load rules</p>
+          <p className="text-xs text-red-500 mt-1 font-mono">{loadErr}</p>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-16 text-gray-400">
           <div className="w-6 h-6 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin mr-3" />

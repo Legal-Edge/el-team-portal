@@ -24,13 +24,17 @@ async function requireAdmin(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized', detail: 'no session' }, { status: 401 })
   const db = adminDb()
-  const { data } = await db
+  const { data, error } = await db
     .from('ai_knowledge_base')
     .select('*')
     .order('category', { ascending: true })
     .order('sort_order', { ascending: true })
+  if (error) {
+    console.error('[ai-knowledge GET]', error)
+    return NextResponse.json({ error: error.message, code: error.code, entries: [] }, { status: 500 })
+  }
   return NextResponse.json({ entries: data ?? [] })
 }
 
