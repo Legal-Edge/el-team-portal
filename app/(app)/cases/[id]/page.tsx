@@ -754,7 +754,7 @@ interface RepairStats {
   totalFiles: number
 }
 
-function CaseAnalysisPanel({ caseId, repairStats }: { caseId: string; repairStats?: RepairStats }) {
+function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseId: string; repairStats?: RepairStats; onSwitchToDocuments?: () => void }) {
   const [analysis,      setAnalysis]      = useState<AnalysisResult | null>(null)
   const [analyzedAt,    setAnalyzedAt]    = useState<string | null>(null)
   const [filesAnalyzed, setFilesAnalyzed] = useState<number>(0)
@@ -844,6 +844,14 @@ function CaseAnalysisPanel({ caseId, repairStats }: { caseId: string; repairStat
               <span className={`hidden sm:inline text-xs font-medium px-2.5 py-1 rounded-full border ${style.border} ${style.text} bg-white`}>
                 {analysis.confidence} confidence
               </span>
+            )}
+            {onSwitchToDocuments && (
+              <button
+                onClick={onSwitchToDocuments}
+                className="text-xs px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors active:scale-95"
+              >
+                View Documents
+              </button>
             )}
             <button
               onClick={() => runAnalysis(true)}
@@ -1068,8 +1076,35 @@ function CaseAnalysisPanel({ caseId, repairStats }: { caseId: string; repairStat
           )}
           {(analysis.engine_missing_data ?? []).length > 0 && (
             <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-              <p className="text-xs font-semibold text-amber-700 mb-1">Missing data — confidence may be affected</p>
-              <p className="text-xs text-amber-600">{(analysis.engine_missing_data ?? []).join(' · ')}</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-amber-700">Missing data — confidence may be affected</p>
+                {onSwitchToDocuments && (
+                  <button
+                    onClick={onSwitchToDocuments}
+                    className="text-xs font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 transition-colors"
+                  >
+                    View Documents →
+                  </button>
+                )}
+              </div>
+              <ul className="space-y-1.5">
+                {(analysis.engine_missing_data ?? []).map((m, i) => (
+                  <li key={i}>
+                    {onSwitchToDocuments ? (
+                      <button
+                        onClick={onSwitchToDocuments}
+                        className="text-xs text-amber-700 flex gap-2 w-full text-left hover:text-amber-900 group transition-colors"
+                      >
+                        <span className="shrink-0 mt-0.5">·</span>
+                        <span className="group-hover:underline underline-offset-2">{m}</span>
+                        <span className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                      </button>
+                    ) : (
+                      <span className="text-xs text-amber-600 flex gap-2"><span>·</span>{m}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
@@ -1186,7 +1221,7 @@ function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
   )
 }
 
-function AIAnalysisTab({ caseId, caseUUID }: { caseId: string; caseUUID: string | null }) {
+function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments }: { caseId: string; caseUUID: string | null; onSwitchToDocuments?: () => void }) {
   const [files,   setFiles]   = useState<CaseFile[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -1227,7 +1262,7 @@ function AIAnalysisTab({ caseId, caseUUID }: { caseId: string; caseUUID: string 
   }
 
   return (
-    <CaseAnalysisPanel caseId={caseId} repairStats={files.length > 0 ? repairStats : undefined} />
+    <CaseAnalysisPanel caseId={caseId} repairStats={files.length > 0 ? repairStats : undefined} onSwitchToDocuments={onSwitchToDocuments} />
   )
 }
 
@@ -3005,7 +3040,7 @@ export default function CaseDetailPage() {
 
           {/* ── AI Analysis tab ── */}
           {activeTab === 'ai' && (
-            <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} />
+            <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => setActiveTab('documents')} />
           )}
 
           {/* ── Tasks tab ── */}
