@@ -2369,7 +2369,7 @@ export default function CaseDetailPage() {
   ] as const
 
   return (
-    <div className="p-8 max-w-screen-xl mx-auto">
+    <div className="p-4 md:p-8 max-w-screen-xl mx-auto">
 
       {/* ── Page header ── */}
       <div className="mb-6">
@@ -2399,13 +2399,13 @@ export default function CaseDetailPage() {
       </div>
 
       {/* ── Two-column layout ── */}
-      <div className="flex gap-6 items-start">
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
 
         {/* ── Left: tabs + content ── */}
         <div className="flex-1 min-w-0">
 
           {/* Tab bar */}
-          <div className="flex gap-0 border-b border-gray-100 mb-5">
+          <div className="flex gap-0 border-b border-gray-100 mb-5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0">
             {TABS.map(tab => (
               <button
                 key={tab.id}
@@ -2955,7 +2955,7 @@ export default function CaseDetailPage() {
         </div>
 
         {/* ── Right: sticky sidebar ── */}
-        <div className="w-64 shrink-0 sticky top-6 space-y-4">
+        <div className="w-full lg:w-64 lg:shrink-0 lg:sticky top-6 space-y-4">
 
           {/* Status card */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">

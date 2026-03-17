@@ -268,7 +268,7 @@ function CasesContent() {
   const subStages = activeGroup ? GROUP_STAGES[activeGroup] ?? [] : []
 
   return (
-    <div className="p-8 space-y-5 max-w-screen-xl mx-auto">
+    <div className="p-4 md:p-8 space-y-5 max-w-screen-xl mx-auto">
 
       {/* ── Title row ── */}
       <div className="flex items-center justify-between">
@@ -353,7 +353,8 @@ function CasesContent() {
           </div>
         ) : (
           <>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="w-1 px-0" /> {/* urgency bar spacer */}
@@ -509,6 +510,7 @@ function CasesContent() {
                 })}
               </tbody>
             </table>
+            </div>
 
             {/* Load more */}
             {hasMore && (
