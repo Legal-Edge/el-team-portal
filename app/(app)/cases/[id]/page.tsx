@@ -1680,7 +1680,7 @@ function DocViewerModal({
   )
 }
 
-// ── Classify dropdown — opens immediately, alphabetical, app-styled ────────
+// ── Classify dropdown — portal-based to avoid z-index/overflow clip issues ──
 function ClassifyDropdown({
   docTypes,
   saving,
@@ -1692,58 +1692,89 @@ function ClassifyDropdown({
   onSelect: (code: string) => void
   onCancel: () => void
 }) {
-  const wrapperRef = useRef<HTMLDivElement>(null)
-  const [openUpward, setOpenUpward] = useState(false)
+  const anchorRef  = useRef<HTMLDivElement>(null)
+  const dropRef    = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; above: boolean } | null>(null)
 
   const sorted = useMemo(
     () => [...docTypes].sort((a, b) => a.label.localeCompare(b.label)),
     [docTypes]
   )
 
-  // Decide direction based on viewport space
+  // Compute position relative to viewport
   useEffect(() => {
-    if (wrapperRef.current) {
-      const rect = wrapperRef.current.getBoundingClientRect()
-      const spaceBelow = window.innerHeight - rect.bottom
-      setOpenUpward(spaceBelow < 280)
-    }
+    if (!anchorRef.current) return
+    const rect = anchorRef.current.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const above = spaceBelow < 300
+    setPos({
+      top:   above ? rect.top + window.scrollY - 4 : rect.bottom + window.scrollY + 4,
+      left:  rect.left + window.scrollX,
+      width: Math.max(rect.width, 240),
+      above,
+    })
   }, [])
 
-  // Close on outside click
+  // Close on outside click or scroll
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) onCancel()
+      if (
+        dropRef.current && !dropRef.current.contains(e.target as Node) &&
+        anchorRef.current && !anchorRef.current.contains(e.target as Node)
+      ) onCancel()
     }
     document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    document.addEventListener('scroll', onCancel, true)
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('scroll', onCancel, true)
+    }
   }, [onCancel])
 
+  const { createPortal } = require('react-dom')
+
   return (
-    <div ref={wrapperRef} className="relative inline-block">
-      <div className={`absolute left-0 z-50 w-64 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden ${
-        openUpward ? 'bottom-full mb-2' : 'top-full mt-1'
-      }`}>
-        <div className="px-3 py-2 border-b border-gray-100">
-          <p className="text-xs font-medium text-gray-500">Select document type</p>
-        </div>
-        <div className="max-h-60 overflow-y-auto overscroll-contain">
-          {sorted.map(t => (
+    <div ref={anchorRef} className="inline-block w-full">
+      {pos && createPortal(
+        <div
+          ref={dropRef}
+          style={{
+            position: 'fixed',
+            top:  pos.above ? undefined : pos.top - window.scrollY,
+            bottom: pos.above ? window.innerHeight - (pos.top - window.scrollY) : undefined,
+            left: pos.left,
+            width: pos.width,
+            zIndex: 9999,
+          }}
+          className="bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="px-3 py-2 border-b border-gray-100">
+            <p className="text-xs font-medium text-gray-500">Select document type</p>
+          </div>
+          <div className="max-h-64 overflow-y-auto overscroll-contain">
+            {sorted.map(t => (
+              <button
+                key={t.code}
+                disabled={saving}
+                onClick={e => { e.stopPropagation(); onSelect(t.code) }}
+                className="w-full text-left px-3 py-2.5 text-sm text-gray-700 hover:bg-lemon-400/10 hover:text-gray-900 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0"
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="px-3 py-2 border-t border-gray-100">
             <button
-              key={t.code}
-              disabled={saving}
-              onClick={() => onSelect(t.code)}
-              className="w-full text-left px-3 py-2.5 text-sm text-gray-700 hover:bg-lemon-400/10 hover:text-gray-900 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0"
+              onClick={e => { e.stopPropagation(); onCancel() }}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
             >
-              {t.label}
+              Cancel
             </button>
-          ))}
-        </div>
-        <div className="px-3 py-2 border-t border-gray-100">
-          <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
-            Cancel
-          </button>
-        </div>
-      </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
