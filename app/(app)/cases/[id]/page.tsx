@@ -1218,80 +1218,174 @@ function DocumentsSection({
   )
 }
 
-// ── Stage 1: Per-doc extraction panel (Haiku) ─────────────────────────────
-function DocExtractionPanel({ fileId }: { fileId: string }) {
-  const [data,    setData]    = useState<Record<string, unknown> | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(false)
+// ── Stage 1: Per-doc extraction panel (Haiku) — manual trigger + editable ─
+const SKIP_FIELDS = new Set(['doc_type','key_facts','key_dates'])
+const TEXTAREA_FIELDS = new Set(['complaint','diagnosis','work_performed','key_facts'])
+const SELECT_FIELDS: Record<string, string[]> = {
+  repair_status: ['completed','unable_to_duplicate','parts_on_order','customer_declined','other'],
+}
 
+function DocExtractionPanel({ fileId }: { fileId: string }) {
+  const [data,      setData]      = useState<Record<string, unknown> | null>(null)
+  const [original,  setOriginal]  = useState<Record<string, unknown> | null>(null)
+  const [edits,     setEdits]     = useState<Record<string, unknown>>({})
+  const [loading,   setLoading]   = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [saved,     setSaved]     = useState(false)
+  const [kbAdded,   setKbAdded]   = useState<string | null>(null)
+  const [error,     setError]     = useState(false)
+
+  // Load cached extraction on mount (no auto-extract)
   useEffect(() => {
-    setLoading(true); setError(false)
     fetch(`/api/documents/${fileId}/analyze`, {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ cached_only: true }),
     })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(d => setData(d.extraction))
-      .catch(() => setError(true))
-      .finally(() => setLoading(false))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.extraction) { setData(d.extraction); setOriginal(d.extraction) } })
+      .catch(() => {})
   }, [fileId])
 
+  async function runExtraction(force = false) {
+    setLoading(true); setError(false); setEdits({})
+    fetch(`/api/documents/${fileId}/analyze`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { setData(d.extraction); setOriginal(d.extraction) })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false))
+  }
+
+  async function saveCorrections() {
+    if (!data) return
+    setSaving(true); setSaved(false); setKbAdded(null)
+    const corrected = { ...data, ...edits }
+    const res = await fetch(`/api/documents/${fileId}/extraction`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ corrected, original }),
+    })
+    const result = await res.json()
+    if (res.ok) {
+      setData(corrected); setOriginal(corrected); setEdits({})
+      setSaved(true)
+      if (result.kb_rule_added) setKbAdded(result.kb_rule_added)
+      setTimeout(() => setSaved(false), 3000)
+    }
+    setSaving(false)
+  }
+
+  const merged     = data ? { ...data, ...edits } : null
+  const hasEdits   = Object.keys(edits).length > 0
+  const entries    = merged ? Object.entries(merged).filter(([k, v]) =>
+    !SKIP_FIELDS.has(k) && v !== null && v !== undefined && v !== '' && !Array.isArray(v)
+  ) : []
+
+  // ── Render: not yet extracted
+  if (!data && !loading) return (
+    <div className="flex flex-col items-center justify-center h-full gap-4 px-6 text-center">
+      <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-lg">✦</div>
+      <div>
+        <p className="text-sm font-medium text-gray-700 mb-1">Not yet extracted</p>
+        <p className="text-xs text-gray-400">Run Haiku to extract structured data from this document</p>
+      </div>
+      <button onClick={() => runExtraction(false)}
+        className="text-sm px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 active:scale-95 transition-all">
+        Extract with Haiku
+      </button>
+      {error && <p className="text-xs text-red-500">Extraction failed. Try again.</p>}
+    </div>
+  )
+
+  // ── Render: loading
   if (loading) return (
     <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 px-6">
       <div className="w-7 h-7 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin" />
       <p className="text-xs text-center">Extracting with Haiku…<br/><span className="text-gray-300">~5 seconds</span></p>
     </div>
   )
-  if (error || !data) return (
-    <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-gray-400">
-      <p className="text-sm">Extraction unavailable</p>
-    </div>
-  )
 
-  const SKIP = new Set(['doc_type','key_facts','key_dates'])
-  const entries = Object.entries(data).filter(([k, v]) =>
-    !SKIP.has(k) && v !== null && v !== undefined && v !== '' &&
-    !Array.isArray(v) && typeof v !== 'object'
-  )
-  const lists = Object.entries(data).filter(([, v]) => Array.isArray(v) && (v as unknown[]).length > 0)
-
+  // ── Render: extracted + editable
   return (
-    <div className="h-full overflow-y-auto px-5 py-5 space-y-5">
-      <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Document Extraction</p>
-        <p className="text-xs text-gray-300">Claude Haiku</p>
+    <div className="h-full overflow-y-auto flex flex-col">
+      {/* Header */}
+      <div className="px-5 pt-5 pb-3 flex items-center justify-between shrink-0">
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Document Extraction</p>
+          <p className="text-xs text-gray-300 mt-0.5">Claude Haiku · click any field to edit</p>
+        </div>
+        <button onClick={() => runExtraction(true)} title="Re-extract"
+          className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1 rounded border border-gray-100 hover:border-gray-200">
+          ↻ Re-run
+        </button>
       </div>
 
-      {entries.length > 0 && (
-        <div className="space-y-2.5">
-          {entries.map(([key, val]) => (
-            <div key={key} className="flex items-start gap-2">
-              <span className="text-xs text-gray-400 capitalize w-28 shrink-0 pt-0.5 leading-relaxed">
-                {key.replace(/_/g, ' ')}
-              </span>
-              <span className="text-sm text-gray-800 font-medium leading-relaxed">
-                {typeof val === 'boolean' ? (val ? 'Yes' : 'No') : String(val)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Fields */}
+      <div className="flex-1 px-5 pb-3 space-y-3">
+        {entries.map(([key, val]) => {
+          const isEdited  = key in edits
+          const fieldVal  = String(val ?? '')
+          const isBoolean = typeof (data?.[key]) === 'boolean'
+          const isSelect  = key in SELECT_FIELDS
+          const isTA      = TEXTAREA_FIELDS.has(key)
 
-      {lists.map(([key, val]) => (
-        <div key={key}>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-            {key.replace(/_/g, ' ')}
-          </p>
-          <ul className="space-y-1">
-            {(val as string[]).map((item, i) => (
-              <li key={i} className="text-sm text-gray-700 flex gap-2">
-                <span className="text-gray-300 shrink-0">·</span>{item}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+          return (
+            <div key={key} className={`rounded-lg border px-3 py-2 transition-colors ${isEdited ? 'border-amber-300 bg-amber-50' : 'border-gray-100 bg-gray-50/50'}`}>
+              <p className="text-xs text-gray-400 capitalize mb-1">{key.replace(/_/g, ' ')}{isEdited && <span className="ml-1.5 text-amber-500 text-xs">edited</span>}</p>
+              {isBoolean ? (
+                <select
+                  value={fieldVal}
+                  onChange={e => setEdits(prev => ({ ...prev, [key]: e.target.value === 'true' }))}
+                  className="text-sm text-gray-800 font-medium bg-transparent w-full focus:outline-none">
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
+              ) : isSelect ? (
+                <select
+                  value={fieldVal}
+                  onChange={e => setEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="text-sm text-gray-800 font-medium bg-transparent w-full focus:outline-none capitalize">
+                  {SELECT_FIELDS[key].map(o => <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>)}
+                </select>
+              ) : isTA ? (
+                <textarea
+                  value={fieldVal}
+                  onChange={e => setEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                  rows={3}
+                  className="text-sm text-gray-800 font-medium bg-transparent w-full focus:outline-none resize-none leading-relaxed" />
+              ) : (
+                <input
+                  type="text"
+                  value={fieldVal}
+                  onChange={e => setEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="text-sm text-gray-800 font-medium bg-transparent w-full focus:outline-none" />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Save bar */}
+      <div className="px-5 pb-5 pt-2 shrink-0 space-y-2">
+        {kbAdded && (
+          <div className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+            ✓ Knowledge base updated: &quot;{kbAdded}&quot;
+          </div>
+        )}
+        {saved && !kbAdded && (
+          <p className="text-xs text-green-600">✓ Corrections saved</p>
+        )}
+        {hasEdits && (
+          <button onClick={saveCorrections} disabled={saving}
+            className="w-full text-sm py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-400 disabled:opacity-40 active:scale-95 transition-all font-medium">
+            {saving ? 'Saving + Learning…' : 'Save Corrections'}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

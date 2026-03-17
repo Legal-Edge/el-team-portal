@@ -20,7 +20,7 @@ export async function POST(
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { fileId } = await params
-  const { force = false } = await req.json().catch(() => ({}))
+  const { force = false, cached_only = false } = await req.json().catch(() => ({}))
 
   const db = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,9 +38,14 @@ export async function POST(
     return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }
 
-  // Return cached extraction unless forced
+  // Return cached extraction if available
   if (file.ai_extraction && !force) {
     return NextResponse.json({ extraction: file.ai_extraction, cached: true })
+  }
+
+  // cached_only = just checking for existing extraction, don't run Haiku
+  if (cached_only) {
+    return NextResponse.json({ extraction: null, cached: false })
   }
 
   // Fetch PDF from SharePoint
