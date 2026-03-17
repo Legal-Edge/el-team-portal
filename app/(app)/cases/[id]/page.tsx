@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useRouter, useSearchParams }    from 'next/navigation'
 import { createClient as sbCreate }                  from '@supabase/supabase-js'
@@ -713,6 +713,30 @@ const COLLECTION_STATUS_BADGE: Record<string, string> = {
 }
 
 // ── Stage 2: Case-level Sonnet analysis panel ─────────────────────────────
+
+interface AnalysisResult {
+  decision?:               string
+  confidence?:             string
+  cause_of_action?:        string
+  case_strength?:          string
+  summary?:                string
+  total_repair_attempts?:  number
+  total_days_out_of_service?: number
+  meets_state_threshold?:  boolean
+  meets_federal_threshold?: boolean
+  state_law?:              string
+  state_statute?:          string
+  nurture_reason?:         string
+  drop_reason?:            string
+  retain_signals?:         string[]
+  risk_factors?:           string[]
+  clarification_needed?:   string[]
+  recurring_defects?:      Array<{ complaint: string; attempts: number; dates: string[] }>
+  key_findings?:           string[]
+  attorney_notes?:         string
+  engine_missing_data?:    string[]
+}
+
 const STRENGTH_STYLE: Record<string, string> = {
   strong:            'bg-green-50 border-green-200 text-green-700',
   moderate:          'bg-yellow-50 border-yellow-200 text-yellow-700',
@@ -721,7 +745,7 @@ const STRENGTH_STYLE: Record<string, string> = {
 }
 
 function CaseAnalysisPanel({ caseId }: { caseId: string }) {
-  const [analysis,      setAnalysis]      = useState<Record<string, unknown> | null>(null)
+  const [analysis,      setAnalysis]      = useState<AnalysisResult | null>(null)
   const [analyzedAt,    setAnalyzedAt]    = useState<string | null>(null)
   const [filesAnalyzed, setFilesAnalyzed] = useState<number>(0)
   const [filesPending,  setFilesPending]  = useState<string[]>([])
@@ -749,7 +773,7 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
   // Auto-load cached analysis on mount
   useEffect(() => { runAnalysis(false) }, [caseId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const strength = analysis?.case_strength as string | undefined
+  const strength = analysis?.case_strength
 
   function formatAnalyzedAt(ts: string | null) {
     if (!ts) return null
@@ -772,8 +796,8 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
             </p>
           </div>
           {strength && (
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize shrink-0 ${STRENGTH_STYLE[strength] ?? STRENGTH_STYLE.insufficient_data}`}>
-              {strength.replace('_', ' ')} case
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize shrink-0 ${STRENGTH_STYLE[analysis.case_strength ?? "insufficient_data"] ?? STRENGTH_STYLE.insufficient_data}`}>
+              {(analysis.case_strength ?? "").replace('_', ' ')} case
             </span>
           )}
         </div>
@@ -822,43 +846,119 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
 
       {analysis && !collapsed && (
         <div className="border-t border-gray-100 px-6 py-5 space-y-5">
-          {/* Summary */}
-          {!!analysis.summary && (
-            <div className="bg-lemon-400/10 border border-lemon-400/30 rounded-xl p-4">
-              <p className="text-sm text-gray-700 leading-relaxed">{analysis.summary as string}</p>
+
+          {/* ── DECISION BANNER (primary output) ── */}
+          {((): React.ReactNode => {
+            const dec = analysis.decision
+            const conf = analysis.confidence
+            const coa = analysis.cause_of_action
+            if (!dec) return null
+            const DECISION_STYLE: Record<string, { bg: string; border: string; text: string; label: string; icon: string }> = {
+              retain:               { bg: 'bg-green-50',  border: 'border-green-200', text: 'text-green-700',  label: 'Retain',               icon: '✓' },
+              nurture:              { bg: 'bg-amber-50',  border: 'border-amber-200', text: 'text-amber-700',  label: 'Nurture',               icon: '◷' },
+              drop:                 { bg: 'bg-red-50',    border: 'border-red-200',   text: 'text-red-700',    label: 'Drop',                  icon: '✕' },
+              clarification_needed: { bg: 'bg-blue-50',  border: 'border-blue-200',  text: 'text-blue-700',  label: 'Clarification Needed',  icon: '?' },
+            }
+            const style = DECISION_STYLE[dec] ?? DECISION_STYLE.clarification_needed
+            const COA_LABEL: Record<string, string> = {
+              both:           'State Lemon Law + Magnuson-Moss',
+              state_lemon_law: 'State Lemon Law',
+              magnuson_moss:  'Federal Magnuson-Moss',
+            }
+            return (
+              <div className={`rounded-xl border-2 ${style.border} ${style.bg} px-5 py-4`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <span className={`text-2xl font-bold ${style.text}`}>{style.icon}</span>
+                    <div>
+                      <p className={`text-xl font-bold ${style.text}`}>{style.label}</p>
+                      {coa && <p className="text-xs font-medium text-gray-500 mt-0.5">{COA_LABEL[coa] ?? coa}</p>}
+                    </div>
+                  </div>
+                  {conf && (
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full capitalize border ${style.border} ${style.text} bg-white`}>
+                      {conf} confidence
+                    </span>
+                  )}
+                </div>
+                {/* Retain signals */}
+                {dec === 'retain' && Array.isArray(analysis.retain_signals) && (analysis.retain_signals ?? []).length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {(analysis.retain_signals ?? []).map((s, i) => (
+                      <li key={i} className="text-xs text-green-700 flex gap-1.5"><span>·</span>{String(s)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {/* Nurture reason */}
+                {dec === 'nurture' && Boolean(analysis.nurture_reason) && (
+                  <p className="text-xs text-amber-700 mt-2">{analysis.nurture_reason ?? ""}</p>
+                )}
+                {/* Drop reason */}
+                {dec === 'drop' && Boolean(analysis.drop_reason) && (
+                  <p className="text-xs text-red-700 mt-2">{analysis.drop_reason ?? ""}</p>
+                )}
+                {/* Clarification needed items */}
+                {dec === 'clarification_needed' && Array.isArray(analysis.clarification_needed) && (
+                  <ul className="mt-2 space-y-1">
+                    {(analysis.clarification_needed ?? []).map((s, i) => (
+                      <li key={i} className="text-xs text-blue-700 flex gap-1.5"><span>·</span>{String(s ?? "")}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* ── Risk factors ── */}
+          {(analysis.risk_factors ?? []).length > 0 && (
+            <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Risk Factors</p>
+              <ul className="space-y-1">
+                {(analysis.risk_factors ?? []).map((f, i) => (
+                  <li key={i} className="text-xs text-gray-600 flex gap-1.5"><span className="text-amber-400">⚠</span>{f}</li>
+                ))}
+              </ul>
             </div>
           )}
 
-          {/* Stats row */}
+          {/* ── Summary ── */}
+          {!!analysis.summary && (
+            <div className="bg-lemon-400/10 border border-lemon-400/30 rounded-xl p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Case Summary</p>
+              <p className="text-sm text-gray-700 leading-relaxed">{analysis.summary ?? ""}</p>
+            </div>
+          )}
+
+          {/* ── Stats row ── */}
           <div className="grid grid-cols-3 gap-4">
-            {analysis.total_repair_attempts != null && (
+            {analysis.total_repair_attempts != null ? (
               <div className="bg-gray-50 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-gray-800">{String(analysis.total_repair_attempts)}</p>
-                <p className="text-xs text-gray-400 mt-1">Repair Attempts</p>
+                <p className="text-2xl font-bold text-gray-800">{analysis.total_repair_attempts}</p>
+                <p className="text-xs text-gray-400 mt-1">Repair Visits</p>
               </div>
-            )}
-            {analysis.total_days_out_of_service != null && (
+            ) : null}
+            {analysis.total_days_out_of_service != null ? (
               <div className="bg-gray-50 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-gray-800">{String(analysis.total_days_out_of_service)}</p>
+                <p className="text-2xl font-bold text-gray-800">{analysis.total_days_out_of_service}</p>
                 <p className="text-xs text-gray-400 mt-1">Days Out of Service</p>
               </div>
-            )}
-            {analysis.qualifies_under_state_law != null && (
-              <div className={`rounded-xl p-4 text-center ${!!analysis.qualifies_under_state_law ? 'bg-green-50' : 'bg-gray-50'}`}>
-                <p className={`text-2xl font-bold ${!!analysis.qualifies_under_state_law ? 'text-green-600' : 'text-gray-400'}`}>
-                  {!!analysis.qualifies_under_state_law ? '✓' : '✗'}
+            ) : null}
+            {(analysis.meets_state_threshold != null || analysis.meets_federal_threshold != null) ? (
+              <div className={`rounded-xl p-4 text-center ${(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? 'bg-green-50' : 'bg-gray-50'}`}>
+                <p className={`text-2xl font-bold ${(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? 'text-green-600' : 'text-gray-400'}`}>
+                  {(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? '✓' : '✗'}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">Qualifies</p>
+                <p className="text-xs text-gray-400 mt-1">Meets Threshold</p>
               </div>
-            )}
+            ) : null}
           </div>
 
-          {/* Recurring defects */}
-          {Array.isArray(analysis.recurring_defects) && (analysis.recurring_defects as unknown[]).length > 0 && (
+          {/* ── Recurring defects ── */}
+          {(analysis.recurring_defects ?? []).length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recurring Defects</p>
               <div className="space-y-2">
-                {(analysis.recurring_defects as Array<{complaint: string; attempts: number; dates: string[]}>).map((d, i) => (
+                {(analysis.recurring_defects ?? []).map((d, i) => (
                   <div key={i} className="flex items-start gap-3 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
                     <span className="text-red-500 font-bold text-sm shrink-0">{d.attempts}×</span>
                     <div>
@@ -871,12 +971,12 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
             </div>
           )}
 
-          {/* Key findings */}
-          {Array.isArray(analysis.key_findings) && (analysis.key_findings as string[]).length > 0 && (
+          {/* ── Key findings ── */}
+          {(analysis.key_findings ?? []).length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Key Findings</p>
               <ul className="space-y-1.5">
-                {(analysis.key_findings as string[]).map((f, i) => (
+                {(analysis.key_findings ?? []).map((f, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
                     <span className="text-lemon-500 shrink-0 mt-0.5">→</span>{f}
                   </li>
@@ -885,22 +985,34 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
             </div>
           )}
 
-          {/* Recommended next steps */}
-          {Array.isArray(analysis.recommended_next_steps) && (analysis.recommended_next_steps as string[]).length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recommended Next Steps</p>
-              <ol className="space-y-1.5 list-decimal list-inside">
-                {(analysis.recommended_next_steps as string[]).map((s, i) => (
-                  <li key={i} className="text-sm text-gray-700">{s}</li>
-                ))}
-              </ol>
+          {/* ── Attorney notes ── */}
+          {!!analysis.attorney_notes && (
+            <div className="border border-gray-200 rounded-xl p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attorney Notes</p>
+              <p className="text-sm text-gray-700 leading-relaxed">{analysis.attorney_notes ?? ""}</p>
             </div>
           )}
 
-          {/* Qualifies reason */}
-          {!!analysis.qualifies_reason && (
-            <p className="text-xs text-gray-400 italic">{analysis.qualifies_reason as string}</p>
+          {/* ── State law context ── */}
+          {analysis.state_law && (
+            <p className="text-xs text-gray-400">
+              Applied law: <span className="font-medium">{analysis.state_law}</span>
+              {Boolean(analysis.state_statute) && <> · {analysis.state_statute}</>}
+            </p>
           )}
+
+          {/* ── Missing data warnings ── */}
+          {(analysis.engine_missing_data ?? []).length > 0 && (
+            <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+              <p className="text-xs font-semibold text-amber-700 mb-1">Missing data — confidence may be affected</p>
+              <ul className="space-y-0.5">
+                {(analysis.engine_missing_data ?? []).map((m, i) => (
+                  <li key={i} className="text-xs text-amber-600 flex gap-1.5"><span>·</span>{m}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
         </div>
       )}
     </div>

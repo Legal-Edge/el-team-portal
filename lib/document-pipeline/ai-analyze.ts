@@ -15,6 +15,9 @@ import { createClient } from '@supabase/supabase-js'
 export const EXTRACTION_MODEL = 'claude-haiku-4-5'
 export const ANALYSIS_MODEL   = 'claude-sonnet-4-20250514'
 
+import { runLemonLawEngine } from '../lemon-law/engine'
+import type { EngineInput, RepairRecord } from '../lemon-law/types'
+
 // ── State lemon law thresholds ────────────────────────────────────────────
 const STATE_LAW: Record<string, string> = {
   CA: 'California (Song-Beverly): 4 repair attempts for same defect, OR 2 for safety defect, OR 30+ days out of service — within 18 months/18,000 miles.',
@@ -225,54 +228,149 @@ export interface DocExtractionRecord {
   ai_extraction:      Record<string, unknown>
 }
 
+export interface CaseInputContext extends CaseContext {
+  purchase_date?:     string | null
+  vehicle_year?:      number | null
+  vehicle_make?:      string | null
+  new_or_used?:       string | null
+  purchase_lease?:    string | null
+  mileage_at_intake?: number | null
+}
+
 export async function analyzeCaseDocuments(
   docs:        DocExtractionRecord[],
-  caseContext: CaseContext,
+  caseContext: CaseInputContext,
 ): Promise<{ analysis: Record<string, unknown>; model: string }> {
-  const client   = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  const stateLaw = getStateLaw(caseContext.state)
+  const client    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const knowledge = await loadKnowledge('analysis', null)
+
+  // ── Stage 2a: Run deterministic lemon law engine ───────────────────────
+  const repairs: RepairRecord[] = docs
+    .filter(d => d.document_type_code === 'repair_order')
+    .map(d => {
+      const e = d.ai_extraction
+      const daysRaw = e.days_in_shop
+      const milRaw  = e.mileage_in
+      return {
+        file_name:       d.file_name,
+        repair_date_in:  (e.repair_date_in  as string | null) ?? null,
+        repair_date_out: (e.repair_date_out as string | null) ?? null,
+        days_in_shop:    typeof daysRaw === 'number' ? daysRaw : null,
+        complaint:       (e.complaint       as string | null) ?? null,
+        diagnosis:       (e.diagnosis       as string | null) ?? null,
+        work_performed:  (e.work_performed  as string | null) ?? null,
+        mileage_in:      typeof milRaw === 'number' ? milRaw : null,
+        is_warranty:     true,  // assume warranty unless explicitly noted otherwise
+      }
+    })
+
+  const engineInput: EngineInput = {
+    state:            caseContext.state ?? null,
+    purchase_date:    caseContext.purchase_date ?? null,
+    vehicle_year:     caseContext.vehicle_year ?? null,
+    vehicle_make:     caseContext.vehicle_make ?? null,
+    new_or_used:      (caseContext.new_or_used as EngineInput['new_or_used']) ?? null,
+    purchase_lease:   (caseContext.purchase_lease as EngineInput['purchase_lease']) ?? null,
+    repairs,
+    mileage_at_intake: caseContext.mileage_at_intake ?? null,
+  }
+
+  const engineResult = runLemonLawEngine(engineInput)
+
+  // ── Stage 2b: Sonnet writes the attorney narrative ────────────────────
+  const stateLawText = engineResult.state_law
+    ? `${engineResult.state_law.name} (${engineResult.state_law.statute}): ${engineResult.state_law.repairAttempts} attempts / ${engineResult.state_law.safetyAttempts} safety / ${engineResult.state_law.daysOOS} days OOS / ${engineResult.state_law.windowMonths}mo or ${engineResult.state_law.windowMiles.toLocaleString()} miles`
+    : 'Federal Magnuson-Moss Warranty Act (15 U.S.C. §2301)'
+
+  const engineSummary = JSON.stringify({
+    decision:                   engineResult.decision,
+    confidence:                 engineResult.confidence,
+    cause_of_action:            engineResult.cause_of_action,
+    max_attempts_per_defect:    engineResult.max_attempts_per_defect,
+    total_days_oos:             engineResult.total_days_oos,
+    within_state_window:        engineResult.within_state_window,
+    meets_state_repair:         engineResult.meets_state_repair_threshold,
+    meets_state_safety:         engineResult.meets_state_safety_threshold,
+    meets_state_oos:            engineResult.meets_state_oos_threshold,
+    meets_federal:              engineResult.meets_federal_threshold,
+    defect_groups:              engineResult.defect_groups.map(g => ({
+      category: g.category, attempts: g.attempts, isSafety: g.isSafety
+    })),
+    safety_defects:             engineResult.safety_defects,
+    retain_signals:             engineResult.retain_signals,
+    risk_factors:               engineResult.risk_factors,
+    missing_data:               engineResult.missing_data,
+  }, null, 2)
 
   const docsSummary = docs.map((d, i) =>
     `Document ${i + 1} — ${d.file_name} (${d.document_type_code ?? 'other'}):\n${JSON.stringify(d.ai_extraction, null, 2)}`
   ).join('\n\n---\n\n')
 
-  const systemPrompt = `You are an experienced lemon law attorney reviewing a case file.
+  const systemPrompt = `You are an experienced lemon law attorney writing a pre-litigation case analysis memo for a lemon law firm.
 
 Client: ${caseContext.client_name ?? 'unknown'}
 Vehicle: ${caseContext.vehicle ?? 'unknown'}
 State: ${caseContext.state ?? 'unknown'}
-Applicable law: ${stateLaw}
+Applicable law: ${stateLawText}
 
-Analyze the extracted document data below and return a JSON case analysis. Return ONLY valid JSON.${knowledge}`
+The deterministic analysis engine has already made the RETAIN/NURTURE/DROP decision based on hard rules.
+Your job is to write the attorney narrative that explains and supports that decision.
+Return ONLY valid JSON.${knowledge}`
 
-  const userPrompt = `${docsSummary}
+  const userPrompt = `ENGINE DECISION (DO NOT CHANGE):
+${engineSummary}
+
+EXTRACTED DOCUMENTS:
+${docsSummary}
 
 ---
 
-Based on all documents above, return this exact JSON:
+Write the attorney memo. Return this exact JSON:
 {
+  "decision": "${engineResult.decision}",
+  "confidence": "${engineResult.confidence}",
+  "cause_of_action": ${engineResult.cause_of_action ? `"${engineResult.cause_of_action}"` : 'null'},
   "case_strength": "strong" | "moderate" | "weak" | "insufficient_data",
-  "case_strength_reason": string,
+  "summary": "2-3 sentence plain English summary of the case for the handling attorney",
   "total_repair_attempts": number | null,
   "total_days_out_of_service": number | null,
   "date_range": { "first_repair": "YYYY-MM-DD" | null, "last_repair": "YYYY-MM-DD" | null },
-  "unique_defects": string[],
   "recurring_defects": [{ "complaint": string, "attempts": number, "dates": string[] }],
-  "qualifies_under_state_law": boolean | null,
-  "qualifies_reason": string,
+  "retain_signals": string[],
+  "risk_factors": string[],
+  "nurture_reason": string | null,
+  "drop_reason": string | null,
+  "clarification_needed": string[],
   "key_findings": string[],
-  "recommended_next_steps": string[],
-  "summary": string
+  "attorney_notes": "Draft language for the handling attorney — what to say to the client, what to watch for, what the next step should be"
 }`
 
   const response = await client.messages.create({
     model:      ANALYSIS_MODEL,
-    max_tokens: 1024,
+    max_tokens: 1500,
     system:     systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
   })
 
   const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
-  return { analysis: parseJson(text), model: ANALYSIS_MODEL }
+  const sonnetAnalysis = parseJson(text)
+
+  // Merge engine decision (authoritative) with Sonnet narrative
+  return {
+    analysis: {
+      ...sonnetAnalysis,
+      // Engine values always override Sonnet for decision fields
+      decision:               engineResult.decision,
+      confidence:             engineResult.confidence,
+      cause_of_action:        engineResult.cause_of_action,
+      engine_retain_signals:  engineResult.retain_signals,
+      engine_risk_factors:    engineResult.risk_factors,
+      engine_missing_data:    engineResult.missing_data,
+      state_law:              engineResult.state_law?.name ?? null,
+      state_statute:          engineResult.state_law?.statute ?? null,
+      meets_state_threshold:  engineResult.meets_state_repair_threshold || engineResult.meets_state_safety_threshold || engineResult.meets_state_oos_threshold,
+      meets_federal_threshold: engineResult.meets_federal_threshold,
+    },
+    model: ANALYSIS_MODEL,
+  }
 }

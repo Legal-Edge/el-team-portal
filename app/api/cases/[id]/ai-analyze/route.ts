@@ -37,12 +37,44 @@ export async function POST(
     return NextResponse.json({ error: `Case not found (id=${id}, err=${caseErr?.message ?? 'null row'})` }, { status: 404 })
   }
 
-  // Fetch client name separately — best effort
+  // Fetch client name + case context for engine
   let clientName: string | null = null
+  let caseDetails: Record<string, unknown> = {}
   try {
-    const { data: nameRow } = await db.from('cases').select('client_first_name, client_last_name').eq('id', caseRow.id).single()
-    if (nameRow) clientName = [nameRow.client_first_name, nameRow.client_last_name].filter(Boolean).join(' ') || null
+    const { data: nameRow } = await db.from('cases').select(
+      'client_first_name, client_last_name, vehicle_year, vehicle_make, vehicle_model, state_jurisdiction'
+    ).eq('id', caseRow.id).single()
+    if (nameRow) {
+      clientName  = [nameRow.client_first_name, nameRow.client_last_name].filter(Boolean).join(' ') || null
+      caseDetails = nameRow as Record<string, unknown>
+    }
   } catch { /* ignore */ }
+
+  // Fetch intake data for purchase date, new/used, mileage
+  let intakeDetails: Record<string, unknown> = {}
+  try {
+    const { data: intakeRow } = await db.from('case_state').select(
+      'intake_status'
+    ).eq('case_id', caseRow.id).single()
+    if (intakeRow) intakeDetails = intakeRow as Record<string, unknown>
+  } catch { /* ignore */ }
+
+  // Also try to get purchase date from HubSpot fields stored on case
+  let purchaseDateFromCase: string | null = null
+  let mileageFromCase: number | null = null
+  let newUsedFromCase: string | null = null
+  let purchaseLeaseFromCase: string | null = null
+  try {
+    const { data: hsRow } = await db.from('cases').select(
+      'purchase_lease_date, current_mileage, new_or_used, purchase_or_lease'
+    ).eq('id', caseRow.id).single()
+    if (hsRow) {
+      purchaseDateFromCase  = (hsRow as Record<string,unknown>).purchase_lease_date as string ?? null
+      mileageFromCase       = (hsRow as Record<string,unknown>).current_mileage as number ?? null
+      newUsedFromCase       = (hsRow as Record<string,unknown>).new_or_used as string ?? null
+      purchaseLeaseFromCase = (hsRow as Record<string,unknown>).purchase_or_lease as string ?? null
+    }
+  } catch { /* columns may not exist — ignore */ }
 
   // Try to read cached AI analysis (columns may not exist yet if migration pending)
   let cachedAnalysis: Record<string, unknown> | null = null
@@ -117,9 +149,15 @@ export async function POST(
     : null
 
   const caseContext = {
-    client_name: clientName,
-    vehicle:     vehicleFromPurchase || null,
-    state:       stateFromReg || null,
+    client_name:      clientName,
+    vehicle:          vehicleFromPurchase || [caseDetails.vehicle_year, caseDetails.vehicle_make, caseDetails.vehicle_model].filter(Boolean).join(' ') || null,
+    state:            stateFromReg || (caseDetails.state_jurisdiction as string) || null,
+    purchase_date:    purchaseDateFromCase,
+    vehicle_year:     (caseDetails.vehicle_year as number) || null,
+    vehicle_make:     (caseDetails.vehicle_make as string) || null,
+    new_or_used:      newUsedFromCase,
+    purchase_lease:   purchaseLeaseFromCase,
+    mileage_at_intake: mileageFromCase,
   }
 
   // Run Sonnet analysis
