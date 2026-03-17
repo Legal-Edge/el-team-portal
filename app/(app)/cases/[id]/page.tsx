@@ -1872,7 +1872,7 @@ function FileRow({
       </div>
       {/* Classify control — only for unclassified */}
       {isUnclassified && (
-        <div className="relative">
+        <div className="relative" onClick={e => e.stopPropagation()}>
           {classifying === f.id ? (
             <ClassifyDropdown
               docTypes={docTypes}
@@ -1882,7 +1882,7 @@ function FileRow({
             />
           ) : (
             <button
-              onClick={onStartClassify}
+              onClick={e => { e.stopPropagation(); onStartClassify() }}
               className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-3 py-1 rounded-lg hover:bg-amber-100 transition-colors active:scale-95"
             >
               Classify ▾
