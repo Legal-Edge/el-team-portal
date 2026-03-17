@@ -10,6 +10,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
+import { createClient } from '@supabase/supabase-js'
 
 export const EXTRACTION_MODEL = 'claude-haiku-4-5'
 export const ANALYSIS_MODEL   = 'claude-sonnet-4-20250514'
@@ -31,6 +32,35 @@ const STATE_LAW: Record<string, string> = {
 
 function getStateLaw(state?: string | null) {
   return STATE_LAW[(state ?? '').toUpperCase().trim()] ?? STATE_LAW.DEFAULT
+}
+
+// ── Knowledge base loader ─────────────────────────────────────────────────
+interface KbEntry { title: string; content: string }
+
+async function loadKnowledge(
+  stage:   'extraction' | 'analysis',
+  docType: string | null,
+): Promise<string> {
+  try {
+    const db = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    ).schema('core')
+
+    const { data } = await db
+      .from('ai_knowledge_base')
+      .select('title, content')
+      .eq('is_active', true)
+      .contains('applies_to', [stage])
+      .or(docType ? `doc_types.is.null,doc_types.cs.{"${docType}"}` : 'doc_types.is.null')
+      .order('sort_order', { ascending: true })
+
+    if (!data || data.length === 0) return ''
+    return '\n\n## KNOWLEDGE BASE — RULES TO FOLLOW:\n' +
+      (data as KbEntry[]).map(e => `### ${e.title}\n${e.content}`).join('\n\n')
+  } catch {
+    return '' // non-blocking if KB unavailable
+  }
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────
@@ -113,11 +143,12 @@ export async function extractDocument(
   const client    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const prompt    = EXTRACTION_PROMPTS[docType ?? ''] ?? EXTRACTION_PROMPTS.default
   const base64Pdf = Buffer.from(pdfBytes).toString('base64')
+  const knowledge = await loadKnowledge('extraction', docType)
 
   const response = await client.beta.messages.create({
     model:      EXTRACTION_MODEL,
-    max_tokens: 512,
-    system:     'You are a document extraction assistant. Extract structured data from legal/automotive documents. Return ONLY valid JSON.',
+    max_tokens: 800,
+    system:     `You are a document extraction assistant for a lemon law firm. Extract structured data from legal/automotive documents. Return ONLY valid JSON.${knowledge}`,
     messages: [{
       role:    'user',
       content: [
@@ -152,8 +183,9 @@ export async function analyzeCaseDocuments(
   docs:        DocExtractionRecord[],
   caseContext: CaseContext,
 ): Promise<{ analysis: Record<string, unknown>; model: string }> {
-  const client  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const client   = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const stateLaw = getStateLaw(caseContext.state)
+  const knowledge = await loadKnowledge('analysis', null)
 
   const docsSummary = docs.map((d, i) =>
     `Document ${i + 1} — ${d.file_name} (${d.document_type_code ?? 'other'}):\n${JSON.stringify(d.ai_extraction, null, 2)}`
@@ -166,7 +198,7 @@ Vehicle: ${caseContext.vehicle ?? 'unknown'}
 State: ${caseContext.state ?? 'unknown'}
 Applicable law: ${stateLaw}
 
-Analyze the extracted document data below and return a JSON case analysis. Return ONLY valid JSON.`
+Analyze the extracted document data below and return a JSON case analysis. Return ONLY valid JSON.${knowledge}`
 
   const userPrompt = `${docsSummary}
 
