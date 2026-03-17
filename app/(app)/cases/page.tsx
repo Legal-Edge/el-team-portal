@@ -187,7 +187,9 @@ function CasesContent() {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
-    const ch = sb
+    let ch: ReturnType<typeof sb.channel> | undefined
+    try {
+    ch = sb
       .channel('cases-queue-comms')
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'core', table: 'comms_state',
@@ -213,7 +215,8 @@ function CasesContent() {
         }))
       })
       .subscribe()
-    return () => { sb.removeChannel(ch) }
+    } catch (e) { console.warn('[Realtime] subscription failed:', e) }
+    return () => { try { if (ch) sb.removeChannel(ch) } catch { /* ignore */ } }
   }, [])
 
   function handleSearch(e: React.FormEvent) {

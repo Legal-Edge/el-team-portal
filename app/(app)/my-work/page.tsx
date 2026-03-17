@@ -109,7 +109,9 @@ export default function MyWorkPage() {
     )
     const seenIds = new Set<string>()
 
-    const ch = sb
+    let ch: ReturnType<typeof sb.channel> | undefined
+    try {
+    ch = sb
       .channel('my-work-tasks')
       .on('postgres_changes', {
         event: '*', schema: 'core', table: 'tasks',
@@ -133,8 +135,8 @@ export default function MyWorkPage() {
       })
       .on('postgres_changes', { event: '*', schema: 'core', table: 'tasks' }, () => {})
       .subscribe(status => { setIsLive(status === 'SUBSCRIBED') })
-
-    return () => { sb.removeChannel(ch) }
+    } catch (e) { console.warn('[Realtime] subscription failed:', e) }
+    return () => { try { if (ch) sb.removeChannel(ch) } catch { /* ignore */ } }
   }, [load, statusTab, typeFilter])
 
   // ── Actions ───────────────────────────────────────────────────────────────

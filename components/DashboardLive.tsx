@@ -213,7 +213,9 @@ export function DashboardLive({ initial }: Props) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
-    const ch = sb
+    let ch: ReturnType<typeof sb.channel> | undefined
+    try {
+    ch = sb
       .channel('dashboard-comms-state')
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'core', table: 'comms_state',
@@ -226,7 +228,8 @@ export function DashboardLive({ initial }: Props) {
         event: '*', schema: 'core', table: 'case_document_checklist',
       }, () => { refreshDocStats() })
       .subscribe()
-    return () => { sb.removeChannel(ch) }
+    } catch (e) { console.warn('[Realtime] subscription failed:', e) }
+    return () => { try { if (ch) sb.removeChannel(ch) } catch { /* ignore */ } }
   }, [refreshCommsStats, refreshDocStats])
 
   return (

@@ -2234,11 +2234,15 @@ export default function CaseDetailPage() {
   // by case_id. Visibility rules applied client-side before inserting.
   useEffect(() => {
     if (!caseUUID) return
-    const { createClient: sbCreate } = require('@supabase/supabase-js')
-    const sb = sbCreate(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    let sb: ReturnType<typeof sbCreate> | null = null
+    try {
+      const { createClient: sbCreate2 } = require('@supabase/supabase-js')
+      sb = sbCreate2(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+    } catch (e) { console.warn('[Realtime] Supabase client init failed:', e); return }
+    if (!sb) return
     const ELEVATED = ['admin', 'attorney', 'manager']
 
     function flashItem(id: string) {
@@ -2255,7 +2259,8 @@ export default function CaseDetailPage() {
       flashItem(item.id)
     }
 
-    const ch = sb
+    let ch: ReturnType<typeof sb.channel> | null = null
+    try { ch = sb
       .channel(`case-timeline-${caseUUID}`)
 
       // ── New communications ──
@@ -2325,8 +2330,9 @@ export default function CaseDetailPage() {
       })
 
       .subscribe()
+    } catch (e) { console.warn('[Realtime] case timeline subscription failed:', e) }
 
-    return () => { sb.removeChannel(ch) }
+    return () => { try { if (ch) sb.removeChannel(ch) } catch { /* ignore */ } }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseUUID])
 

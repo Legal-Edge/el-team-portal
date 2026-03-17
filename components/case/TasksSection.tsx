@@ -129,7 +129,9 @@ export default function TasksSection({ caseSlug, caseUUID, staffId, userRole, st
     )
     const seenIds = new Set<string>()
 
-    const ch = sb
+    let ch: ReturnType<typeof sb.channel> | undefined
+    try {
+    ch = sb
       .channel(`tasks-${caseUUID}`)
       .on('postgres_changes', {
         event: '*', schema: 'core', table: 'tasks',
@@ -151,8 +153,8 @@ export default function TasksSection({ caseSlug, caseUUID, staffId, userRole, st
         }
       })
       .subscribe()
-
-    return () => { sb.removeChannel(ch) }
+    } catch (e) { console.warn('[Realtime] subscription failed:', e) }
+    return () => { try { if (ch) sb.removeChannel(ch) } catch { /* ignore */ } }
   }, [caseUUID])
 
   // ── Create ────────────────────────────────────────────────────────────────
