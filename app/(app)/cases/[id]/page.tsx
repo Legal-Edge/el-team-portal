@@ -1330,6 +1330,33 @@ function DocumentsSection({
     if (res.ok) { setClassifying(null); load() }
   }
 
+  const [bulkExtracting, setBulkExtracting] = useState<string | null>(null) // group key or 'all'
+  const [bulkProgress,   setBulkProgress]   = useState<{ done: number; total: number } | null>(null)
+
+  async function bulkExtract(types: string[] | null) {
+    const key = types ? types[0] : 'all'
+    setBulkExtracting(key)
+    setBulkProgress(null)
+    try {
+      const body: Record<string, unknown> = {}
+      if (types) body.types = types
+      const res  = await fetch(`/api/cases/${caseId}/documents/bulk-extract`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) { alert(`Bulk extract failed: ${data.error ?? res.status}`); return }
+      setBulkProgress({ done: data.extracted ?? 0, total: data.total ?? 0 })
+      await load()
+    } catch (e) {
+      alert(`Bulk extract error: ${String(e)}`)
+    } finally {
+      setBulkExtracting(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
@@ -1468,7 +1495,7 @@ function DocumentsSection({
 
       {/* ── Grouped Files ───────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Files</h2>
             <span className="text-xs text-gray-400">{files.length} total</span>
@@ -1476,7 +1503,34 @@ function DocumentsSection({
               <span className="text-xs text-amber-600">· {unclassifiedCount} need classification</span>
             )}
           </div>
-          <button onClick={load} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">↻ Refresh</button>
+          <div className="flex items-center gap-2">
+            {(() => {
+              const unextractedPdfs = files.filter(f =>
+                !f.ai_extraction &&
+                (f.file_name.toLowerCase().endsWith('.pdf')) &&
+                ['repair_order','purchase_agreement','lease_agreement','lease_order','vehicle_registration'].includes(f.document_type_code ?? '')
+              )
+              if (unextractedPdfs.length === 0) return null
+              return (
+                <button
+                  onClick={() => bulkExtract(null)}
+                  disabled={bulkExtracting !== null}
+                  className="text-xs px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors active:scale-95 flex items-center gap-1.5"
+                  title={`Extract ${unextractedPdfs.length} unextracted document${unextractedPdfs.length !== 1 ? 's' : ''}`}
+                >
+                  {bulkExtracting === 'all' || (bulkExtracting && bulkProgress == null) ? (
+                    <><span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" /> Extracting…</>
+                  ) : (
+                    <>✦ Extract All ({unextractedPdfs.length})</>
+                  )}
+                </button>
+              )
+            })()}
+            {bulkProgress && (
+              <span className="text-xs text-green-600 font-medium">✓ {bulkProgress.done}/{bulkProgress.total} extracted</span>
+            )}
+            <button onClick={load} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">↻</button>
+          </div>
         </div>
 
         {files.length === 0 ? (
@@ -1520,6 +1574,28 @@ function DocumentsSection({
                     {sectionStatus === 'missing' && (
                       <span className="text-xs font-medium text-red-500 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">Missing</span>
                     )}
+                    {/* Per-group extract button */}
+                    {(() => {
+                      const unextracted = groupFiles.filter(f =>
+                        !f.ai_extraction && f.file_name.toLowerCase().endsWith('.pdf')
+                      )
+                      if (unextracted.length === 0 || !group.codes) return null
+                      const typeCodes = [...group.codes] as string[]
+                      const isRunning = bulkExtracting === typeCodes[0]
+                      return (
+                        <button
+                          onClick={() => bulkExtract(typeCodes)}
+                          disabled={bulkExtracting !== null}
+                          className="ml-auto text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors active:scale-95 flex items-center gap-1"
+                        >
+                          {isRunning ? (
+                            <><span className="w-2.5 h-2.5 border border-gray-400/40 border-t-gray-600 rounded-full animate-spin" /> Extracting…</>
+                          ) : (
+                            <>✦ Extract {unextracted.length}</>
+                          )}
+                        </button>
+                      )
+                    })()}
                   </div>
 
                   {/* Documents needed items for this section */}
