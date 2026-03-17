@@ -744,14 +744,25 @@ const STRENGTH_STYLE: Record<string, string> = {
   insufficient_data: 'bg-gray-50 border-gray-200 text-gray-500',
 }
 
-function CaseAnalysisPanel({ caseId }: { caseId: string }) {
+interface RepairStats {
+  visits: number
+  totalDays: number
+  utdCount: number
+  firstDate: string | null
+  lastDate: string | null
+  extractedAll: number
+  totalFiles: number
+}
+
+function CaseAnalysisPanel({ caseId, repairStats }: { caseId: string; repairStats?: RepairStats }) {
   const [analysis,      setAnalysis]      = useState<AnalysisResult | null>(null)
   const [analyzedAt,    setAnalyzedAt]    = useState<string | null>(null)
   const [filesAnalyzed, setFilesAnalyzed] = useState<number>(0)
   const [filesPending,  setFilesPending]  = useState<string[]>([])
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState<string | null>(null)
-  const [collapsed,     setCollapsed]     = useState(false)
+  const [detailsOpen,   setDetailsOpen]   = useState(false)
+  const [signalsOpen,   setSignalsOpen]   = useState(true)
 
   async function runAnalysis(force = false) {
     setLoading(true); setError(null)
@@ -767,7 +778,7 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
     setAnalyzedAt(data.analyzed_at ?? null)
     setFilesAnalyzed(data.files_analyzed ?? 0)
     setFilesPending(data.files_pending ?? [])
-    setCollapsed(false)
+    // reset
   }
 
   // Auto-load cached analysis on mount
@@ -782,239 +793,288 @@ function CaseAnalysisPanel({ caseId }: { caseId: string }) {
       ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
   }
 
+  const DECISION_STYLE: Record<string, { bg: string; border: string; barBg: string; text: string; label: string; icon: string }> = {
+    retain:               { bg: 'bg-green-50',  border: 'border-green-200', barBg: 'bg-green-500', text: 'text-green-700',  label: 'Retain',              icon: '✓' },
+    nurture:              { bg: 'bg-amber-50',  border: 'border-amber-200', barBg: 'bg-amber-500', text: 'text-amber-700',  label: 'Nurture',             icon: '◷' },
+    drop:                 { bg: 'bg-red-50',    border: 'border-red-200',   barBg: 'bg-red-500',   text: 'text-red-700',    label: 'Drop',                icon: '✕' },
+    clarification_needed: { bg: 'bg-blue-50',   border: 'border-blue-200',  barBg: 'bg-blue-500',  text: 'text-blue-700',   label: 'Clarification Needed', icon: '?' },
+  }
+  const COA_LABEL: Record<string, string> = {
+    both:            'State Lemon Law + Magnuson-Moss',
+    state_lemon_law: 'State Lemon Law',
+    magnuson_moss:   'Federal Magnuson-Moss',
+  }
+
+  const dec   = analysis?.decision
+  const style = dec ? (DECISION_STYLE[dec] ?? DECISION_STYLE.clarification_needed) : null
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-base shrink-0">✦</span>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-gray-700">Case AI Analysis</h2>
-            <p className="text-xs text-gray-400 truncate">
-              {analyzedAt
-                ? `Last analyzed ${formatAnalyzedAt(analyzedAt)} · ${filesAnalyzed} doc${filesAnalyzed !== 1 ? 's' : ''}`
-                : 'Claude Sonnet · cross-document lemon law review'}
-            </p>
+    <div className="space-y-4">
+
+      {/* ── DECISION CARD (top, always first) ──────────────────────────── */}
+      <div className={`rounded-xl border-2 overflow-hidden ${style ? `${style.border} ${style.bg}` : 'border-gray-200 bg-white'}`}>
+
+        {/* Header row */}
+        <div className="px-5 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            {style && dec ? (
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${style.barBg}`}>
+                <span className="text-white text-xl font-bold">{style.icon}</span>
+              </div>
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                <span className="text-gray-400 text-lg">✦</span>
+              </div>
+            )}
+            <div className="min-w-0">
+              {style && dec ? (
+                <>
+                  <p className={`text-lg font-bold ${style.text}`}>{style.label}</p>
+                  {analysis?.cause_of_action && (
+                    <p className="text-xs text-gray-500 mt-0.5">{COA_LABEL[analysis.cause_of_action] ?? analysis.cause_of_action}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-gray-700">✦ AI Analysis</p>
+              )}
+            </div>
           </div>
-          {strength && (
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize shrink-0 ${STRENGTH_STYLE[analysis.case_strength ?? "insufficient_data"] ?? STRENGTH_STYLE.insufficient_data}`}>
-              {(analysis.case_strength ?? "").replace('_', ' ')} case
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {analysis && (
-            <button onClick={() => setCollapsed(c => !c)}
-              className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2">
-              {collapsed ? 'Show ▾' : 'Hide ▴'}
-            </button>
-          )}
-          <button
-            onClick={() => runAnalysis(true)}
-            disabled={loading}
-            className="text-xs px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors active:scale-95"
-          >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
-                {analysis ? 'Analyzing…' : 'Loading…'}
+          <div className="flex items-center gap-2 shrink-0">
+            {analysis?.confidence && style && (
+              <span className={`hidden sm:inline text-xs font-medium px-2.5 py-1 rounded-full border ${style.border} ${style.text} bg-white`}>
+                {analysis.confidence} confidence
               </span>
-            ) : analysis ? '↻ Re-analyze' : 'Analyze Case'}
-          </button>
+            )}
+            <button
+              onClick={() => runAnalysis(true)}
+              disabled={loading}
+              className="text-xs px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors active:scale-95"
+            >
+              {loading ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                  {analysis ? 'Analyzing…' : 'Loading…'}
+                </span>
+              ) : analysis ? '↻ Re-analyze' : 'Analyze'}
+            </button>
+          </div>
         </div>
+
+        {/* Stats strip — merged repair summary + threshold (no duplication) */}
+        {(repairStats || analysis) && (
+          <div className="border-t border-black/5 px-5 py-3 flex items-center gap-6 flex-wrap">
+            {(repairStats?.visits ?? analysis?.total_repair_attempts) != null && (
+              <div className="text-center">
+                <p className={`text-xl font-bold ${style?.text ?? 'text-gray-800'}`}>
+                  {repairStats?.visits ?? analysis?.total_repair_attempts}
+                </p>
+                <p className="text-xs text-gray-400">Repair Visits</p>
+              </div>
+            )}
+            {(repairStats?.totalDays ?? analysis?.total_days_out_of_service) != null && (
+              <div className="text-center">
+                <p className={`text-xl font-bold ${style?.text ?? 'text-gray-800'}`}>
+                  {repairStats?.totalDays ?? analysis?.total_days_out_of_service}
+                </p>
+                <p className="text-xs text-gray-400">Days OOS</p>
+              </div>
+            )}
+            {repairStats && repairStats.utdCount > 0 && (
+              <div className="text-center">
+                <p className="text-xl font-bold text-red-600">{repairStats.utdCount}</p>
+                <p className="text-xs text-gray-400">UTD Visits</p>
+              </div>
+            )}
+            {repairStats?.firstDate && repairStats?.lastDate && (
+              <div className="text-center hidden sm:block">
+                <p className="text-xs font-medium text-gray-600">{repairStats.firstDate} – {repairStats.lastDate}</p>
+                <p className="text-xs text-gray-400">Date Range</p>
+              </div>
+            )}
+            {(analysis?.meets_state_threshold != null || analysis?.meets_federal_threshold != null) && (
+              <div className="text-center ml-auto">
+                <p className={`text-xl font-bold ${(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? 'text-green-600' : 'text-gray-400'}`}>
+                  {(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? '✓' : '✗'}
+                </p>
+                <p className="text-xs text-gray-400">Meets Threshold</p>
+              </div>
+            )}
+            {repairStats && (
+              <div className="w-full mt-1">
+                <div className="w-full h-1 bg-black/10 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all duration-500 ${style?.barBg ?? 'bg-gray-400'}`}
+                    style={{ width: repairStats.totalFiles > 0 ? `${(repairStats.extractedAll / repairStats.totalFiles) * 100}%` : '0%' }} />
+                </div>
+                <p className="text-xs mt-1 opacity-60">{repairStats.extractedAll}/{repairStats.totalFiles} docs extracted</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Decision detail — signals / reason inside the decision card */}
+        {analysis && dec && (
+          <div className="border-t border-black/5 px-5 py-3">
+            {dec === 'retain' && (analysis.retain_signals ?? []).length > 0 && (
+              <ul className="space-y-1">
+                {(analysis.retain_signals ?? []).map((s, i) => (
+                  <li key={i} className="text-xs text-green-700 flex gap-2"><span className="shrink-0">✓</span>{s}</li>
+                ))}
+              </ul>
+            )}
+            {dec === 'nurture' && Boolean(analysis.nurture_reason) && (
+              <p className="text-xs text-amber-700">{analysis.nurture_reason}</p>
+            )}
+            {dec === 'drop' && Boolean(analysis.drop_reason) && (
+              <p className="text-xs text-red-700">{analysis.drop_reason}</p>
+            )}
+            {dec === 'clarification_needed' && (analysis.clarification_needed ?? []).length > 0 && (
+              <ul className="space-y-1">
+                {(analysis.clarification_needed ?? []).map((s, i) => (
+                  <li key={i} className="text-xs text-blue-700 flex gap-2"><span className="shrink-0">·</span>{String(s ?? '')}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Pending docs warning */}
+      {/* ── Pending docs warning ────────────────────────────────────────── */}
       {!loading && filesPending.length > 0 && (
-        <div className="mx-6 mb-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-          <p className="text-xs font-semibold text-amber-700 mb-1">
-            {filesPending.length} document{filesPending.length !== 1 ? 's' : ''} not yet included in analysis
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <p className="text-xs font-semibold text-amber-700">
+            {filesPending.length} doc{filesPending.length !== 1 ? 's' : ''} not yet extracted — re-analyze after opening {filesPending.length === 1 ? 'it' : 'them'}
           </p>
-          <p className="text-xs text-amber-600 mb-1">Open {filesPending.length === 1 ? 'this PDF' : 'these PDFs'} to extract, then re-analyze:</p>
-          <ul className="space-y-0.5">
-            {filesPending.map((name, i) => (
-              <li key={i} className="text-xs text-amber-700 flex gap-1.5"><span className="opacity-50">·</span>{name}</li>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+          <p className="text-xs text-red-600">{error}</p>
+        </div>
+      )}
+
+      {/* ── Attorney Notes (most actionable — always shown first) ───────── */}
+      {analysis?.attorney_notes && (
+        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Attorney Notes</p>
+          <ul className="space-y-2">
+            {analysis.attorney_notes.split(/\n+|(?<=[.!?])\s+(?=[A-Z])/).filter((s: string) => s.trim().length > 10).map((line: string, i: number) => (
+              <li key={i} className="flex gap-2.5 text-sm text-gray-700">
+                <span className="shrink-0 text-lemon-500 mt-0.5">→</span>
+                <span>{line.trim()}</span>
+              </li>
             ))}
           </ul>
         </div>
       )}
 
-      {error && (
-        <div className="px-6 pb-4">
-          <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+      {/* ── Signals & Risks (collapsible, open by default) ──────────────── */}
+      {analysis && ((analysis.risk_factors ?? []).length > 0 || (analysis.retain_signals ?? []).length > 0) && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <button
+            className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+            onClick={() => setSignalsOpen(o => !o)}
+          >
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Signals &amp; Risk Factors</p>
+            <span className="text-gray-400 text-xs">{signalsOpen ? '▴' : '▾'}</span>
+          </button>
+          {signalsOpen && (
+            <div className="border-t border-gray-100 px-5 py-4 grid md:grid-cols-2 gap-4">
+              {(analysis.retain_signals ?? []).length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-green-600 mb-2">Retain Signals</p>
+                  <ul className="space-y-1.5">
+                    {(analysis.retain_signals ?? []).map((s, i) => (
+                      <li key={i} className="text-xs text-gray-600 flex gap-1.5"><span className="text-green-500 shrink-0">✓</span>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {(analysis.risk_factors ?? []).length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-amber-600 mb-2">Risk Factors</p>
+                  <ul className="space-y-1.5">
+                    {(analysis.risk_factors ?? []).map((f, i) => (
+                      <li key={i} className="text-xs text-gray-600 flex gap-1.5"><span className="text-amber-400 shrink-0">⚠</span>{f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {analysis && !collapsed && (
-        <div className="border-t border-gray-100 px-6 py-5 space-y-5">
-
-          {/* ── DECISION BANNER (primary output) ── */}
-          {((): React.ReactNode => {
-            const dec = analysis.decision
-            const conf = analysis.confidence
-            const coa = analysis.cause_of_action
-            if (!dec) return null
-            const DECISION_STYLE: Record<string, { bg: string; border: string; text: string; label: string; icon: string }> = {
-              retain:               { bg: 'bg-green-50',  border: 'border-green-200', text: 'text-green-700',  label: 'Retain',               icon: '✓' },
-              nurture:              { bg: 'bg-amber-50',  border: 'border-amber-200', text: 'text-amber-700',  label: 'Nurture',               icon: '◷' },
-              drop:                 { bg: 'bg-red-50',    border: 'border-red-200',   text: 'text-red-700',    label: 'Drop',                  icon: '✕' },
-              clarification_needed: { bg: 'bg-blue-50',  border: 'border-blue-200',  text: 'text-blue-700',  label: 'Clarification Needed',  icon: '?' },
-            }
-            const style = DECISION_STYLE[dec] ?? DECISION_STYLE.clarification_needed
-            const COA_LABEL: Record<string, string> = {
-              both:           'State Lemon Law + Magnuson-Moss',
-              state_lemon_law: 'State Lemon Law',
-              magnuson_moss:  'Federal Magnuson-Moss',
-            }
-            return (
-              <div className={`rounded-xl border-2 ${style.border} ${style.bg} px-5 py-4`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-3">
-                    <span className={`text-2xl font-bold ${style.text}`}>{style.icon}</span>
-                    <div>
-                      <p className={`text-xl font-bold ${style.text}`}>{style.label}</p>
-                      {coa && <p className="text-xs font-medium text-gray-500 mt-0.5">{COA_LABEL[coa] ?? coa}</p>}
-                    </div>
+      {/* ── Details (collapsible, collapsed by default) ──────────────────── */}
+      {analysis && ((analysis.recurring_defects ?? []).length > 0 || (analysis.key_findings ?? []).length > 0 || analysis.summary) && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <button
+            className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+            onClick={() => setDetailsOpen(o => !o)}
+          >
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Case Details</p>
+            <span className="text-gray-400 text-xs">{detailsOpen ? '▴' : '▾'}</span>
+          </button>
+          {detailsOpen && (
+            <div className="border-t border-gray-100 px-5 py-4 space-y-4">
+              {/* Summary */}
+              {analysis.summary && (
+                <p className="text-sm text-gray-700 leading-relaxed bg-lemon-400/10 border border-lemon-400/20 rounded-lg px-4 py-3">{analysis.summary}</p>
+              )}
+              {/* Recurring defects */}
+              {(analysis.recurring_defects ?? []).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recurring Defects</p>
+                  <div className="space-y-2">
+                    {(analysis.recurring_defects ?? []).map((d, i) => (
+                      <div key={i} className="flex items-start gap-3 bg-red-50 border border-red-100 rounded-lg px-3 py-2.5">
+                        <span className="text-red-500 font-bold text-sm shrink-0">{d.attempts}×</span>
+                        <div>
+                          <p className="text-sm text-gray-800 font-medium">{d.complaint}</p>
+                          {d.dates?.length > 0 && <p className="text-xs text-gray-400 mt-0.5">{d.dates.join(' · ')}</p>}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  {conf && (
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full capitalize border ${style.border} ${style.text} bg-white`}>
-                      {conf} confidence
-                    </span>
-                  )}
                 </div>
-                {/* Retain signals */}
-                {dec === 'retain' && Array.isArray(analysis.retain_signals) && (analysis.retain_signals ?? []).length > 0 ? (
-                  <ul className="mt-2 space-y-1">
-                    {(analysis.retain_signals ?? []).map((s, i) => (
-                      <li key={i} className="text-xs text-green-700 flex gap-1.5"><span>·</span>{String(s)}</li>
+              )}
+              {/* Key findings */}
+              {(analysis.key_findings ?? []).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Key Findings</p>
+                  <ul className="space-y-1.5">
+                    {(analysis.key_findings ?? []).map((f, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-gray-700">
+                        <span className="text-lemon-500 shrink-0 mt-0.5">→</span>{f}
+                      </li>
                     ))}
                   </ul>
-                ) : null}
-                {/* Nurture reason */}
-                {dec === 'nurture' && Boolean(analysis.nurture_reason) && (
-                  <p className="text-xs text-amber-700 mt-2">{analysis.nurture_reason ?? ""}</p>
-                )}
-                {/* Drop reason */}
-                {dec === 'drop' && Boolean(analysis.drop_reason) && (
-                  <p className="text-xs text-red-700 mt-2">{analysis.drop_reason ?? ""}</p>
-                )}
-                {/* Clarification needed items */}
-                {dec === 'clarification_needed' && Array.isArray(analysis.clarification_needed) && (
-                  <ul className="mt-2 space-y-1">
-                    {(analysis.clarification_needed ?? []).map((s, i) => (
-                      <li key={i} className="text-xs text-blue-700 flex gap-1.5"><span>·</span>{String(s ?? "")}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )
-          })()}
-
-          {/* ── Risk factors ── */}
-          {(analysis.risk_factors ?? []).length > 0 && (
-            <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Risk Factors</p>
-              <ul className="space-y-1">
-                {(analysis.risk_factors ?? []).map((f, i) => (
-                  <li key={i} className="text-xs text-gray-600 flex gap-1.5"><span className="text-amber-400">⚠</span>{f}</li>
-                ))}
-              </ul>
+                </div>
+              )}
             </div>
           )}
+        </div>
+      )}
 
-          {/* ── Summary ── */}
-          {!!analysis.summary && (
-            <div className="bg-lemon-400/10 border border-lemon-400/30 rounded-xl p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Case Summary</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{analysis.summary ?? ""}</p>
-            </div>
-          )}
-
-          {/* ── Stats row ── */}
-          <div className="grid grid-cols-3 gap-4">
-            {analysis.total_repair_attempts != null ? (
-              <div className="bg-gray-50 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-gray-800">{analysis.total_repair_attempts}</p>
-                <p className="text-xs text-gray-400 mt-1">Repair Visits</p>
-              </div>
-            ) : null}
-            {analysis.total_days_out_of_service != null ? (
-              <div className="bg-gray-50 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-gray-800">{analysis.total_days_out_of_service}</p>
-                <p className="text-xs text-gray-400 mt-1">Days Out of Service</p>
-              </div>
-            ) : null}
-            {(analysis.meets_state_threshold != null || analysis.meets_federal_threshold != null) ? (
-              <div className={`rounded-xl p-4 text-center ${(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? 'bg-green-50' : 'bg-gray-50'}`}>
-                <p className={`text-2xl font-bold ${(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? 'text-green-600' : 'text-gray-400'}`}>
-                  {(analysis.meets_state_threshold ?? false) || (analysis.meets_federal_threshold ?? false) ? '✓' : '✗'}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Meets Threshold</p>
-              </div>
-            ) : null}
-          </div>
-
-          {/* ── Recurring defects ── */}
-          {(analysis.recurring_defects ?? []).length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recurring Defects</p>
-              <div className="space-y-2">
-                {(analysis.recurring_defects ?? []).map((d, i) => (
-                  <div key={i} className="flex items-start gap-3 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
-                    <span className="text-red-500 font-bold text-sm shrink-0">{d.attempts}×</span>
-                    <div>
-                      <p className="text-sm text-gray-800 font-medium">{d.complaint}</p>
-                      {d.dates?.length > 0 && <p className="text-xs text-gray-400 mt-0.5">{d.dates.join(' · ')}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Key findings ── */}
-          {(analysis.key_findings ?? []).length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Key Findings</p>
-              <ul className="space-y-1.5">
-                {(analysis.key_findings ?? []).map((f, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <span className="text-lemon-500 shrink-0 mt-0.5">→</span>{f}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* ── Attorney notes ── */}
-          {!!analysis.attorney_notes && (
-            <div className="border border-gray-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attorney Notes</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{analysis.attorney_notes ?? ""}</p>
-            </div>
-          )}
-
-          {/* ── State law context ── */}
+      {/* ── Footer: state law + missing data ─────────────────────────────── */}
+      {analysis && (analysis.state_law || (analysis.engine_missing_data ?? []).length > 0) && (
+        <div className="space-y-2">
           {analysis.state_law && (
-            <p className="text-xs text-gray-400">
-              Applied law: <span className="font-medium">{analysis.state_law}</span>
-              {Boolean(analysis.state_statute) && <> · {analysis.state_statute}</>}
+            <p className="text-xs text-gray-400 px-1">
+              Applied: <span className="font-medium">{analysis.state_law}</span>
+              {analysis.state_statute && <> · {analysis.state_statute}</>}
+              {analyzedAt && <> · Last analyzed {formatAnalyzedAt(analyzedAt)}</>}
             </p>
           )}
-
-          {/* ── Missing data warnings ── */}
           {(analysis.engine_missing_data ?? []).length > 0 && (
             <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
               <p className="text-xs font-semibold text-amber-700 mb-1">Missing data — confidence may be affected</p>
-              <ul className="space-y-0.5">
-                {(analysis.engine_missing_data ?? []).map((m, i) => (
-                  <li key={i} className="text-xs text-amber-600 flex gap-1.5"><span>·</span>{m}</li>
-                ))}
-              </ul>
+              <p className="text-xs text-amber-600">{(analysis.engine_missing_data ?? []).join(' · ')}</p>
             </div>
           )}
-
         </div>
       )}
+
     </div>
   )
 }
@@ -1156,70 +1216,18 @@ function AIAnalysisTab({ caseId, caseUUID }: { caseId: string; caseUUID: string 
     })
   const unextracted = pdfFiles.filter(f => !f.ai_extraction)
 
+  const repairStats: RepairStats = {
+    visits:       ros.length,
+    totalDays,
+    utdCount,
+    firstDate,
+    lastDate,
+    extractedAll,
+    totalFiles:   files.length,
+  }
+
   return (
-    <div className="space-y-5">
-      {/* Repair Summary */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Repair Summary</h2>
-          <span className="text-xs text-gray-400">{extractedAll}/{files.length} documents extracted</span>
-        </div>
-        <div className="px-6 pt-4 pb-2">
-          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-green-400 rounded-full transition-all duration-500"
-              style={{ width: files.length > 0 ? `${(extractedAll / files.length) * 100}%` : '0%' }} />
-          </div>
-        </div>
-        {loading ? (
-          <div className="px-6 pb-6 pt-2 text-xs text-gray-400">Loading…</div>
-        ) : ros.length === 0 ? (
-          <div className="px-6 py-6 text-sm text-gray-400">
-            No extracted repair orders yet. Open a repair order PDF and click &quot;Extract with Haiku&quot; to get started.
-          </div>
-        ) : (
-          <div className="px-6 py-5 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3.5 text-center">
-              <p className="text-3xl font-bold text-gray-900">{ros.length}</p>
-              <p className="text-xs text-gray-400 mt-1">Repair Visits</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3.5 text-center">
-              <p className="text-3xl font-bold text-gray-900">{totalDays}</p>
-              <p className="text-xs text-gray-400 mt-1">Days in Shop</p>
-            </div>
-            <div className={`rounded-xl border px-4 py-3.5 text-center ${utdCount > 0 ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
-              <p className={`text-3xl font-bold ${utdCount > 0 ? 'text-red-600' : 'text-gray-900'}`}>{utdCount}</p>
-              <p className="text-xs text-gray-400 mt-1">UTD Visits</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3.5 text-center">
-              {firstDate && lastDate ? (<>
-                <p className="text-sm font-semibold text-gray-700">{firstDate}</p>
-                <p className="text-xs text-gray-300 my-0.5">to</p>
-                <p className="text-sm font-semibold text-gray-700">{lastDate}</p>
-              </>) : <p className="text-sm text-gray-300">No dates</p>}
-              <p className="text-xs text-gray-400 mt-1">Date Range</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Case AI Analysis — Sonnet (above doc list) */}
-      <CaseAnalysisPanel caseId={caseId} />
-
-      {/* Document Extractions */}
-      {pdfFiles.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Document Extractions</h2>
-            {unextracted.length > 0 && (
-              <span className="text-xs text-amber-500">{unextracted.length} not yet extracted</span>
-            )}
-          </div>
-          <div className="px-4 py-3 space-y-2">
-            {pdfFiles.map(f => <AIDocRow key={f.id} f={f} caseId={caseId} />)}
-          </div>
-        </div>
-      )}
-    </div>
+    <CaseAnalysisPanel caseId={caseId} repairStats={files.length > 0 ? repairStats : undefined} />
   )
 }
 
