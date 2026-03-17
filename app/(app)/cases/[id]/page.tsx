@@ -935,6 +935,93 @@ const DOCS_NEEDED_GROUP: Record<string, string> = {
 }
 
 // ── AI Analysis Tab ───────────────────────────────────────────────────────
+// Sort order matching Documents tab
+const AI_GROUP_ORDER: Record<string, number> = {
+  repair_order: 0,
+  purchase_agreement: 1, lease_agreement: 1, lease_order: 1,
+  vehicle_registration: 2,
+}
+const STATUS_STYLE: Record<string, string> = {
+  completed:           'bg-green-50 text-green-700 border-green-100',
+  unable_to_duplicate: 'bg-red-50 text-red-700 border-red-100',
+  parts_on_order:      'bg-amber-50 text-amber-700 border-amber-100',
+  other:               'bg-gray-50 text-gray-500 border-gray-100',
+}
+
+function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
+  const [hovered, setHovered] = useState(false)
+  const ex      = f.ai_extraction as Record<string, unknown> | null
+  const dateIn  = ex?.repair_date_in  as string | null
+  const dateOut = ex?.repair_date_out as string | null
+  const days    = ex?.days_in_shop    as number | null
+  const status  = ex?.repair_status   as string | null
+  const isUnclassified = !f.is_classified
+  const fmtDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const cardBase = isUnclassified ? 'border-amber-100 bg-amber-50/30' : 'border-gray-100 bg-white'
+
+  return (
+    <div
+      className={`relative rounded-lg border px-4 py-3 transition-all duration-150 cursor-pointer
+        ${cardBase}
+        hover:-translate-y-0.5 hover:shadow-md hover:border-gray-300 hover:bg-gray-50
+        active:translate-y-0 active:shadow-sm`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={() => { window.location.href = `/cases/${caseId}/documents/${f.id}` }}
+    >
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <span className="text-sm text-gray-800 font-medium truncate max-w-xs">{f.file_name}</span>
+          {f.type_label && !isUnclassified && (
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">{f.type_label}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {status && (
+            <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${STATUS_STYLE[status] ?? STATUS_STYLE.other}`}>
+              {status.replace(/_/g, ' ')}
+            </span>
+          )}
+          {ex ? (
+            <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400" />Extracted
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />Not extracted
+            </span>
+          )}
+        </div>
+      </div>
+      {ex && dateIn && (
+        <div className="flex items-center gap-2 flex-wrap mt-1.5">
+          <span className="text-xs text-gray-500 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">
+            {fmtDate(dateIn)}{dateOut ? ` – ${fmtDate(dateOut)}` : ''}
+          </span>
+          {days != null && (
+            <span className="text-xs text-gray-500 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">
+              {days} day{days !== 1 ? 's' : ''} in shop
+            </span>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap mt-1.5">
+        {f.created_at_source && (
+          <span>Uploaded {new Date(f.created_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        )}
+        {f.created_by_name && <span>by {f.created_by_name}</span>}
+      </div>
+      {hovered && (
+        <div className="absolute inset-0 rounded-lg flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
+          <span className="text-sm font-semibold text-gray-900 bg-white border border-gray-200 shadow-sm px-5 py-2 rounded-xl">
+            {ex ? '📄 View & Edit Extraction' : '✦ Open & Extract'}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AIAnalysisTab({ caseId, caseUUID }: { caseId: string; caseUUID: string | null }) {
   const [files,   setFiles]   = useState<CaseFile[]>([])
   const [loading, setLoading] = useState(true)
@@ -945,45 +1032,45 @@ function AIAnalysisTab({ caseId, caseUUID }: { caseId: string; caseUUID: string 
       .then(d => { setFiles(d.files ?? []); setLoading(false) })
   }, [caseId])
 
-  const ros          = files.filter(f => f.document_type_code === 'repair_order' && f.ai_extraction)
-  const extracted    = ros.map(f => f.ai_extraction as Record<string, unknown>)
-  const totalDays    = extracted.reduce((s, e) => s + ((e.days_in_shop as number) ?? 0), 0)
-  const utdCount     = extracted.filter(e => e.repair_status === 'unable_to_duplicate').length
-  const dates        = extracted.flatMap(e => [e.repair_date_in as string, e.repair_date_out as string]).filter(Boolean).sort()
-  const firstDate    = dates[0]              ? new Date(dates[0]              + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
-  const lastDate     = dates[dates.length-1] ? new Date(dates[dates.length-1] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
+  const ros       = files.filter(f => f.document_type_code === 'repair_order' && f.ai_extraction)
+  const extracted = ros.map(f => f.ai_extraction as Record<string, unknown>)
+  const totalDays = extracted.reduce((s, e) => s + ((e.days_in_shop as number) ?? 0), 0)
+  const utdCount  = extracted.filter(e => e.repair_status === 'unable_to_duplicate').length
+  const dates     = extracted.flatMap(e => [e.repair_date_in as string, e.repair_date_out as string]).filter(Boolean).sort()
+  const firstDate = dates[0]              ? new Date(dates[0]              + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
+  const lastDate  = dates[dates.length-1] ? new Date(dates[dates.length-1] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
   const extractedAll = files.filter(f => f.ai_extraction).length
-  const pdfFiles     = files.filter(f => f.file_extension?.toLowerCase() === 'pdf' || f.file_name.toLowerCase().endsWith('.pdf'))
-  const unextracted  = pdfFiles.filter(f => !f.ai_extraction)
-
-  const fmtDate = (d: string | null) => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null
+  const pdfFiles  = files
+    .filter(f => f.file_extension?.toLowerCase() === 'pdf' || f.file_name.toLowerCase().endsWith('.pdf'))
+    .sort((a, b) => {
+      const ao = AI_GROUP_ORDER[a.document_type_code ?? ''] ?? 3
+      const bo = AI_GROUP_ORDER[b.document_type_code ?? ''] ?? 3
+      if (ao !== bo) return ao - bo
+      const ad = (a.ai_extraction?.repair_date_in as string) ?? a.created_at_source ?? ''
+      const bd = (b.ai_extraction?.repair_date_in as string) ?? b.created_at_source ?? ''
+      return ad.localeCompare(bd)
+    })
+  const unextracted = pdfFiles.filter(f => !f.ai_extraction)
 
   return (
     <div className="space-y-5">
-
-      {/* ── Repair Summary stats ─────────────────────────────────────── */}
+      {/* Repair Summary */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Repair Summary</h2>
           <span className="text-xs text-gray-400">{extractedAll}/{files.length} documents extracted</span>
         </div>
-
-        {/* Extraction progress bar */}
         <div className="px-6 pt-4 pb-2">
           <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-green-400 rounded-full transition-all duration-500"
-              style={{ width: files.length > 0 ? `${(extractedAll / files.length) * 100}%` : '0%' }}
-            />
+            <div className="h-full bg-green-400 rounded-full transition-all duration-500"
+              style={{ width: files.length > 0 ? `${(extractedAll / files.length) * 100}%` : '0%' }} />
           </div>
         </div>
-
         {loading ? (
           <div className="px-6 pb-6 pt-2 text-xs text-gray-400">Loading…</div>
         ) : ros.length === 0 ? (
           <div className="px-6 py-6 text-sm text-gray-400">
-            No extracted repair orders yet.{' '}
-            <span className="text-gray-300">Open a repair order PDF and click "Extract with Haiku" to get started.</span>
+            No extracted repair orders yet. Open a repair order PDF and click &quot;Extract with Haiku&quot; to get started.
           </div>
         ) : (
           <div className="px-6 py-5 grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1000,83 +1087,34 @@ function AIAnalysisTab({ caseId, caseUUID }: { caseId: string; caseUUID: string 
               <p className="text-xs text-gray-400 mt-1">UTD Visits</p>
             </div>
             <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3.5 text-center">
-              {firstDate && lastDate ? (
-                <>
-                  <p className="text-sm font-semibold text-gray-700">{firstDate}</p>
-                  <p className="text-xs text-gray-300 my-0.5">to</p>
-                  <p className="text-sm font-semibold text-gray-700">{lastDate}</p>
-                </>
-              ) : <p className="text-sm text-gray-300">No dates</p>}
+              {firstDate && lastDate ? (<>
+                <p className="text-sm font-semibold text-gray-700">{firstDate}</p>
+                <p className="text-xs text-gray-300 my-0.5">to</p>
+                <p className="text-sm font-semibold text-gray-700">{lastDate}</p>
+              </>) : <p className="text-sm text-gray-300">No dates</p>}
               <p className="text-xs text-gray-400 mt-1">Date Range</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* ── Per-document extraction status ───────────────────────────── */}
+      {/* Case AI Analysis — Sonnet (above doc list) */}
+      <CaseAnalysisPanel caseId={caseId} />
+
+      {/* Document Extractions */}
       {pdfFiles.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Document Extractions</h2>
             {unextracted.length > 0 && (
-              <p className="text-xs text-amber-500 mt-1">{unextracted.length} PDF{unextracted.length > 1 ? 's' : ''} not yet extracted — open them in the document viewer to extract</p>
+              <span className="text-xs text-amber-500">{unextracted.length} not yet extracted</span>
             )}
           </div>
-          <div className="divide-y divide-gray-50">
-            {pdfFiles.map(f => {
-              const ex      = f.ai_extraction as Record<string, unknown> | null
-              const dateIn  = ex?.repair_date_in  as string | null
-              const dateOut = ex?.repair_date_out as string | null
-              const days    = ex?.days_in_shop    as number | null
-              const status  = ex?.repair_status   as string | null
-              const STATUS_STYLE: Record<string, string> = {
-                completed:           'bg-green-50 text-green-700 border-green-100',
-                unable_to_duplicate: 'bg-red-50 text-red-700 border-red-100',
-                parts_on_order:      'bg-amber-50 text-amber-700 border-amber-100',
-                other:               'bg-gray-50 text-gray-500 border-gray-100',
-              }
-              return (
-                <div key={f.id} className="px-6 py-3 flex items-center gap-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-gray-700 font-medium truncate">{f.file_name}</p>
-                    {ex && dateIn && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {fmtDate(dateIn)}{dateOut ? ` – ${fmtDate(dateOut)}` : ''}{days != null ? ` · ${days}d` : ''}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {status && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${STATUS_STYLE[status] ?? STATUS_STYLE.other}`}>
-                        {status.replace(/_/g, ' ')}
-                      </span>
-                    )}
-                    {ex ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-400" />Extracted
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                        <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />Not extracted
-                      </span>
-                    )}
-                    <a
-                      href={`/cases/${caseId}/documents/${f.id}` as string}
-                      className="text-xs text-blue-500 hover:underline"
-                    >
-                      {ex ? 'View →' : 'Extract →'}
-                    </a>
-                  </div>
-                </div>
-              )
-            })}
+          <div className="px-4 py-3 space-y-2">
+            {pdfFiles.map(f => <AIDocRow key={f.id} f={f} caseId={caseId} />)}
           </div>
         </div>
       )}
-
-      {/* ── Sonnet Case Analysis ─────────────────────────────────────── */}
-      <CaseAnalysisPanel caseId={caseId} />
-
     </div>
   )
 }
