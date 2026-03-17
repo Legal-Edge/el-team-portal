@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useRouter, useSearchParams }    from 'next/navigation'
 import { createClient as sbCreate }                  from '@supabase/supabase-js'
 import TasksSection                                  from '@/components/case/TasksSection'
@@ -1730,8 +1731,6 @@ function ClassifyDropdown({
       document.removeEventListener('scroll', onCancel, true)
     }
   }, [onCancel])
-
-  const { createPortal } = require('react-dom')
 
   return (
     <div ref={anchorRef} className="inline-block w-full">
