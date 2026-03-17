@@ -33,7 +33,8 @@ export async function GET(
         id, file_name, file_extension, size_bytes, mime_type,
         web_url, document_type_code, is_classified, classification_source,
         classified_at, created_at_source, modified_at_source, synced_at,
-        created_by_name, modified_by_name
+        created_by_name, modified_by_name,
+        ai_extraction, ai_extracted_at
       `)
       .eq('case_id', caseId)
       .eq('is_deleted', false)

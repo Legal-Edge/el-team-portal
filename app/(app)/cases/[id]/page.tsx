@@ -481,7 +481,7 @@ interface CaseFile {
   size_bytes: number | null
   web_url: string | null
   document_type_code: string | null
-  type_label: string | null          // enriched by API
+  type_label: string | null
   is_classified: boolean
   classified_at: string | null
   classification_source: string | null
@@ -489,6 +489,8 @@ interface CaseFile {
   modified_at_source: string | null
   created_by_name: string | null
   modified_by_name: string | null
+  ai_extraction:      Record<string, unknown> | null
+  ai_extracted_at:    string | null
 }
 
 interface DocumentStats {
@@ -937,6 +939,7 @@ function DocumentsSection({
 }: {
   caseId: string
 }) {
+  const router = useRouter()
   const [files,       setFiles]       = useState<CaseFile[]>([])
   const [docTypes,    setDocTypes]    = useState<DocType[]>([])
   const [collection,  setCollection]  = useState<DocumentCollection | null>(null)
@@ -945,7 +948,8 @@ function DocumentsSection({
   const [syncing,     setSyncing]     = useState(false)
   const [classifying, setClassifying] = useState<string | null>(null)
   const [saving,      setSaving]      = useState(false)
-  const [viewing,     setViewing]     = useState<CaseFile | null>(null)
+  const [uploading,   setUploading]   = useState(false)
+  const uploadRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1021,15 +1025,17 @@ function DocumentsSection({
     <div className="space-y-4">
 
       {/* ── PDF Viewer Modal ──────────────────────────────────────────── */}
-      {viewing && (
-        <DocViewerModal
-          fileId={viewing.id}
-          fileName={viewing.file_name}
-          webUrl={viewing.web_url}
-          docType={viewing.document_type_code}
-          onClose={() => setViewing(null)}
-        />
-      )}
+      {/* Hidden upload input */}
+      <input ref={uploadRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="hidden"
+        onChange={async e => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          setUploading(true)
+          const fd = new FormData(); fd.append('file', file); fd.append('case_id', caseId)
+          await fetch(`/api/cases/${caseId}/documents/upload`, { method: 'POST', body: fd, credentials: 'include' })
+          await load(); setUploading(false)
+          if (uploadRef.current) uploadRef.current.value = ''
+        }} />
 
       {/* ── Case AI Analysis (Sonnet) ───────────────────────────────────── */}
       <CaseAnalysisPanel caseId={caseId} />
@@ -1045,6 +1051,13 @@ function DocumentsSection({
                 Open SharePoint folder ↗
               </a>
             )}
+            <button
+              onClick={() => uploadRef.current?.click()}
+              disabled={uploading}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors active:scale-95"
+            >
+              {uploading ? '↑ Uploading…' : '↑ Upload'}
+            </button>
             <button
               onClick={triggerSync}
               disabled={syncing || !sharepoint?.has_url}
@@ -1134,7 +1147,59 @@ function DocumentsSection({
               {sharepoint?.has_url ? 'Click "Sync files" above to pull from SharePoint' : 'No SharePoint folder linked on this case'}
             </p>
           </div>
-        ) : (
+        ) : (<>
+          {/* ── Extraction summary ──────────────────────────────────── */}
+          {(() => {
+            const ros = files.filter(f => f.document_type_code === 'repair_order' && f.ai_extraction)
+            if (ros.length === 0) return null
+            const extracted = ros.map(f => f.ai_extraction as Record<string,unknown>)
+            const totalDays = extracted.reduce((s, e) => s + ((e.days_in_shop as number) ?? 0), 0)
+            const attempts  = ros.length
+            const dates     = extracted.flatMap(e => [e.repair_date_in as string, e.repair_date_out as string]).filter(Boolean).sort()
+            const firstDate = dates[0] ? new Date(dates[0] + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null
+            const lastDate  = dates[dates.length-1] ? new Date(dates[dates.length-1] + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null
+            const utdCount  = extracted.filter(e => e.repair_status === 'unable_to_duplicate').length
+            const extractedCount = files.filter(f => f.ai_extraction).length
+            const totalFiles     = files.length
+
+            return (
+              <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Extraction Summary</p>
+                  <span className="text-xs text-gray-400">{extractedCount}/{totalFiles} docs extracted</span>
+                </div>
+                {/* Progress bar */}
+                <div className="w-full h-1.5 bg-gray-100 rounded-full mb-4 overflow-hidden">
+                  <div
+                    className="h-full bg-green-400 rounded-full transition-all duration-500"
+                    style={{ width: totalFiles > 0 ? `${(extractedCount/totalFiles)*100}%` : '0%' }}
+                  />
+                </div>
+                {/* Stats */}
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="bg-white rounded-xl border border-gray-100 px-3 py-2.5 text-center">
+                    <p className="text-xl font-bold text-gray-800">{attempts}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Repair Visits</p>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-100 px-3 py-2.5 text-center">
+                    <p className="text-xl font-bold text-gray-800">{totalDays}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Days in Shop</p>
+                  </div>
+                  <div className={`rounded-xl border px-3 py-2.5 text-center ${utdCount > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-gray-100'}`}>
+                    <p className={`text-xl font-bold ${utdCount > 0 ? 'text-red-600' : 'text-gray-800'}`}>{utdCount}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">UTD Visits</p>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-100 px-3 py-2.5 text-center">
+                    <p className="text-xs font-semibold text-gray-700 leading-tight">{firstDate ?? '—'}</p>
+                    <p className="text-xs text-gray-300">–</p>
+                    <p className="text-xs font-semibold text-gray-700 leading-tight">{lastDate ?? '—'}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Date Range</p>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           <div className="divide-y divide-gray-100">
             {DOC_GROUPS.map(group => {
               const groupFiles  = groupedFiles[group.key] ?? []
@@ -1189,7 +1254,8 @@ function DocumentsSection({
                           docTypes={docTypes}
                           classifying={classifying}
                           saving={saving}
-                          onView={() => setViewing(f)}
+                          caseId={caseId}
+                          onView={() => router.push(`/cases/${caseId}/documents/${f.id}` as never)}
                           onStartClassify={() => setClassifying(f.id)}
                           onCancelClassify={() => setClassifying(null)}
                           onSave={async (code: string) => {
@@ -1212,7 +1278,7 @@ function DocumentsSection({
               )
             })}
           </div>
-        )}
+        </>)}
       </div>
     </div>
   )
@@ -1550,14 +1616,76 @@ function ClassifyDropdown({
 }
 
 // ── Shared file row used inside each group ──────────────────────────────────
+// ── Extraction status badge ────────────────────────────────────────────────
+function ExtractionBadge({ file }: { file: CaseFile }) {
+  if (!file.ai_extraction) return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 border border-gray-100">
+      <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />Not extracted
+    </span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-100">
+      <span className="w-1.5 h-1.5 rounded-full bg-green-400" />Extracted
+    </span>
+  )
+}
+
+// ── Key facts inline from extraction ─────────────────────────────────────
+function ExtractionFacts({ file }: { file: CaseFile }) {
+  const ex = file.ai_extraction
+  if (!ex || file.document_type_code !== 'repair_order') return null
+
+  const dateIn   = ex.repair_date_in  as string | null
+  const dateOut  = ex.repair_date_out as string | null
+  const days     = ex.days_in_shop    as number | null
+  const status   = ex.repair_status   as string | null
+  const warranty = ex.warranty_repair as boolean | null
+
+  const fmtDate  = (d: string) => {
+    const dt = new Date(d + 'T12:00:00')
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  const statusColors: Record<string, string> = {
+    completed:          'bg-green-50 text-green-700 border-green-100',
+    unable_to_duplicate:'bg-red-50 text-red-700 border-red-100',
+    parts_on_order:     'bg-amber-50 text-amber-700 border-amber-100',
+    other:              'bg-gray-50 text-gray-600 border-gray-100',
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap mt-1.5">
+      {dateIn && dateOut && (
+        <span className="text-xs text-gray-500 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">
+          {fmtDate(dateIn)} – {fmtDate(dateOut)}
+        </span>
+      )}
+      {days != null && (
+        <span className="text-xs text-gray-500 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">
+          {days} day{days !== 1 ? 's' : ''} in shop
+        </span>
+      )}
+      {status && (
+        <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColors[status] ?? statusColors.other}`}>
+          {status.replace(/_/g, ' ')}
+        </span>
+      )}
+      {warranty === true && (
+        <span className="text-xs text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">warranty</span>
+      )}
+    </div>
+  )
+}
+
 function FileRow({
-  f, docTypes, classifying, saving,
+  f, docTypes, classifying, saving, caseId,
   onView, onStartClassify, onCancelClassify, onSave,
 }: {
   f: CaseFile
   docTypes: DocType[]
   classifying: string | null
   saving: boolean
+  caseId: string
   onView: () => void
   onStartClassify: () => void
   onCancelClassify: () => void
@@ -1577,21 +1705,30 @@ function FileRow({
       onClick={isPdf ? onView : undefined}
       role={isPdf ? 'button' : undefined}
     >
-      {/* Name + size */}
-      <div className="flex items-center gap-2 flex-wrap mb-1">
-        <span className="text-sm text-gray-800 font-medium truncate max-w-sm">{f.file_name}</span>
-        {f.type_label && !isUnclassified && (
-          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">{f.type_label}</span>
-        )}
-        {f.size_bytes && <span className="text-xs text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
-        {!isPdf && f.web_url && (
-          <a href={f.web_url} target="_blank" rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
-        )}
+      {/* Name + badges */}
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <span className="text-sm text-gray-800 font-medium truncate max-w-xs">{f.file_name}</span>
+          {f.type_label && !isUnclassified && (
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">{f.type_label}</span>
+          )}
+          {f.size_bytes && <span className="text-xs text-gray-300 shrink-0">{formatBytes(f.size_bytes)}</span>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <ExtractionBadge file={f} />
+          {!isPdf && f.web_url && (
+            <a href={f.web_url} target="_blank" rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="text-xs text-blue-500 hover:underline shrink-0">Open ↗</a>
+          )}
+        </div>
       </div>
+
+      {/* Extracted key facts */}
+      <ExtractionFacts file={f} />
+
       {/* Metadata */}
-      <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap mb-2">
+      <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap mt-1.5">
         {f.created_at_source && (
           <span>Uploaded {new Date(f.created_at_source).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
         )}
