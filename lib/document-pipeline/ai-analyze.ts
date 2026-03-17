@@ -160,7 +160,53 @@ export async function extractDocument(
   })
 
   const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
-  return { extraction: parseJson(text), model: EXTRACTION_MODEL }
+  const extraction = parseJson(text)
+
+  // ── VIN validation + targeted re-prompt ─────────────────────────────────
+  // VIN must be exactly 17 chars, no I/O/Q. If Haiku returns an invalid VIN,
+  // do a targeted second call asking only for the VIN to avoid character misreads.
+  const vinRaw = extraction.vin
+  if (vinRaw && typeof vinRaw === 'string') {
+    const vinClean = vinRaw.replace(/\s/g, '').toUpperCase()
+    const VIN_RE   = /^[A-HJ-NPR-Z0-9]{17}$/
+    if (!VIN_RE.test(vinClean)) {
+      // Invalid VIN — re-prompt specifically for VIN only
+      console.warn(`[AI] VIN validation failed: "${vinRaw}" — re-prompting`)
+      try {
+        const vinRetry = await client.beta.messages.create({
+          model:      EXTRACTION_MODEL,
+          max_tokens: 100,
+          system:     'You are a VIN extraction assistant. Return ONLY the raw 17-character VIN number, nothing else. No JSON, no labels, just the 17 characters.',
+          messages: [{
+            role:    'user',
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf } } as BetaContentBlockParam,
+              { type: 'text', text: 'What is the Vehicle Identification Number (VIN) on this document? Return ONLY the 17-character VIN, nothing else.' } as BetaContentBlockParam,
+            ],
+          }],
+          betas: ['pdfs-2024-09-25'],
+        })
+        const vinResult = vinRetry.content.find(b => b.type === 'text')?.text?.trim().replace(/\s/g, '').toUpperCase() ?? ''
+        if (VIN_RE.test(vinResult)) {
+          extraction.vin = vinResult
+          console.log(`[AI] VIN re-prompt succeeded: "${vinResult}"`)
+        } else {
+          // Still invalid — null it out and flag for manual review
+          console.warn(`[AI] VIN re-prompt also invalid: "${vinResult}" — setting null`)
+          extraction.vin = null
+          extraction.vin_needs_review = true
+        }
+      } catch (e) {
+        console.error('[AI] VIN re-prompt failed:', e)
+        extraction.vin = null
+        extraction.vin_needs_review = true
+      }
+    } else {
+      extraction.vin = vinClean  // normalize to uppercase
+    }
+  }
+
+  return { extraction, model: EXTRACTION_MODEL }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -44,7 +44,7 @@ function sortedFiles(files: FileItem[]): FileItem[] {
 }
 
 // ── Extraction field config ───────────────────────────────────────────────
-const SKIP_FIELDS    = new Set(['doc_type', 'raw'])
+const SKIP_FIELDS    = new Set(['doc_type', 'raw', 'vin_needs_review'])
 const TEXTAREA_FIELDS= new Set(['complaint','diagnosis','work_performed','document_description'])
 const ARRAY_FIELDS   = new Set(['key_facts','key_dates','vehicle_info'])
 const SELECT_FIELDS: Record<string, string[]> = {
@@ -208,6 +208,16 @@ function ExtractionPanel({ file, onUpdated }: { file: FileItem; onUpdated: (u: F
             className="text-xs px-4 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-400 active:scale-95 transition-all">
             ↻ Re-run Extraction
           </button>
+        </div>
+      )}
+
+      {/* VIN needs review warning */}
+      {!isRaw && Boolean(merged?.vin_needs_review) && (
+        <div className="mx-4 mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+          <p className="text-xs font-semibold text-red-700 mb-1">⚠ VIN could not be read reliably</p>
+          <p className="text-xs text-red-600 leading-relaxed">
+            The extracted VIN failed validation. Please correct it manually below, or use the VIN from the vehicle registration.
+          </p>
         </div>
       )}
 
