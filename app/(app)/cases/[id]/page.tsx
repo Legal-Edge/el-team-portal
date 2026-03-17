@@ -1354,9 +1354,13 @@ function DocExtractionPanel({ fileId }: { fileId: string }) {
               ) : isTA ? (
                 <textarea
                   value={fieldVal}
-                  onChange={e => setEdits(prev => ({ ...prev, [key]: e.target.value }))}
-                  rows={3}
-                  className="text-sm text-gray-800 font-medium bg-transparent w-full focus:outline-none resize-none leading-relaxed" />
+                  onChange={e => {
+                    setEdits(prev => ({ ...prev, [key]: e.target.value }))
+                    e.target.style.height = 'auto'
+                    e.target.style.height = e.target.scrollHeight + 'px'
+                  }}
+                  ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }}
+                  className="text-sm text-gray-800 font-medium bg-transparent w-full focus:outline-none resize-none leading-relaxed overflow-hidden" />
               ) : (
                 <input
                   type="text"
