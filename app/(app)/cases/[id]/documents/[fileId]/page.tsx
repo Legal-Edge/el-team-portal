@@ -15,10 +15,14 @@ interface FileItem {
 }
 
 interface CaseInfo {
-  client_first_name: string | null
-  client_last_name:  string | null
-  case_number:       string | null
-  hubspot_deal_id:   string | null
+  client_first_name:  string | null
+  client_last_name:   string | null
+  case_number:        string | null
+  hubspot_deal_id:    string | null
+  vehicle_year:       number | null
+  vehicle_make:       string | null
+  vehicle_model:      string | null
+  state_jurisdiction: string | null
 }
 
 // ── Doc group sort order ──────────────────────────────────────────────────
@@ -329,10 +333,14 @@ export default function DocumentViewerPage({
     ]).then(([docsData, caseData]) => {
       setFiles(docsData.files ?? [])
       setCaseInfo({
-        client_first_name: caseData.client_first_name ?? null,
-        client_last_name:  caseData.client_last_name  ?? null,
-        case_number:       caseData.case_number        ?? null,
-        hubspot_deal_id:   caseData.hubspot_deal_id    ?? null,
+        client_first_name:  caseData.client_first_name  ?? null,
+        client_last_name:   caseData.client_last_name   ?? null,
+        case_number:        caseData.case_number         ?? null,
+        hubspot_deal_id:    caseData.hubspot_deal_id     ?? null,
+        vehicle_year:       caseData.vehicle_year        ?? null,
+        vehicle_make:       caseData.vehicle_make        ?? null,
+        vehicle_model:      caseData.vehicle_model       ?? null,
+        state_jurisdiction: caseData.state_jurisdiction  ?? null,
       })
       setLoading(false)
     })
@@ -369,6 +377,9 @@ export default function DocumentViewerPage({
   const clientName = caseInfo
     ? `${caseInfo.client_first_name ?? ''} ${caseInfo.client_last_name ?? ''}`.trim()
     : null
+  const vehicleStr = caseInfo
+    ? [caseInfo.vehicle_year, caseInfo.vehicle_make, caseInfo.vehicle_model].filter(Boolean).join(' ')
+    : null
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-gray-400">
@@ -384,20 +395,34 @@ export default function DocumentViewerPage({
       <div className="shrink-0 bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4">
         <Link
           href={`/cases/${caseId}` as never}
-          className="flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors shrink-0 group"
+          className="flex items-center gap-1.5 text-sm font-semibold text-gray-600 hover:text-gray-900 transition-colors shrink-0 group"
         >
-          <span className="text-base group-hover:-translate-x-0.5 transition-transform">←</span>
+          <span className="group-hover:-translate-x-0.5 transition-transform inline-block">←</span>
           Back to Case
         </Link>
         <div className="w-px h-5 bg-gray-200 shrink-0" />
-        {clientName && (
-          <p className="text-sm font-semibold text-gray-800">{clientName}</p>
-        )}
-        {caseInfo?.case_number && (
-          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">#{caseInfo.case_number}</span>
-        )}
+
+        {/* Client + vehicle info */}
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          {clientName && (
+            <span className="text-sm font-bold text-gray-900">{clientName}</span>
+          )}
+          {caseInfo?.state_jurisdiction && (
+            <span className="text-xs font-semibold text-white bg-gray-500 px-2 py-0.5 rounded-full">{caseInfo.state_jurisdiction}</span>
+          )}
+          {vehicleStr && (
+            <>
+              <span className="text-gray-300 select-none">·</span>
+              <span className="text-sm text-gray-600">{vehicleStr}</span>
+            </>
+          )}
+          {caseInfo?.case_number && (
+            <span className="text-xs text-gray-400 ml-1">#{caseInfo.case_number}</span>
+          )}
+        </div>
+
         <div className="flex-1" />
-        <span className="text-xs text-gray-400">{files.length} documents · {pdfFiles.filter(f => f.ai_extraction).length}/{pdfFiles.length} extracted</span>
+        <span className="text-xs text-gray-400 shrink-0">{files.length} documents · {pdfFiles.filter(f => f.ai_extraction).length}/{pdfFiles.length} extracted</span>
       </div>
 
       {/* ── Body ───────────────────────────────────────────────────── */}
