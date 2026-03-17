@@ -1144,11 +1144,21 @@ function DocumentsSection({
 
   async function triggerSync() {
     setSyncing(true)
-    await fetch('/api/admin/sharepoint/sync-case', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ case_id: caseId }),
-    })
+    try {
+      const res  = await fetch('/api/admin/sharepoint/sync-case', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ case_id: caseId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        console.error('[sync-case] error:', data)
+        alert(`Sync failed: ${data.error ?? res.status}`)
+      }
+    } catch (e) {
+      console.error('[sync-case] fetch error:', e)
+      alert('Sync request failed — check console for details')
+    }
     await load()
     setSyncing(false)
   }

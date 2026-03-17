@@ -29,12 +29,15 @@ export async function POST(req: NextRequest) {
   )
   const db = client.schema('core')
 
+  // Support UUID or HubSpot deal ID interchangeably
+  const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+
   let query
   if (case_id) {
     query = db.from('cases')
       .select('id, sharepoint_file_url, sharepoint_drive_item_id')
       .eq('is_deleted', false)
-      .eq('id', case_id)
+      .eq(isUUID(case_id) ? 'id' : 'hubspot_deal_id', case_id)
       .maybeSingle()
   } else {
     query = db.from('cases')
