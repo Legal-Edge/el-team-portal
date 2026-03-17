@@ -949,7 +949,6 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
-  const [hovered, setHovered] = useState(false)
   const ex      = f.ai_extraction as Record<string, unknown> | null
   const dateIn  = ex?.repair_date_in  as string | null
   const dateOut = ex?.repair_date_out as string | null
@@ -961,12 +960,10 @@ function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
 
   return (
     <div
-      className={`relative rounded-lg border px-4 py-3 transition-all duration-150 cursor-pointer
+      className={`rounded-lg border px-4 py-3 transition-all duration-150 cursor-pointer
         ${cardBase}
         hover:-translate-y-0.5 hover:shadow-md hover:border-gray-300 hover:bg-gray-50
         active:translate-y-0 active:shadow-sm`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       onClick={() => { window.location.href = `/cases/${caseId}/documents/${f.id}` }}
     >
       <div className="flex items-start justify-between gap-2 mb-1">
@@ -1011,13 +1008,7 @@ function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
         )}
         {f.created_by_name && <span>by {f.created_by_name}</span>}
       </div>
-      {hovered && (
-        <div className="absolute inset-0 rounded-lg flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
-          <span className="text-sm font-semibold text-gray-900 bg-white border border-gray-200 shadow-sm px-5 py-2 rounded-xl">
-            {ex ? '📄 View & Edit Extraction' : '✦ Open & Extract'}
-          </span>
-        </div>
-      )}
+
     </div>
   )
 }
