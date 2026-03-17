@@ -1681,7 +1681,7 @@ function DocViewerModal({
   )
 }
 
-// ── Classify dropdown — portal-based to avoid z-index/overflow clip issues ──
+// ── Classify dropdown ────────────────────────────────────────────────────────
 function ClassifyDropdown({
   docTypes,
   saving,
@@ -1693,87 +1693,41 @@ function ClassifyDropdown({
   onSelect: (code: string) => void
   onCancel: () => void
 }) {
-  const anchorRef  = useRef<HTMLDivElement>(null)
-  const dropRef    = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number; width: number; above: boolean } | null>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
 
   const sorted = useMemo(
     () => [...docTypes].sort((a, b) => a.label.localeCompare(b.label)),
     [docTypes]
   )
 
-  // Compute position relative to viewport
-  useEffect(() => {
-    if (!anchorRef.current) return
-    const rect = anchorRef.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.bottom
-    const above = spaceBelow < 300
-    setPos({
-      top:   above ? rect.top + window.scrollY - 4 : rect.bottom + window.scrollY + 4,
-      left:  rect.left + window.scrollX,
-      width: Math.max(rect.width, 240),
-      above,
-    })
-  }, [])
-
-  // Close on outside click or scroll
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (
-        dropRef.current && !dropRef.current.contains(e.target as Node) &&
-        anchorRef.current && !anchorRef.current.contains(e.target as Node)
-      ) onCancel()
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) onCancel()
     }
     document.addEventListener('mousedown', handler)
-    document.addEventListener('scroll', onCancel, true)
-    return () => {
-      document.removeEventListener('mousedown', handler)
-      document.removeEventListener('scroll', onCancel, true)
-    }
+    return () => document.removeEventListener('mousedown', handler)
   }, [onCancel])
 
   return (
-    <div ref={anchorRef} className="inline-block w-full">
-      {pos && createPortal(
-        <div
-          ref={dropRef}
-          style={{
-            position: 'fixed',
-            top:  pos.above ? undefined : pos.top - window.scrollY,
-            bottom: pos.above ? window.innerHeight - (pos.top - window.scrollY) : undefined,
-            left: pos.left,
-            width: pos.width,
-            zIndex: 9999,
-          }}
-          className="bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden"
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="px-3 py-2 border-b border-gray-100">
-            <p className="text-xs font-medium text-gray-500">Select document type</p>
-          </div>
-          <div className="max-h-64 overflow-y-auto overscroll-contain">
-            {sorted.map(t => (
-              <button
-                key={t.code}
-                disabled={saving}
-                onClick={e => { e.stopPropagation(); onSelect(t.code) }}
-                className="w-full text-left px-3 py-2.5 text-sm text-gray-700 hover:bg-lemon-400/10 hover:text-gray-900 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0"
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div className="px-3 py-2 border-t border-gray-100">
+    <div ref={wrapperRef} className="relative" onClick={e => e.stopPropagation()}>
+      <div className="absolute left-0 top-0 w-64 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 9999 }}>
+        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+          <p className="text-xs font-medium text-gray-500">Select document type</p>
+          <button onClick={e => { e.stopPropagation(); onCancel() }} className="text-gray-300 hover:text-gray-500 text-lg leading-none">×</button>
+        </div>
+        <div className="max-h-64 overflow-y-auto overscroll-contain">
+          {sorted.map(t => (
             <button
-              onClick={e => { e.stopPropagation(); onCancel() }}
-              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              key={t.code}
+              disabled={saving}
+              onClick={e => { e.stopPropagation(); onSelect(t.code) }}
+              className="w-full text-left px-3 py-2.5 text-sm text-gray-700 hover:bg-lemon-400/10 hover:text-gray-900 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0"
             >
-              Cancel
+              {t.label}
             </button>
-          </div>
-        </div>,
-        document.body
-      )}
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1862,11 +1816,14 @@ function FileRow({
     ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md hover:border-gray-300 hover:bg-gray-50 active:translate-y-0 active:shadow-sm'
     : ''
 
+  const isClassifyingThis = classifying === f.id
+
   return (
     <div
       className={`rounded-lg border px-4 py-3 transition-all duration-150 ${cardBase} ${cardInteractive}`}
-      onClick={isPdf ? onView : undefined}
-      role={isPdf ? 'button' : undefined}
+      style={{ position: 'relative', zIndex: isClassifyingThis ? 50 : undefined }}
+      onClick={isPdf && !isClassifyingThis ? onView : undefined}
+      role={isPdf && !isClassifyingThis ? 'button' : undefined}
     >
       {/* Name + badges */}
       <div className="flex items-start justify-between gap-2 mb-1">
