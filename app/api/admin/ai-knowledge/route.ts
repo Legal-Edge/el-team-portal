@@ -23,18 +23,27 @@ async function requireAdmin(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  // Knowledge base rules are staff-visible — no admin gate on reads
   const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized', detail: 'no session' }, { status: 401 })
-  const db = adminDb()
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const db = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  ).schema('core')
+
   const { data, error } = await db
     .from('ai_knowledge_base')
     .select('*')
     .order('category', { ascending: true })
     .order('sort_order', { ascending: true })
+
   if (error) {
-    console.error('[ai-knowledge GET]', error)
+    console.error('[ai-knowledge GET]', error.message, error.code)
     return NextResponse.json({ error: error.message, code: error.code, entries: [] }, { status: 500 })
   }
+
+  console.log('[ai-knowledge GET] rows returned:', data?.length ?? 0)
   return NextResponse.json({ entries: data ?? [] })
 }
 

@@ -55,10 +55,16 @@ export default function AiKnowledgePage() {
 
   async function load() {
     setLoading(true); setLoadErr(null)
-    const res = await fetch('/api/admin/ai-knowledge', { credentials: 'include' })
-    const data = await res.json()
-    if (!res.ok) { setLoadErr(data.error ?? `HTTP ${res.status}`); setLoading(false); return }
-    setEntries(data.entries ?? [])
+    try {
+      const res = await fetch('/api/admin/ai-knowledge', { credentials: 'include' })
+      const text = await res.text()
+      let data: Record<string, unknown>
+      try { data = JSON.parse(text) } catch { setLoadErr(`Non-JSON response (${res.status}): ${text.slice(0,200)}`); setLoading(false); return }
+      if (!res.ok) { setLoadErr(`${res.status}: ${(data.error as string) ?? text}`); setLoading(false); return }
+      setEntries((data.entries as KbEntry[]) ?? [])
+    } catch (e) {
+      setLoadErr(`Network error: ${String(e)}`)
+    }
     setLoading(false)
   }
 
