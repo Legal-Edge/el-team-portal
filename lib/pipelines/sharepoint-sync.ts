@@ -91,7 +91,8 @@ export async function syncCaseFiles(
         const unchanged = existing.modified_at_source === file.modified_at_source
 
         // Re-classify if still unclassified (even if file hasn't changed)
-        if (unchanged && existing.is_classified === false) {
+        // Use !existing.is_classified (not === false) to catch null values from older rows
+        if (unchanged && !existing.is_classified) {
           const reclassification = await classifyDocument(file.name, file.mime_type)
           const autoClassified = reclassification &&
             reclassification.confidence >= AUTO_CLASSIFY_CONFIDENCE_THRESHOLD
