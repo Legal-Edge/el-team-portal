@@ -332,15 +332,16 @@ export default function DocumentViewerPage({
       fetch(`/api/cases/${caseId}`,           { credentials: 'include' }).then(r => r.json()),
     ]).then(([docsData, caseData]) => {
       setFiles(docsData.files ?? [])
+      const c = caseData.case ?? caseData  // API wraps under 'case'
       setCaseInfo({
-        client_first_name:  caseData.client_first_name  ?? null,
-        client_last_name:   caseData.client_last_name   ?? null,
-        case_number:        caseData.case_number         ?? null,
-        hubspot_deal_id:    caseData.hubspot_deal_id     ?? null,
-        vehicle_year:       caseData.vehicle_year        ?? null,
-        vehicle_make:       caseData.vehicle_make        ?? null,
-        vehicle_model:      caseData.vehicle_model       ?? null,
-        state_jurisdiction: caseData.state_jurisdiction  ?? null,
+        client_first_name:  c.client_first_name  ?? null,
+        client_last_name:   c.client_last_name   ?? null,
+        case_number:        c.case_number         ?? null,
+        hubspot_deal_id:    c.hubspot_deal_id     ?? null,
+        vehicle_year:       c.vehicle_year        ?? null,
+        vehicle_make:       c.vehicle_make        ?? null,
+        vehicle_model:      c.vehicle_model       ?? null,
+        state_jurisdiction: c.state_jurisdiction  ?? null,
       })
       setLoading(false)
     })
