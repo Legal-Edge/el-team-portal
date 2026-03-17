@@ -32,11 +32,12 @@ const RULES: ClassificationRule[] = [
   },
 
   // ── Purchase / Lease Agreement ────────────────────────────────────────────
+  // RISC = Retail Installment Sales Contract (very common auto purchase doc)
   {
-    pattern: /lease[\s_-]?agreement|purchase[\s_-]?agreement|sales?[\s_-]?contract|bill[\s_-]?of[\s_-]?sale|retail[\s_-]?installment/i,
+    pattern: /\brisc\b|lease[\s_-]?agreement|purchase[\s_-]?agreement|sales?[\s_-]?contract|bill[\s_-]?of[\s_-]?sale|retail[\s_-]?installment/i,
     code: 'purchase_agreement',
     confidence: 0.97,
-    label: 'Purchase or lease agreement keyword',
+    label: 'Purchase or lease agreement keyword (incl. RISC)',
   },
 
   // ── Warranty Documentation ────────────────────────────────────────────────
