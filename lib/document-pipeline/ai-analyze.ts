@@ -282,7 +282,9 @@ export async function extractDocument(
   })
 
   const text       = result.response.text()
+  console.log('[Gemini] raw response (first 500 chars):', text.slice(0, 500))
   const extraction = parseJson(text)
+  console.log('[Gemini] parsed fields:', Object.keys(extraction).join(', '))
 
   // ── VIN normalisation + format check ────────────────────────────────────
   const vinRaw = extraction.vin

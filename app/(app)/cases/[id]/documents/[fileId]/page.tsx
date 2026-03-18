@@ -44,7 +44,7 @@ function sortedFiles(files: FileItem[]): FileItem[] {
 }
 
 // ── Extraction field config ───────────────────────────────────────────────
-const SKIP_FIELDS    = new Set(['doc_type', 'raw', 'vin_needs_review'])
+const SKIP_FIELDS    = new Set(['doc_type', 'raw', 'vin_needs_review', '_validation'])
 const TEXTAREA_FIELDS= new Set(['complaint','diagnosis','work_performed','document_description'])
 const ARRAY_FIELDS   = new Set(['key_facts','key_dates','vehicle_info'])
 const SELECT_FIELDS: Record<string, string[]> = {
@@ -152,7 +152,7 @@ function ExtractionPanel({ file, onUpdated }: { file: FileItem; onUpdated: (u: F
   // Build ordered field entries: structured fields first, then key_facts/key_dates
   const structuredEntries = merged
     ? Object.entries(merged).filter(([k, v]) =>
-        !SKIP_FIELDS.has(k) && !ARRAY_FIELDS.has(k) && v !== null && v !== undefined && v !== ''
+        !SKIP_FIELDS.has(k) && !ARRAY_FIELDS.has(k) && v !== null && v !== undefined && v !== '' && typeof v !== 'object'
       )
     : []
   const arrayEntries = merged

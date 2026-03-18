@@ -1650,7 +1650,7 @@ function DocumentsSection({
 }
 
 // ── Stage 1: Per-doc extraction panel (Gemini 2.5 Flash) — manual trigger + editable ─
-const SKIP_FIELDS = new Set(['doc_type','key_facts','key_dates'])
+const SKIP_FIELDS = new Set(['doc_type','key_facts','key_dates','_validation','vin_needs_review'])
 const TEXTAREA_FIELDS = new Set(['complaint','diagnosis','work_performed','key_facts'])
 const SELECT_FIELDS: Record<string, string[]> = {
   repair_status: ['completed','unable_to_duplicate','parts_on_order','customer_declined','other'],
@@ -1713,7 +1713,7 @@ function DocExtractionPanel({ fileId }: { fileId: string }) {
   const merged     = data ? { ...data, ...edits } : null
   const hasEdits   = Object.keys(edits).length > 0
   const entries    = merged ? Object.entries(merged).filter(([k, v]) =>
-    !SKIP_FIELDS.has(k) && v !== null && v !== undefined && v !== '' && !Array.isArray(v)
+    !SKIP_FIELDS.has(k) && v !== null && v !== undefined && v !== '' && !Array.isArray(v) && typeof v !== 'object'
   ) : []
 
   // ── Render: not yet extracted
