@@ -12,6 +12,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { createClient } from '@supabase/supabase-js'
+import pdfParse from 'pdf-parse'
 
 export const EXTRACTION_MODEL = 'gemini-2.5-flash'
 export const ANALYSIS_MODEL   = 'claude-sonnet-4-20250514'
@@ -268,28 +269,60 @@ export async function extractDocument(
 ): Promise<{ extraction: Record<string, unknown>; model: string }> {
   const genAI     = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
   const prompt    = EXTRACTION_PROMPTS[docType ?? ''] ?? EXTRACTION_PROMPTS.default
-  const base64Pdf = Buffer.from(pdfBytes).toString('base64')
+  const pdfBuffer = Buffer.from(pdfBytes)
   const knowledge = await loadKnowledge('extraction', docType)
+
+  const systemInstruction = `You are a document extraction assistant for a lemon law firm. Extract structured data from legal/automotive documents. Return ONLY valid JSON — no markdown fences, no explanation, no commentary. Just the raw JSON object.${knowledge}`
 
   const gemini = genAI.getGenerativeModel({
     model:             EXTRACTION_MODEL,
-    systemInstruction: `You are a document extraction assistant for a lemon law firm. Extract structured data from legal/automotive documents. Return ONLY valid JSON, no markdown, no explanation.${knowledge}`,
+    systemInstruction,
   })
 
-  const result = await gemini.generateContent({
-    contents: [{
-      role:  'user',
-      parts: [
-        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
-        { text: prompt },
-      ],
-    }],
-    generationConfig: { maxOutputTokens: 2048, temperature: 0 },
-  })
+  // ── Try text extraction first (digital PDFs) ─────────────────────────────
+  // pdf-parse extracts the text layer reliably. Send clean text to Gemini
+  // instead of binary PDF to avoid inline data size/format issues.
+  let pdfText = ''
+  try {
+    const parsed = await pdfParse(pdfBuffer)
+    pdfText = parsed.text?.trim() ?? ''
+    console.log('[pdfParse] extracted', pdfText.length, 'chars from PDF')
+  } catch (e) {
+    console.warn('[pdfParse] failed, falling back to vision:', e)
+  }
 
-  const text       = result.response.text()
-  console.log('[Gemini] raw length:', text.length, '| first 300:', text.slice(0, 300))
-  const extraction = parseJson(text)
+  let geminiResponse: string
+
+  if (pdfText.length > 200) {
+    // Digital PDF — send clean text to Gemini (fast, reliable, cheap)
+    console.log('[Gemini] using TEXT mode')
+    const result = await gemini.generateContent({
+      contents: [{
+        role:  'user',
+        parts: [{ text: `Here is the full text content of the document:\n\n${pdfText}\n\n---\n\n${prompt}` }],
+      }],
+      generationConfig: { maxOutputTokens: 2048, temperature: 0 },
+    })
+    geminiResponse = result.response.text()
+  } else {
+    // Scanned/image PDF — use vision mode with base64 inline data
+    console.log('[Gemini] using VISION mode (scanned PDF)')
+    const base64Pdf = pdfBuffer.toString('base64')
+    const result = await gemini.generateContent({
+      contents: [{
+        role:  'user',
+        parts: [
+          { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
+          { text: prompt },
+        ],
+      }],
+      generationConfig: { maxOutputTokens: 2048, temperature: 0 },
+    })
+    geminiResponse = result.response.text()
+  }
+
+  console.log('[Gemini] raw length:', geminiResponse.length, '| first 400:', geminiResponse.slice(0, 400))
+  const extraction = parseJson(geminiResponse)
   const fieldCount = Object.keys(extraction).length
   const hasRaw     = 'raw' in extraction
   console.log('[Gemini] parsed:', fieldCount, 'fields | hasRaw:', hasRaw, '| keys:', Object.keys(extraction).join(', '))
@@ -304,14 +337,14 @@ export async function extractDocument(
       // Invalid format — re-prompt Gemini specifically for VIN
       console.warn(`[Gemini] VIN format invalid: "${vinRaw}" — re-prompting`)
       try {
+        const vinParts = pdfText.length > 200
+          ? [{ text: `Document text:\n${pdfText}\n\nFind the Vehicle Identification Number (VIN). Return ONLY the 17-character VIN — no labels, no JSON, no spaces. Just the 17 characters.` }]
+          : [
+              { inlineData: { mimeType: 'application/pdf', data: pdfBuffer.toString('base64') } } as { inlineData: { mimeType: string; data: string } },
+              { text: 'Find the Vehicle Identification Number (VIN). Return ONLY the 17-character VIN — no labels, no JSON, no spaces. Just the 17 characters.' },
+            ]
         const retry = await gemini.generateContent({
-          contents: [{
-            role:  'user',
-            parts: [
-              { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
-              { text: 'Find the Vehicle Identification Number (VIN) on this document. Return ONLY the 17-character VIN — no labels, no JSON, no spaces. Just the 17 characters.' },
-            ],
-          }],
+          contents: [{ role: 'user', parts: vinParts }],
           generationConfig: { maxOutputTokens: 30, temperature: 0 },
         })
         const vinResult = retry.response.text().trim().replace(/[\s-]/g, '').toUpperCase()
