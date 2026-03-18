@@ -69,16 +69,13 @@ async function loadKnowledge(
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 function parseJson(text: string): Record<string, unknown> {
-  // Strip markdown code fences that Gemini adds (```json ... ```)
-  const stripped = text
-    .replace(/^```(?:json)?\s*/m, '')
-    .replace(/```\s*$/m, '')
-    .trim()
-  // Try direct parse on stripped text first
-  try { return JSON.parse(stripped) }
-  catch { /* fall through to regex */ }
-  // Fallback: extract first {...} block
-  const match = stripped.match(/\{[\s\S]*\}/)
+  // Remove ALL markdown code fence markers (Gemini wraps in ```json ... ```)
+  const clean = text.replace(/```(?:json|JSON)?\s*/g, '').trim()
+  // Try direct parse
+  try { return JSON.parse(clean) }
+  catch { /* fall through */ }
+  // Fallback: find first { ... } block
+  const match = clean.match(/\{[\s\S]*\}/)
   try { return match ? JSON.parse(match[0]) : { raw: text } }
   catch { return { raw: text } }
 }
@@ -287,13 +284,15 @@ export async function extractDocument(
         { text: prompt },
       ],
     }],
-    generationConfig: { maxOutputTokens: 1024, temperature: 0 },
+    generationConfig: { maxOutputTokens: 2048, temperature: 0 },
   })
 
   const text       = result.response.text()
-  console.log('[Gemini] raw response (first 500 chars):', text.slice(0, 500))
+  console.log('[Gemini] raw length:', text.length, '| first 300:', text.slice(0, 300))
   const extraction = parseJson(text)
-  console.log('[Gemini] parsed fields:', Object.keys(extraction).join(', '))
+  const fieldCount = Object.keys(extraction).length
+  const hasRaw     = 'raw' in extraction
+  console.log('[Gemini] parsed:', fieldCount, 'fields | hasRaw:', hasRaw, '| keys:', Object.keys(extraction).join(', '))
 
   // ── VIN normalisation + format check ────────────────────────────────────
   const vinRaw = extraction.vin
