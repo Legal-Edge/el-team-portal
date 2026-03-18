@@ -13,6 +13,29 @@ import { writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
+// Real extraction prompt (same as production pipeline)
+const REPAIR_ORDER_PROMPT = `Extract all structured data from this repair order and return ONLY a JSON object with these exact fields:
+{
+  "ro_number": "repair order number",
+  "dealer_name": "dealership name",
+  "vin": "17-char VIN",
+  "year": "vehicle year as 4-digit string",
+  "make": "vehicle make",
+  "model": "vehicle model",
+  "mileage_in": number or null,
+  "mileage_out": number or null,
+  "repair_date_in": "YYYY-MM-DD or null",
+  "repair_date_out": "YYYY-MM-DD or null",
+  "complaint": "customer complaint / concern",
+  "diagnosis": "technician diagnosis / cause",
+  "correction": "repair performed / correction",
+  "warranty_pay": true/false,
+  "days_out_of_service": number or null,
+  "parts": ["list of parts"],
+  "utd": true/false
+}
+Return ONLY the JSON object. No markdown, no explanation.`
+
 export const maxDuration = 120
 
 const DRIVE_ID = 'b!oTYerw9tj0KLIWLLGc_DzIZijDFxI1xNtMSGXezIVsUHL02cd1kmRra7r_dMei8k'
@@ -97,10 +120,10 @@ export async function GET(req: NextRequest) {
         role:  'user',
         parts: [
           { fileData: { mimeType: 'application/pdf', fileUri: uploadedFileUri } },
-          { text: 'Extract ALL text and structured data from this document. List every field you can read — dates, numbers, VIN, mileage, names, addresses, repair descriptions, complaints, diagnoses. Be thorough and complete across all pages.' },
+          { text: REPAIR_ORDER_PROMPT },
         ],
       }],
-      generationConfig: { maxOutputTokens: 4096, temperature: 0 },
+      generationConfig: { maxOutputTokens: 2048, temperature: 0 },
     })
 
     rawText      = result.response.text()
