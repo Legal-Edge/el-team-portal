@@ -111,7 +111,7 @@ export default function AiKnowledgePage() {
         <div>
           <h1 className="text-xl font-semibold text-gray-900">AI Knowledge Base</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {loading ? 'Loading…' : `${totalActive} active rule${totalActive !== 1 ? 's' : ''} · injected into Haiku + Sonnet prompts`}
+            {loading ? 'Loading…' : `${totalActive} active rule${totalActive !== 1 ? 's' : ''} · injected into Gemini + Sonnet prompts`}
           </p>
         </div>
         <button onClick={startAdd}
@@ -181,7 +181,7 @@ export default function AiKnowledgePage() {
                   {/* Stage badges */}
                   <div className="flex gap-1 w-32 justify-center">
                     {entry.applies_to.includes('extraction') && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">Haiku</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">Gemini</span>
                     )}
                     {entry.applies_to.includes('analysis') && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">Sonnet</span>
@@ -290,7 +290,7 @@ function RuleForm({
       <div>
         <label className="text-xs font-medium text-gray-500 mb-2 block">AI Stage</label>
         <div className="flex gap-4">
-          {[{v:'extraction',l:'Haiku (Extraction)'},{v:'analysis',l:'Sonnet (Analysis)'}].map(opt => (
+          {[{v:'extraction',l:'Gemini 2.5 Flash (Extraction)'},{v:'analysis',l:'Sonnet (Analysis)'}].map(opt => (
             <label key={opt.v} className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.applies_to.includes(opt.v)}
                 onChange={e => setForm(f => ({

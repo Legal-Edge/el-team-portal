@@ -1,7 +1,7 @@
 // POST /api/documents/[fileId]/analyze
 //
-// Stage 1: Haiku extraction for a single document.
-// Fetches PDF from SharePoint, runs claude-haiku, caches in ai_extraction.
+// Stage 1: Gemini 2.5 Flash extraction for a single document.
+// Fetches PDF from SharePoint, runs gemini-2.5-flash, caches in ai_extraction.
 // Returns cached result on repeat calls.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -43,7 +43,7 @@ export async function POST(
     return NextResponse.json({ extraction: file.ai_extraction, cached: true })
   }
 
-  // cached_only = just checking for existing extraction, don't run Haiku
+  // cached_only = just checking for existing extraction, don't run Gemini
   if (cached_only) {
     return NextResponse.json({ extraction: null, cached: false })
   }
@@ -60,7 +60,7 @@ export async function POST(
   }
   const pdfBytes = await pdfRes.arrayBuffer()
 
-  // Run Haiku extraction
+  // Run Gemini extraction
   const { extraction, model } = await extractDocument(pdfBytes, file.document_type_code)
 
   // Cache result

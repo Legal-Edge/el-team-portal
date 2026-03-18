@@ -123,7 +123,7 @@ export async function POST(
 
   if (files.length === 0) {
     return NextResponse.json({
-      error: 'No extracted documents yet. Open each PDF first (Haiku extracts automatically), then analyze.',
+      error: 'No extracted documents yet. Open each PDF first (Gemini extracts automatically), then analyze.',
       files_total:    (allFiles ?? []).length,
       files_analyzed: 0,
       files_pending:  pendingFiles.map(f => f.file_name),

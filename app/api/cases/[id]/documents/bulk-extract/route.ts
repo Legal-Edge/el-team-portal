@@ -1,13 +1,13 @@
 // POST /api/cases/[id]/documents/bulk-extract
 //
-// Bulk Stage-1 Haiku extraction for all unextracted PDFs in a case,
+// Bulk Stage-1 Gemini 2.5 Flash extraction for all unextracted PDFs in a case,
 // optionally filtered to specific document type codes.
 //
 // Body: { types?: string[], force?: boolean }
 //   types — if provided, only extract docs matching those type codes
 //   force — re-extract even if already extracted
 //
-// Runs up to 3 Haiku calls in parallel to balance speed vs. API limits.
+// Runs up to 3 Gemini calls in parallel to balance speed vs. API limits.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'

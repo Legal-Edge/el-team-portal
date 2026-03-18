@@ -1649,7 +1649,7 @@ function DocumentsSection({
   )
 }
 
-// ── Stage 1: Per-doc extraction panel (Haiku) — manual trigger + editable ─
+// ── Stage 1: Per-doc extraction panel (Gemini 2.5 Flash) — manual trigger + editable ─
 const SKIP_FIELDS = new Set(['doc_type','key_facts','key_dates'])
 const TEXTAREA_FIELDS = new Set(['complaint','diagnosis','work_performed','key_facts'])
 const SELECT_FIELDS: Record<string, string[]> = {
@@ -1722,11 +1722,11 @@ function DocExtractionPanel({ fileId }: { fileId: string }) {
       <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-lg">✦</div>
       <div>
         <p className="text-sm font-medium text-gray-700 mb-1">Not yet extracted</p>
-        <p className="text-xs text-gray-400">Run Haiku to extract structured data from this document</p>
+        <p className="text-xs text-gray-400">Run Gemini to extract structured data from this document</p>
       </div>
       <button onClick={() => runExtraction(false)}
         className="text-sm px-5 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 active:scale-95 transition-all">
-        Extract with Haiku
+        Extract with Gemini
       </button>
       {error && <p className="text-xs text-red-500">Extraction failed. Try again.</p>}
     </div>
@@ -1736,7 +1736,7 @@ function DocExtractionPanel({ fileId }: { fileId: string }) {
   if (loading) return (
     <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 px-6">
       <div className="w-7 h-7 border-2 border-gray-200 border-t-lemon-400 rounded-full animate-spin" />
-      <p className="text-xs text-center">Extracting with Haiku…<br/><span className="text-gray-300">~5 seconds</span></p>
+      <p className="text-xs text-center">Extracting with Gemini…<br/><span className="text-gray-300">~5 seconds</span></p>
     </div>
   )
 
@@ -1747,7 +1747,7 @@ function DocExtractionPanel({ fileId }: { fileId: string }) {
       <div className="px-5 pt-5 pb-3 flex items-center justify-between shrink-0">
         <div>
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Document Extraction</p>
-          <p className="text-xs text-gray-300 mt-0.5">Claude Haiku · click any field to edit</p>
+          <p className="text-xs text-gray-300 mt-0.5">Gemini 2.5 Flash · click any field to edit</p>
         </div>
         <button onClick={() => runExtraction(true)} title="Re-extract"
           className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1 rounded border border-gray-100 hover:border-gray-200">
