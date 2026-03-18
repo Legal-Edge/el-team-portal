@@ -300,6 +300,32 @@ export function runLemonLawEngine(input: EngineInput): QualificationResult {
   // Confidence downgrade if missing data
   if (missingData.length >= 2 && confidence === 'high') confidence = 'medium'
 
+  // ── Numeric confidence score (0–100) ─────────────────────────────────────
+  // Base score by decision + qualitative confidence, then factor in signals
+  let confidenceScore = 50
+
+  if (decision === 'retain') {
+    confidenceScore = confidence === 'high' ? 88 : 72
+    if (maxAttempts >= 4)                    confidenceScore += 5
+    if (totalDaysOOS >= 30)                  confidenceScore += 3
+    if (safetyDefects.length > 0)            confidenceScore += 4
+    if (meetsStateRepair)                    confidenceScore += 3
+    if (meetsFederal && meetsStateRepair)    confidenceScore += 2
+  } else if (decision === 'drop') {
+    confidenceScore = confidence === 'high' ? 85 : 65
+  } else if (decision === 'nurture') {
+    confidenceScore = confidence === 'medium' ? 55 : 40
+    if (maxAttempts >= 2) confidenceScore += 5
+  } else if (decision === 'clarification_needed') {
+    confidenceScore = 30
+  }
+
+  // Penalise for missing data
+  confidenceScore -= missingData.length * 4
+
+  // Cap 0–99 (100 is never truly certain in legal)
+  confidenceScore = Math.max(0, Math.min(99, confidenceScore))
+
   return {
     total_repair_attempts:          repairs.length,
     total_days_oos:                 totalDaysOOS,
@@ -314,6 +340,7 @@ export function runLemonLawEngine(input: EngineInput): QualificationResult {
     meets_federal_threshold:        meetsFederal,
     decision,
     confidence,
+    confidence_score:               confidenceScore,
     cause_of_action:                causeOfAction,
     retain_signals:                 retainSignals,
     risk_factors:                   riskFactors,

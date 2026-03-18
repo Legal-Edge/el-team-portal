@@ -717,6 +717,7 @@ const COLLECTION_STATUS_BADGE: Record<string, string> = {
 interface AnalysisResult {
   decision?:               string
   confidence?:             string
+  confidence_score?:       number
   cause_of_action?:        string
   case_strength?:          string
   summary?:                string
@@ -841,8 +842,11 @@ function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseI
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {analysis?.confidence && style && (
-              <span className={`hidden sm:inline text-xs font-medium px-2.5 py-1 rounded-full border ${style.border} ${style.text} bg-white`}>
-                {analysis.confidence} confidence
+              <span className={`hidden sm:inline flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${style.border} ${style.text} bg-white`}>
+                {analysis.confidence_score != null
+                  ? <><span className="font-bold text-sm">{analysis.confidence_score}</span><span className="opacity-60">/100</span></>
+                  : <>{analysis.confidence} confidence</>
+                }
               </span>
             )}
             {onSwitchToDocuments && (

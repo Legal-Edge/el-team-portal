@@ -70,6 +70,7 @@ export interface QualificationResult {
   // Decision
   decision:                Decision
   confidence:              Confidence
+  confidence_score:        number
   cause_of_action:         CauseOfAction | null
   
   // Attorney-facing output
