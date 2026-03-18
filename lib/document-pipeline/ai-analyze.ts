@@ -302,7 +302,12 @@ export async function extractDocument(
           { text: prompt },
         ],
       }],
-      generationConfig: { maxOutputTokens: 2048, temperature: 0 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      generationConfig: {
+        maxOutputTokens: 8192,
+        temperature:     1,
+        thinkingConfig:  { thinkingBudget: 0 },  // disable thinking — frees full token budget for output
+      } as any,
     })
 
     const finishReason = result.response.candidates?.[0]?.finishReason
@@ -328,7 +333,8 @@ export async function extractDocument(
                 { text: 'What is the Vehicle Identification Number (VIN)? Return ONLY the 17-character VIN, nothing else.' },
               ],
             }],
-            generationConfig: { maxOutputTokens: 30, temperature: 0 },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            generationConfig: { maxOutputTokens: 30, temperature: 1, thinkingConfig: { thinkingBudget: 0 } } as any,
           })
           const vinResult = retryResult.response.text().trim().replace(/[\s-]/g, '').toUpperCase()
           if (VIN_RE.test(vinResult)) {

@@ -123,7 +123,12 @@ export async function GET(req: NextRequest) {
           { text: REPAIR_ORDER_PROMPT },
         ],
       }],
-      generationConfig: { maxOutputTokens: 2048, temperature: 0 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      generationConfig: {
+        maxOutputTokens: 8192,
+        temperature:     1,
+        thinkingConfig:  { thinkingBudget: 0 },
+      } as any,
     })
 
     rawText      = result.response.text()
