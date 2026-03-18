@@ -521,6 +521,7 @@ Write the attorney memo. Return this exact JSON:
       // Engine values always override Sonnet for decision fields
       decision:               engineResult.decision,
       confidence:             engineResult.confidence,
+      confidence_score:       engineResult.confidence_score,
       cause_of_action:        engineResult.cause_of_action,
       engine_retain_signals:  engineResult.retain_signals,
       engine_risk_factors:    engineResult.risk_factors,

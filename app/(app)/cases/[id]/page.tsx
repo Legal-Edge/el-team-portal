@@ -819,8 +819,15 @@ function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseI
         <div className="px-5 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             {style && dec ? (
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${style.barBg}`}>
-                <span className="text-white text-xl font-bold">{style.icon}</span>
+              <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0 ${style.barBg}`}>
+                {analysis?.confidence_score != null ? (
+                  <>
+                    <span className="text-white text-base font-bold leading-none">{analysis.confidence_score}</span>
+                    <span className="text-white/70 text-[9px] leading-none mt-0.5">/ 100</span>
+                  </>
+                ) : (
+                  <span className="text-white text-xl font-bold">{style.icon}</span>
+                )}
               </div>
             ) : (
               <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
@@ -842,9 +849,9 @@ function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseI
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {analysis?.confidence && style && (
-              <span className={`hidden sm:inline flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${style.border} ${style.text} bg-white`}>
+              <span className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${style.border} ${style.text} bg-white`}>
                 {analysis.confidence_score != null
-                  ? <><span className="font-bold text-sm">{analysis.confidence_score}</span><span className="opacity-60">/100</span></>
+                  ? <><span className="font-bold">{analysis.confidence} confidence</span><span className="opacity-50 ml-0.5">· {analysis.confidence_score}/100</span></>
                   : <>{analysis.confidence} confidence</>
                 }
               </span>
