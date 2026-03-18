@@ -1,11 +1,13 @@
 // POST /api/documents/[fileId]/analyze
 //
-// Stage 1: Claude Sonnet extraction for a single document.
+// Stage 1: Gemini 2.5 Flash extraction for a single document.
 // Fetches PDF from SharePoint, runs gemini-2.5-flash, caches in ai_extraction.
 // Returns cached result on repeat calls.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
+
+export const maxDuration = 120
 import { createClient } from '@supabase/supabase-js'
 import { getGraphToken } from '@/lib/sharepoint'
 import { extractDocument } from '@/lib/document-pipeline/ai-analyze'
@@ -40,12 +42,12 @@ export async function POST(
 
   // Return cached extraction if available
   if (file.ai_extraction && !force) {
-    return NextResponse.json({ extraction: file.ai_extraction, cached: true })
+    return NextResponse.json({ extraction: file.ai_extraction, cached: true, extracted_at: file.ai_extracted_at })
   }
 
   // cached_only = just checking for existing extraction, don't run Gemini
   if (cached_only) {
-    return NextResponse.json({ extraction: null, cached: false })
+    return NextResponse.json({ extraction: null, cached: false, extracted_at: null })
   }
 
   // Fetch PDF from SharePoint
@@ -63,13 +65,13 @@ export async function POST(
   // Run Gemini extraction
   const { extraction, model } = await extractDocument(pdfBytes, file.document_type_code)
 
-  // Cache result
+  const extractedAt = new Date().toISOString()
   await db.from('document_files').update({
     ai_extraction:       extraction,
-    ai_extracted_at:     new Date().toISOString(),
+    ai_extracted_at:     extractedAt,
     ai_extraction_model: model,
-    updated_at:          new Date().toISOString(),
+    updated_at:          extractedAt,
   }).eq('id', fileId)
 
-  return NextResponse.json({ extraction, cached: false })
+  return NextResponse.json({ extraction, cached: false, extracted_at: extractedAt })
 }

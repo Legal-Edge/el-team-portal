@@ -1,6 +1,6 @@
 // POST /api/cases/[id]/documents/bulk-extract
 //
-// Bulk Stage-1 Claude Sonnet extraction for all unextracted PDFs in a case,
+// Bulk Stage-1 Gemini 2.5 Flash extraction for all unextracted PDFs in a case,
 // optionally filtered to specific document type codes.
 //
 // Body: { types?: string[], force?: boolean }
