@@ -69,7 +69,16 @@ async function loadKnowledge(
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 function parseJson(text: string): Record<string, unknown> {
-  const match = text.match(/\{[\s\S]*\}/)
+  // Strip markdown code fences that Gemini adds (```json ... ```)
+  const stripped = text
+    .replace(/^```(?:json)?\s*/m, '')
+    .replace(/```\s*$/m, '')
+    .trim()
+  // Try direct parse on stripped text first
+  try { return JSON.parse(stripped) }
+  catch { /* fall through to regex */ }
+  // Fallback: extract first {...} block
+  const match = stripped.match(/\{[\s\S]*\}/)
   try { return match ? JSON.parse(match[0]) : { raw: text } }
   catch { return { raw: text } }
 }
