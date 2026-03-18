@@ -290,7 +290,7 @@ function RuleForm({
       <div>
         <label className="text-xs font-medium text-gray-500 mb-2 block">AI Stage</label>
         <div className="flex gap-4">
-          {[{v:'extraction',l:'Gemini 2.5 Flash (Extraction)'},{v:'analysis',l:'Sonnet (Analysis)'}].map(opt => (
+          {[{v:'extraction',l:'Sonnet (Extraction)'},{v:'analysis',l:'Sonnet (Analysis)'}].map(opt => (
             <label key={opt.v} className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.applies_to.includes(opt.v)}
                 onChange={e => setForm(f => ({

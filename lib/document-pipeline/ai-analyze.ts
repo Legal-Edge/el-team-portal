@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Two-Stage AI Document Analysis Pipeline
 //
-// Stage 1 — Gemini 2.5 Flash extraction (per document, cached)
+// Stage 1 — Claude Sonnet extraction (per document, cached)
 //   extractDocument(pdfBytes, docType) → structured JSON + validation flags
 //
 // Stage 2 — Sonnet case analysis (on demand, reads cached extractions)
@@ -10,11 +10,9 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
-import { GoogleGenerativeAI } from '@google/generative-ai'
 import { createClient } from '@supabase/supabase-js'
-import pdfParse from 'pdf-parse'
 
-export const EXTRACTION_MODEL = 'gemini-2.5-flash'
+export const EXTRACTION_MODEL = 'claude-sonnet-4-20250514'
 export const ANALYSIS_MODEL   = 'claude-sonnet-4-20250514'
 
 import { runLemonLawEngine } from '../lemon-law/engine'
@@ -260,72 +258,36 @@ function validateExtraction(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STAGE 1 — Gemini 2.5 Flash extraction
+// STAGE 1 — Claude Sonnet extraction
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function extractDocument(
   pdfBytes: ArrayBuffer,
   docType:  string | null,
 ): Promise<{ extraction: Record<string, unknown>; model: string }> {
-  const genAI     = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
+  const client    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const prompt    = EXTRACTION_PROMPTS[docType ?? ''] ?? EXTRACTION_PROMPTS.default
-  const pdfBuffer = Buffer.from(pdfBytes)
+  const base64Pdf = Buffer.from(pdfBytes).toString('base64')
   const knowledge = await loadKnowledge('extraction', docType)
 
-  const systemInstruction = `You are a document extraction assistant for a lemon law firm. Extract structured data from legal/automotive documents. Return ONLY valid JSON — no markdown fences, no explanation, no commentary. Just the raw JSON object.${knowledge}`
-
-  const gemini = genAI.getGenerativeModel({
-    model:             EXTRACTION_MODEL,
-    systemInstruction,
+  const response = await client.beta.messages.create({
+    model:      EXTRACTION_MODEL,
+    max_tokens: 2048,
+    system:     `You are a document extraction assistant for a lemon law firm. Extract structured data from legal/automotive documents. Return ONLY valid JSON, no markdown, no other text.${knowledge}`,
+    messages: [{
+      role:    'user',
+      content: [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf } } as BetaContentBlockParam,
+        { type: 'text', text: prompt } as BetaContentBlockParam,
+      ],
+    }],
+    betas: ['pdfs-2024-09-25'],
   })
 
-  // ── Try text extraction first (digital PDFs) ─────────────────────────────
-  // pdf-parse extracts the text layer reliably. Send clean text to Gemini
-  // instead of binary PDF to avoid inline data size/format issues.
-  let pdfText = ''
-  try {
-    const parsed = await pdfParse(pdfBuffer)
-    pdfText = parsed.text?.trim() ?? ''
-    console.log('[pdfParse] extracted', pdfText.length, 'chars from PDF')
-  } catch (e) {
-    console.warn('[pdfParse] failed, falling back to vision:', e)
-  }
-
-  let geminiResponse: string
-
-  if (pdfText.length > 200) {
-    // Digital PDF — send clean text to Gemini (fast, reliable, cheap)
-    console.log('[Gemini] using TEXT mode')
-    const result = await gemini.generateContent({
-      contents: [{
-        role:  'user',
-        parts: [{ text: `Here is the full text content of the document:\n\n${pdfText}\n\n---\n\n${prompt}` }],
-      }],
-      generationConfig: { maxOutputTokens: 2048, temperature: 0 },
-    })
-    geminiResponse = result.response.text()
-  } else {
-    // Scanned/image PDF — use vision mode with base64 inline data
-    console.log('[Gemini] using VISION mode (scanned PDF)')
-    const base64Pdf = pdfBuffer.toString('base64')
-    const result = await gemini.generateContent({
-      contents: [{
-        role:  'user',
-        parts: [
-          { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
-          { text: prompt },
-        ],
-      }],
-      generationConfig: { maxOutputTokens: 2048, temperature: 0 },
-    })
-    geminiResponse = result.response.text()
-  }
-
-  console.log('[Gemini] raw length:', geminiResponse.length, '| first 400:', geminiResponse.slice(0, 400))
-  const extraction = parseJson(geminiResponse)
-  const fieldCount = Object.keys(extraction).length
-  const hasRaw     = 'raw' in extraction
-  console.log('[Gemini] parsed:', fieldCount, 'fields | hasRaw:', hasRaw, '| keys:', Object.keys(extraction).join(', '))
+  const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
+  console.log('[Sonnet] raw length:', text.length, '| first 300:', text.slice(0, 300))
+  const extraction = parseJson(text)
+  console.log('[Sonnet] parsed:', Object.keys(extraction).length, 'fields | keys:', Object.keys(extraction).join(', '))
 
   // ── VIN normalisation + format check ────────────────────────────────────
   const vinRaw = extraction.vin
@@ -334,30 +296,32 @@ export async function extractDocument(
     if (VIN_RE.test(vinClean)) {
       extraction.vin = vinClean
     } else {
-      // Invalid format — re-prompt Gemini specifically for VIN
-      console.warn(`[Gemini] VIN format invalid: "${vinRaw}" — re-prompting`)
+      console.warn(`[Sonnet] VIN format invalid: "${vinRaw}" — re-prompting`)
       try {
-        const vinParts = pdfText.length > 200
-          ? [{ text: `Document text:\n${pdfText}\n\nFind the Vehicle Identification Number (VIN). Return ONLY the 17-character VIN — no labels, no JSON, no spaces. Just the 17 characters.` }]
-          : [
-              { inlineData: { mimeType: 'application/pdf', data: pdfBuffer.toString('base64') } } as { inlineData: { mimeType: string; data: string } },
-              { text: 'Find the Vehicle Identification Number (VIN). Return ONLY the 17-character VIN — no labels, no JSON, no spaces. Just the 17 characters.' },
-            ]
-        const retry = await gemini.generateContent({
-          contents: [{ role: 'user', parts: vinParts }],
-          generationConfig: { maxOutputTokens: 30, temperature: 0 },
+        const retry = await client.beta.messages.create({
+          model:      EXTRACTION_MODEL,
+          max_tokens: 100,
+          system:     'You are a VIN extraction assistant. Return ONLY the raw 17-character VIN number, nothing else. No JSON, no labels, just the 17 characters.',
+          messages: [{
+            role:    'user',
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf } } as BetaContentBlockParam,
+              { type: 'text', text: 'What is the Vehicle Identification Number (VIN) on this document? Return ONLY the 17-character VIN, nothing else.' } as BetaContentBlockParam,
+            ],
+          }],
+          betas: ['pdfs-2024-09-25'],
         })
-        const vinResult = retry.response.text().trim().replace(/[\s-]/g, '').toUpperCase()
+        const vinResult = (retry.content.find(b => b.type === 'text')?.text ?? '').trim().replace(/[\s-]/g, '').toUpperCase()
         if (VIN_RE.test(vinResult)) {
           extraction.vin = vinResult
-          console.log(`[Gemini] VIN re-prompt succeeded: "${vinResult}"`)
+          console.log(`[Sonnet] VIN re-prompt succeeded: "${vinResult}"`)
         } else {
-          console.warn(`[Gemini] VIN re-prompt also invalid: "${vinResult}" — flagging for review`)
+          console.warn(`[Sonnet] VIN re-prompt also invalid: "${vinResult}" — flagging for review`)
           extraction.vin = null
           extraction.vin_needs_review = true
         }
       } catch (e) {
-        console.error('[Gemini] VIN re-prompt error:', e)
+        console.error('[Sonnet] VIN re-prompt error:', e)
         extraction.vin = null
         extraction.vin_needs_review = true
       }

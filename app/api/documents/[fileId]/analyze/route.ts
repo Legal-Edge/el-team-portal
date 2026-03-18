@@ -1,6 +1,6 @@
 // POST /api/documents/[fileId]/analyze
 //
-// Stage 1: Gemini 2.5 Flash extraction for a single document.
+// Stage 1: Claude Sonnet extraction for a single document.
 // Fetches PDF from SharePoint, runs gemini-2.5-flash, caches in ai_extraction.
 // Returns cached result on repeat calls.
 
