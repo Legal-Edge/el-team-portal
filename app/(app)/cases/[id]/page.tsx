@@ -1650,7 +1650,7 @@ function DocumentsSection({
 }
 
 // ── Stage 1: Per-doc extraction panel (Gemini 2.5 Flash) — manual trigger + editable ─
-const SKIP_FIELDS = new Set(['doc_type','key_facts','key_dates','_validation','vin_needs_review'])
+const SKIP_FIELDS = new Set(['doc_type','key_facts','key_dates','_validation','vin_needs_review','raw'])
 const TEXTAREA_FIELDS = new Set(['complaint','diagnosis','work_performed','key_facts'])
 const SELECT_FIELDS: Record<string, string[]> = {
   repair_status: ['completed','unable_to_duplicate','parts_on_order','customer_declined','other'],
