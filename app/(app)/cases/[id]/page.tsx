@@ -2172,6 +2172,17 @@ export default function CaseDetailPage() {
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') ?? 'overview'
   const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks'>(initialTab)
+
+  const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') => {
+    setActiveTab(tab)
+    const url = new URL(window.location.href)
+    if (tab === 'overview') {
+      url.searchParams.delete('tab')
+    } else {
+      url.searchParams.set('tab', tab)
+    }
+    router.replace(url.pathname + (url.search || ''), { scroll: false })
+  }
   const [taskCount, setTaskCount] = useState(0)
   const [staffList, setStaffList] = useState<{ id: string; display_name: string }[]>([])
   const esRef = useRef<EventSource | null>(null)
@@ -2633,7 +2644,7 @@ export default function CaseDetailPage() {
             {TABS.map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => switchTab(tab.id)}
                 className={`px-4 py-2.5 text-sm font-medium transition-all duration-150 -mb-px border-b-2 ${
                   activeTab === tab.id
                     ? 'text-gray-900 border-lemon-400'
@@ -3116,7 +3127,7 @@ export default function CaseDetailPage() {
 
           {/* ── AI Analysis tab ── */}
           {activeTab === 'ai' && (
-            <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => setActiveTab('documents')} />
+            <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => switchTab('documents')} />
           )}
 
           {/* ── Tasks tab ── */}
@@ -3296,7 +3307,7 @@ export default function CaseDetailPage() {
                 </a>
               )}
               <button
-                onClick={() => setActiveTab('comms')}
+                onClick={() => switchTab('comms')}
                 className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-all duration-150 active:scale-95"
               >
                 <svg className="w-4 h-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
