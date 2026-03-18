@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Two-Stage AI Document Analysis Pipeline
 //
-// Stage 1 — Haiku extraction (per document, runs on first open, cached)
-//   extractDocument(pdfBytes, docType) → structured JSON
+// Stage 1 — Gemini 2.5 Flash extraction (per document, cached)
+//   extractDocument(pdfBytes, docType) → structured JSON + validation flags
 //
 // Stage 2 — Sonnet case analysis (on demand, reads cached extractions)
 //   analyzeCaseDocuments(extractions[], caseContext) → case-level findings
@@ -10,9 +10,10 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { createClient } from '@supabase/supabase-js'
 
-export const EXTRACTION_MODEL = 'claude-haiku-4-5'
+export const EXTRACTION_MODEL = 'gemini-2.5-flash'
 export const ANALYSIS_MODEL   = 'claude-sonnet-4-20250514'
 
 import { runLemonLawEngine } from '../lemon-law/engine'
@@ -139,74 +140,193 @@ const EXTRACTION_PROMPTS: Record<string, string> = {
 }`,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// VALIDATION LAYER — deterministic, zero cost, runs after every extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/
+
+// ISO 3779 VIN checksum — returns true if check digit is valid
+function isValidVinChecksum(vin: string): boolean {
+  const TRANSLITERATION: Record<string, number> = {
+    A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,
+    J:1,K:2,L:3,M:4,N:5,  P:7,  R:9,
+    S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9,
+    '0':0,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,
+  }
+  const WEIGHTS = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2]
+  const sum = vin.split('').reduce((acc, ch, i) => acc + (TRANSLITERATION[ch] ?? 0) * WEIGHTS[i], 0)
+  const remainder = sum % 11
+  const expected  = remainder === 10 ? 'X' : String(remainder)
+  return vin[8] === expected
+}
+
+interface ValidationFlags {
+  vin_valid:          boolean | null   // null = no VIN to validate
+  vin_checksum_valid: boolean | null
+  dates_valid:        boolean | null
+  mileage_valid:      boolean | null
+  needs_review:       boolean
+  review_reasons:     string[]
+}
+
+function validateExtraction(
+  extraction: Record<string, unknown>,
+  docType:    string | null,
+): ValidationFlags {
+  const flags: ValidationFlags = {
+    vin_valid:          null,
+    vin_checksum_valid: null,
+    dates_valid:        null,
+    mileage_valid:      null,
+    needs_review:       false,
+    review_reasons:     [],
+  }
+
+  // ── VIN ────────────────────────────────────────────────────────────────
+  const vin = extraction.vin
+  if (vin && typeof vin === 'string') {
+    const vinClean = vin.replace(/\s/g, '').toUpperCase()
+    flags.vin_valid = VIN_RE.test(vinClean)
+    if (!flags.vin_valid) {
+      flags.needs_review = true
+      flags.review_reasons.push(`VIN format invalid: "${vin}" (must be 17 alphanumeric chars, no I/O/Q)`)
+    } else {
+      flags.vin_checksum_valid = isValidVinChecksum(vinClean)
+      if (!flags.vin_checksum_valid) {
+        flags.needs_review = true
+        flags.review_reasons.push(`VIN checksum failed: "${vinClean}" — likely 1 character misread`)
+      }
+    }
+  }
+
+  // ── Dates ──────────────────────────────────────────────────────────────
+  if (docType === 'repair_order') {
+    const dateIn  = extraction.repair_date_in
+    const dateOut = extraction.repair_date_out
+    const MIN_DATE = new Date('2000-01-01').getTime()
+    const MAX_DATE = new Date('2035-01-01').getTime()
+
+    let datesOk = true
+    const dateInParsed  = dateIn  ? new Date(dateIn  as string) : null
+    const dateOutParsed = dateOut ? new Date(dateOut as string) : null
+
+    if (dateInParsed && (isNaN(dateInParsed.getTime()) || dateInParsed.getTime() < MIN_DATE || dateInParsed.getTime() > MAX_DATE)) {
+      datesOk = false
+      flags.review_reasons.push(`repair_date_in out of range: "${dateIn}"`)
+    }
+    if (dateOutParsed && (isNaN(dateOutParsed.getTime()) || dateOutParsed.getTime() < MIN_DATE || dateOutParsed.getTime() > MAX_DATE)) {
+      datesOk = false
+      flags.review_reasons.push(`repair_date_out out of range: "${dateOut}"`)
+    }
+    if (dateInParsed && dateOutParsed && !isNaN(dateInParsed.getTime()) && !isNaN(dateOutParsed.getTime()) && dateOutParsed < dateInParsed) {
+      datesOk = false
+      flags.review_reasons.push(`repair_date_out is before repair_date_in`)
+    }
+    flags.dates_valid = datesOk
+    if (!datesOk) flags.needs_review = true
+  }
+
+  // ── Mileage ────────────────────────────────────────────────────────────
+  if (docType === 'repair_order') {
+    const milIn  = extraction.mileage_in
+    const milOut = extraction.mileage_out
+    let milOk = true
+
+    if (milIn !== null && milIn !== undefined && (typeof milIn !== 'number' || milIn < 0 || milIn > 300000)) {
+      milOk = false
+      flags.review_reasons.push(`mileage_in out of range: "${milIn}"`)
+    }
+    if (milOut !== null && milOut !== undefined && (typeof milOut !== 'number' || milOut < 0 || milOut > 300000)) {
+      milOk = false
+      flags.review_reasons.push(`mileage_out out of range: "${milOut}"`)
+    }
+    if (typeof milIn === 'number' && typeof milOut === 'number' && milOut < milIn) {
+      milOk = false
+      flags.review_reasons.push(`mileage_out (${milOut}) is less than mileage_in (${milIn})`)
+    }
+    flags.mileage_valid = milOk
+    if (!milOk) flags.needs_review = true
+  }
+
+  return flags
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 1 — Gemini 2.5 Flash extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function extractDocument(
   pdfBytes: ArrayBuffer,
   docType:  string | null,
 ): Promise<{ extraction: Record<string, unknown>; model: string }> {
-  const client    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const genAI     = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
   const prompt    = EXTRACTION_PROMPTS[docType ?? ''] ?? EXTRACTION_PROMPTS.default
   const base64Pdf = Buffer.from(pdfBytes).toString('base64')
   const knowledge = await loadKnowledge('extraction', docType)
 
-  const response = await client.beta.messages.create({
-    model:      EXTRACTION_MODEL,
-    max_tokens: 800,
-    system:     `You are a document extraction assistant for a lemon law firm. Extract structured data from legal/automotive documents. Return ONLY valid JSON.${knowledge}`,
-    messages: [{
-      role:    'user',
-      content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf } } as BetaContentBlockParam,
-        { type: 'text', text: prompt } as BetaContentBlockParam,
-      ],
-    }],
-    betas: ['pdfs-2024-09-25'],
+  const gemini = genAI.getGenerativeModel({
+    model:             EXTRACTION_MODEL,
+    systemInstruction: `You are a document extraction assistant for a lemon law firm. Extract structured data from legal/automotive documents. Return ONLY valid JSON, no markdown, no explanation.${knowledge}`,
   })
 
-  const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
+  const result = await gemini.generateContent({
+    contents: [{
+      role:  'user',
+      parts: [
+        { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
+        { text: prompt },
+      ],
+    }],
+    generationConfig: { maxOutputTokens: 1024, temperature: 0 },
+  })
+
+  const text       = result.response.text()
   const extraction = parseJson(text)
 
-  // ── VIN validation + targeted re-prompt ─────────────────────────────────
-  // VIN must be exactly 17 chars, no I/O/Q. If Haiku returns an invalid VIN,
-  // do a targeted second call asking only for the VIN to avoid character misreads.
+  // ── VIN normalisation + format check ────────────────────────────────────
   const vinRaw = extraction.vin
   if (vinRaw && typeof vinRaw === 'string') {
-    const vinClean = vinRaw.replace(/\s/g, '').toUpperCase()
-    const VIN_RE   = /^[A-HJ-NPR-Z0-9]{17}$/
-    if (!VIN_RE.test(vinClean)) {
-      // Invalid VIN — re-prompt specifically for VIN only
-      console.warn(`[AI] VIN validation failed: "${vinRaw}" — re-prompting`)
+    const vinClean = vinRaw.replace(/[\s-]/g, '').toUpperCase()
+    if (VIN_RE.test(vinClean)) {
+      extraction.vin = vinClean
+    } else {
+      // Invalid format — re-prompt Gemini specifically for VIN
+      console.warn(`[Gemini] VIN format invalid: "${vinRaw}" — re-prompting`)
       try {
-        const vinRetry = await client.beta.messages.create({
-          model:      EXTRACTION_MODEL,
-          max_tokens: 100,
-          system:     'You are a VIN extraction assistant. Return ONLY the raw 17-character VIN number, nothing else. No JSON, no labels, just the 17 characters.',
-          messages: [{
-            role:    'user',
-            content: [
-              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf } } as BetaContentBlockParam,
-              { type: 'text', text: 'What is the Vehicle Identification Number (VIN) on this document? Return ONLY the 17-character VIN, nothing else.' } as BetaContentBlockParam,
+        const retry = await gemini.generateContent({
+          contents: [{
+            role:  'user',
+            parts: [
+              { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
+              { text: 'Find the Vehicle Identification Number (VIN) on this document. Return ONLY the 17-character VIN — no labels, no JSON, no spaces. Just the 17 characters.' },
             ],
           }],
-          betas: ['pdfs-2024-09-25'],
+          generationConfig: { maxOutputTokens: 30, temperature: 0 },
         })
-        const vinResult = vinRetry.content.find(b => b.type === 'text')?.text?.trim().replace(/\s/g, '').toUpperCase() ?? ''
+        const vinResult = retry.response.text().trim().replace(/[\s-]/g, '').toUpperCase()
         if (VIN_RE.test(vinResult)) {
           extraction.vin = vinResult
-          console.log(`[AI] VIN re-prompt succeeded: "${vinResult}"`)
+          console.log(`[Gemini] VIN re-prompt succeeded: "${vinResult}"`)
         } else {
-          // Still invalid — null it out and flag for manual review
-          console.warn(`[AI] VIN re-prompt also invalid: "${vinResult}" — setting null`)
+          console.warn(`[Gemini] VIN re-prompt also invalid: "${vinResult}" — flagging for review`)
           extraction.vin = null
           extraction.vin_needs_review = true
         }
       } catch (e) {
-        console.error('[AI] VIN re-prompt failed:', e)
+        console.error('[Gemini] VIN re-prompt error:', e)
         extraction.vin = null
         extraction.vin_needs_review = true
       }
-    } else {
-      extraction.vin = vinClean  // normalize to uppercase
     }
+  }
+
+  // ── Validation layer ─────────────────────────────────────────────────────
+  const validation = validateExtraction(extraction, docType)
+  extraction._validation = validation
+
+  if (validation.needs_review) {
+    console.warn(`[Validation] Document needs review — ${validation.review_reasons.join('; ')}`)
   }
 
   return { extraction, model: EXTRACTION_MODEL }
