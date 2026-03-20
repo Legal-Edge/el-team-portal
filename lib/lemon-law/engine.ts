@@ -41,9 +41,11 @@ function groupDefects(repairs: RepairRecord[]): DefectGroup[] {
   const groups: Map<string, DefectGroup> = new Map()
 
   for (const r of repairs) {
-    if (!r.complaint) continue
+    // Use complaint field; fall back to work_performed if complaint is blank
+    const rawText = r.complaint?.trim() || r.work_performed?.trim()
+    if (!rawText) continue
     // Skip clearly non-warranty repairs
-    const complaint = r.complaint.trim()
+    const complaint = rawText
     const category  = categorizeDefect(complaint)
     const safety    = isSafetyDefect(complaint)
 
