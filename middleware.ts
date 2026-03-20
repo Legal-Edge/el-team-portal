@@ -21,6 +21,7 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/count-check',          // HubSpot vs Supabase count reconciliation (token-protected)
     '/api/admin/find-orphaned-deals',  // Find deals in Supabase not in HubSpot (token-protected)
     '/api/admin/sharepoint',           // SharePoint admin endpoints (token-protected)
+    '/api/cases/',                     // case-level API routes — bulk-extract etc handle own auth
     '/api/webhooks/sharepoint',        // SharePoint Graph webhook (no session)
     '/api/webhooks/hubspot-team',     // HubSpot real-time webhook (token-protected)
   ]
@@ -52,6 +53,6 @@ export default auth((req: NextRequest & { auth: any }) => {
 // Configure which routes should be processed by the middleware
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/cases/|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
