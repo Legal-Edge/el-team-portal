@@ -2230,6 +2230,147 @@ function FileRow({
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Verified Data Sidebar Card
+// Shows key facts extracted from documents (purchase agreement, ROs, registration)
+// with source badges. Falls back to nothing if no extractions available.
+// ─────────────────────────────────────────────────────────────────────────────
+function VerifiedDataCard({ caseId }: { caseId: string }) {
+  const [files, setFiles] = useState<CaseFile[]>([])
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/cases/${caseId}/documents`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { setFiles(d.files ?? []); setReady(true) })
+      .catch(() => setReady(true))
+  }, [caseId])
+
+  if (!ready) return null
+
+  const extracted = files.filter(f => f.ai_extraction)
+  if (extracted.length === 0) return null
+
+  const purchase = extracted.find(f => ['purchase_agreement','lease_agreement'].includes(f.document_type_code ?? ''))
+  const reg      = extracted.find(f => f.document_type_code === 'vehicle_registration')
+  const ros      = extracted.filter(f => f.document_type_code === 'repair_order')
+
+  const purchaseEx = purchase?.ai_extraction as Record<string, unknown> | null ?? null
+  const regEx      = reg?.ai_extraction     as Record<string, unknown> | null ?? null
+
+  // Pull fields from docs
+  const vin          = (purchaseEx?.vin ?? regEx?.vin) as string | null ?? null
+  const purchaseDate = purchaseEx?.purchase_date as string | null ?? null
+  const purchasePrice= purchaseEx?.purchase_price as number | string | null ?? null
+  const newOrUsed    = (purchaseEx?.new_or_used as string | null) ?? null
+  const purchOrLease = (purchaseEx?.purchase_or_lease as string | null) ?? null
+  const regState     = regEx?.registered_state as string | null ?? null
+
+  // RO aggregates
+  const roMileages = ros
+    .map(r => (r.ai_extraction as Record<string, unknown>)?.mileage_in as number | null ?? null)
+    .filter((m): m is number => typeof m === 'number' && m > 0)
+  const latestMileage = roMileages.length > 0 ? Math.max(...roMileages) : null
+  const roDates = ros
+    .map(r => (r.ai_extraction as Record<string, unknown>)?.repair_date_in as string | null ?? null)
+    .filter(Boolean).sort() as string[]
+  const firstRO = roDates[0] ?? null
+  const lastRO  = roDates[roDates.length - 1] ?? null
+  const totalDays = ros.reduce((s, r) => s + (((r.ai_extraction as Record<string, unknown>)?.days_in_shop as number) ?? 0), 0)
+
+  const fmtD = (d: string | null) => d
+    ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null
+  const fmtPrice = (p: number | string | null) => {
+    const n = typeof p === 'string' ? parseFloat(p.replace(/[^0-9.]/g, '')) : p
+    return n && !isNaN(n) ? '$' + n.toLocaleString() : null
+  }
+
+  // Badge component
+  const Src = ({ label }: { label: string }) => (
+    <span className="text-[10px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full leading-none shrink-0">{label} ✓</span>
+  )
+
+  // Row: only render if value exists
+  const Row = ({ label, value, src }: { label: string; value: string | null | undefined; src: string }) => {
+    if (!value) return null
+    return (
+      <div>
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</p>
+          <Src label={src} />
+        </div>
+        <p className="text-xs font-medium text-gray-900 break-all">{value}</p>
+      </div>
+    )
+  }
+
+  // Only render if there's at least one thing to show
+  const hasVehicle  = vin || purchaseDate || purchasePrice || newOrUsed || purchOrLease || regState
+  const hasRepairs  = ros.length > 0 && (latestMileage || firstRO || totalDays > 0)
+  if (!hasVehicle && !hasRepairs) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-4">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Verified Facts</p>
+
+      {hasVehicle && (
+        <div className="space-y-2.5">
+          <p className="text-[10px] font-semibold text-gray-300 uppercase tracking-widest">Vehicle &amp; Transaction</p>
+          <Row label="VIN"            value={vin}                src={purchaseEx?.vin ? 'Purchase Agreement' : 'Registration'} />
+          <Row label="Purchase Date"  value={fmtD(purchaseDate)} src="Purchase Agreement" />
+          <Row label="Purchase Price" value={fmtPrice(purchasePrice)} src="Purchase Agreement" />
+          <Row label="New / Used"     value={newOrUsed}          src="Purchase Agreement" />
+          <Row label="Type"           value={purchOrLease}       src="Purchase Agreement" />
+          <Row label="State"          value={regState}           src="Registration" />
+        </div>
+      )}
+
+      {hasRepairs && (
+        <div className="space-y-2.5">
+          <p className="text-[10px] font-semibold text-gray-300 uppercase tracking-widest">Repair History</p>
+          <div>
+            <div className="flex items-center justify-between gap-1 mb-0.5">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Repair Orders</p>
+              <Src label="Repair Orders" />
+            </div>
+            <p className="text-xs font-medium text-gray-900">{ros.length} visit{ros.length !== 1 ? 's' : ''}</p>
+          </div>
+          {firstRO && (
+            <div>
+              <div className="flex items-center justify-between gap-1 mb-0.5">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Date Range</p>
+                <Src label="Repair Orders" />
+              </div>
+              <p className="text-xs font-medium text-gray-900">
+                {fmtD(firstRO)}{lastRO && lastRO !== firstRO ? ` – ${fmtD(lastRO)}` : ''}
+              </p>
+            </div>
+          )}
+          {totalDays > 0 && (
+            <div>
+              <div className="flex items-center justify-between gap-1 mb-0.5">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Days Out of Service</p>
+                <Src label="Repair Orders" />
+              </div>
+              <p className="text-xs font-medium text-gray-900">{totalDays} days</p>
+            </div>
+          )}
+          {latestMileage && (
+            <div>
+              <div className="flex items-center justify-between gap-1 mb-0.5">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Latest Mileage</p>
+                <Src label="Repair Orders" />
+              </div>
+              <p className="text-xs font-medium text-gray-900">{latestMileage.toLocaleString()} mi</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function CaseDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -3349,6 +3490,9 @@ export default function CaseDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Verified Facts from documents */}
+          <VerifiedDataCard caseId={c.hubspot_deal_id} />
 
           {/* Intake Status */}
           {intakeStatus && (
