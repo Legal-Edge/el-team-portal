@@ -477,6 +477,7 @@ interface ChecklistItem {
 
 interface CaseFile {
   id: string
+  case_id?: string | null
   file_name: string
   file_extension: string | null
   size_bytes: number | null
@@ -769,6 +770,184 @@ interface RepairStats {
   lastDate: string | null
   extractedAll: number
   totalFiles: number
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RO Viewer Modal — fetches PDF blob via /api/documents/[id]/view, renders inline
+// ─────────────────────────────────────────────────────────────────────────────
+function ROViewerModal({
+  file, ex, idx, total, caseId, splitPipes, fmtD, onPrev, onNext, onClose,
+}: {
+  file: CaseFile
+  ex: Record<string, unknown>
+  idx: number
+  total: number
+  caseId: string
+  splitPipes: (s: string | null | undefined) => string[]
+  fmtD: (d: string | null | undefined) => string | null
+  onPrev: () => void
+  onNext: () => void
+  onClose: () => void
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [pdfErr,  setPdfErr]  = useState(false)
+  const prevBlobRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    setBlobUrl(null); setPdfErr(false)
+    if (prevBlobRef.current) { URL.revokeObjectURL(prevBlobRef.current); prevBlobRef.current = null }
+    fetch(`/api/documents/${file.id}/view`, { credentials: 'include' })
+      .then(r => r.ok ? r.blob() : Promise.reject())
+      .then(blob => {
+        const url = URL.createObjectURL(blob)
+        prevBlobRef.current = url
+        setBlobUrl(url)
+      })
+      .catch(() => setPdfErr(true))
+    return () => { if (prevBlobRef.current) URL.revokeObjectURL(prevBlobRef.current) }
+  }, [file.id])
+
+  // Keyboard nav
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape')     onClose()
+      if (e.key === 'ArrowLeft')  onPrev()
+      if (e.key === 'ArrowRight') onNext()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose, onPrev, onNext])
+
+  const complaint   = splitPipes(ex.complaint      as string | null)
+  const work        = splitPipes(ex.work_performed  as string | null)
+  const diag        = splitPipes(ex.diagnosis       as string | null)
+  const repairLines = work.length > 0 ? work : diag
+  const warranty    = ex.is_warranty  as boolean | null ?? null
+  const days        = ex.days_in_shop as number | null ?? null
+  const mileage     = ex.mileage_in   as number | null ?? null
+  const dateIn      = fmtD(ex.repair_date_in  as string | null)
+  const dateOut     = fmtD(ex.repair_date_out as string | null)
+  const isUTD       = ex.repair_status === 'unable_to_duplicate'
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shrink-0">
+        <button
+          onClick={onPrev} disabled={idx === 0}
+          className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
+        >← Previous</button>
+        <div className="text-sm font-semibold text-gray-700">
+          Repair Order {idx + 1} <span className="text-gray-400 font-normal">of {total}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onNext} disabled={idx === total - 1}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
+          >Next →</button>
+          <button
+            onClick={onClose}
+            className="ml-1 w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all text-base"
+          >✕</button>
+        </div>
+      </div>
+
+      {/* Body: PDF left, extraction right */}
+      <div className="flex flex-1 min-h-0">
+        {/* PDF */}
+        <div className="flex-1 bg-gray-100 flex items-center justify-center min-w-0">
+          {pdfErr ? (
+            <div className="text-center text-gray-400 space-y-2">
+              <p className="text-sm">Could not load document</p>
+              <a href={`/cases/${caseId}/documents/${file.id}`} target="_blank" rel="noopener noreferrer"
+                className="text-xs text-lemon-600 underline">Open in full viewer →</a>
+            </div>
+          ) : !blobUrl ? (
+            <p className="text-sm text-gray-400 animate-pulse">Loading document…</p>
+          ) : (
+            <object data={blobUrl} type="application/pdf" className="w-full h-full">
+              <p className="text-sm text-gray-500 p-8">
+                PDF preview not supported.{' '}
+                <a href={blobUrl} download={file.file_name} className="text-lemon-600 underline">Download</a>
+              </p>
+            </object>
+          )}
+        </div>
+
+        {/* Extraction summary panel */}
+        <div className="w-72 bg-white border-l border-gray-200 overflow-y-auto shrink-0 p-5 space-y-4">
+          {/* Header */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Repair Order {idx + 1}</p>
+            {dateIn && (
+              <p className="text-sm font-medium text-gray-700">{dateIn}{dateOut && dateOut !== dateIn ? ` – ${dateOut}` : ''}</p>
+            )}
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {isUTD    && <span className="text-[10px] font-medium text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">UTD</span>}
+              {warranty === true  && <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Under Warranty</span>}
+              {warranty === false && <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">Out of Warranty</span>}
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div className="flex gap-4 py-2 border-y border-gray-100">
+            {days != null && days > 0 && (
+              <div className="text-center">
+                <p className="text-lg font-bold text-gray-800">{days}</p>
+                <p className="text-[10px] text-gray-400">Days OOS</p>
+              </div>
+            )}
+            {mileage != null && mileage > 0 && (
+              <div className="text-center">
+                <p className="text-lg font-bold text-gray-800">{mileage.toLocaleString()}</p>
+                <p className="text-[10px] text-gray-400">Miles</p>
+              </div>
+            )}
+          </div>
+
+          {/* Complaint */}
+          {complaint.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Complaint</p>
+              <ul className="space-y-1">
+                {complaint.map((line, i) => (
+                  <li key={i} className="text-xs text-gray-800 flex gap-1.5 leading-relaxed">
+                    <span className="text-gray-300 shrink-0 mt-0.5">·</span>{line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Repairs */}
+          {repairLines.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Repairs / Diagnosis</p>
+              <ul className="space-y-1">
+                {repairLines.map((line, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex gap-1.5 leading-relaxed">
+                    <span className="text-gray-300 shrink-0 mt-0.5">·</span>{line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Open full viewer link */}
+          <a
+            href={`/cases/${caseId}/documents/${file.id}`}
+            target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-lemon-600 transition-colors mt-2"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+            </svg>
+            Open full viewer
+          </a>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }: { caseId: string; repairStats?: RepairStats; roFiles?: CaseFile[]; onSwitchToDocuments?: () => void }) {
@@ -1176,7 +1355,7 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }
           return ad.localeCompare(bd)
         })
 
-        // ── Text cleaning helpers ─────────────────────────────────────────
+        // ── Text cleaning helpers (also passed to modal) ──────────────────
         const JUNK_PATTERNS = [
           /multi.?point vehicle inspection/i,
           /complimentary/i,
@@ -1198,7 +1377,6 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }
             .map(s => cleanLine(s))
             .filter(s => s.length > 3 && !JUNK_PATTERNS.some(p => p.test(s)))
         }
-
         const fmtD = (d: string | null | undefined) => d
           ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
           : null
@@ -1215,55 +1393,24 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }
         return (
           <>
             {/* ── RO Viewer Modal ─────────────────────────────────────────── */}
-            {roModalIdx !== null && (
-              <div
-                className="fixed inset-0 z-50 flex flex-col"
-                style={{ background: 'rgba(0,0,0,0.7)' }}
-                onKeyDown={e => {
-                  if (e.key === 'Escape') setRoModalIdx(null)
-                  if (e.key === 'ArrowLeft'  && roModalIdx > 0)                       setRoModalIdx(i => i! - 1)
-                  if (e.key === 'ArrowRight' && roModalIdx < sortedROs.length - 1)    setRoModalIdx(i => i! + 1)
-                }}
-                tabIndex={-1}
-              >
-                {/* Top bar */}
-                <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shrink-0">
-                  <button
-                    onClick={() => setRoModalIdx(i => Math.max(0, i! - 1))}
-                    disabled={roModalIdx === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
-                  >
-                    ← Previous
-                  </button>
-                  <div className="text-sm font-semibold text-gray-700">
-                    Repair Order {roModalIdx + 1} <span className="text-gray-400 font-normal">of {sortedROs.length}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setRoModalIdx(i => Math.min(sortedROs.length - 1, i! + 1))}
-                      disabled={roModalIdx === sortedROs.length - 1}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
-                    >
-                      Next →
-                    </button>
-                    <button
-                      onClick={() => setRoModalIdx(null)}
-                      className="ml-2 w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all text-lg leading-none"
-                      aria-label="Close"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-                {/* iframe */}
-                <iframe
-                  key={sortedROs[roModalIdx]?.id}
-                  src={`/cases/${caseId}/documents/${sortedROs[roModalIdx]?.id}`}
-                  className="flex-1 w-full border-0 bg-white"
-                  title={`Repair Order ${roModalIdx + 1}`}
+            {roModalIdx !== null && (() => {
+              const activeFile = sortedROs[roModalIdx]
+              const activeEx   = activeFile?.ai_extraction as Record<string, unknown> | null ?? {}
+              return (
+                <ROViewerModal
+                  file={activeFile}
+                  ex={activeEx}
+                  idx={roModalIdx}
+                  total={sortedROs.length}
+                  caseId={caseId}
+                  splitPipes={splitPipes}
+                  fmtD={fmtD}
+                  onPrev={() => setRoModalIdx(i => Math.max(0, i! - 1))}
+                  onNext={() => setRoModalIdx(i => Math.min(sortedROs.length - 1, i! + 1))}
+                  onClose={() => setRoModalIdx(null)}
                 />
-              </div>
-            )}
+              )
+            })()}
 
             {/* ── RO Card List ─────────────────────────────────────────────── */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
