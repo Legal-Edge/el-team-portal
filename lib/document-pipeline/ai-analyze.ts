@@ -523,6 +523,32 @@ Write the attorney memo. Return this exact JSON:
     current_mileage: engineInput.mileage_at_intake ?? null,
   })
 
+  // ── SOL override: if state SOL expired, drop state theory from cause of action ──
+  let resolvedCauseOfAction = engineResult.cause_of_action
+  const solRiskFactors: string[] = []
+
+  if (solResult.basis !== 'unknown' && solResult.state_sol_expired) {
+    // State SOL has passed — client can no longer file a state lemon law claim
+    if (resolvedCauseOfAction === 'both' || resolvedCauseOfAction === 'state_lemon_law') {
+      resolvedCauseOfAction = engineResult.meets_federal_threshold ? 'magnuson_moss' : null
+      solRiskFactors.push(
+        `State lemon law SOL expired ${solResult.state_sol_date} — state claim no longer fileable; ${
+          engineResult.meets_federal_threshold
+            ? 'Magnuson-Moss federal claim still available (4-year window open)'
+            : 'federal Mag-Moss threshold not met — evaluate carefully'
+        }`
+      )
+    }
+  }
+
+  if (solResult.basis !== 'unknown' && solResult.federal_sol_expired) {
+    solRiskFactors.push(`Federal Magnuson-Moss SOL also expired ${solResult.federal_sol_date} — both claims may be time-barred`)
+  }
+
+  if (solResult.state_sol_urgent && !solResult.state_sol_expired) {
+    solRiskFactors.push(`State lemon law SOL expires in ${solResult.days_until_state_sol} days (${solResult.state_sol_date}) — file urgently`)
+  }
+
   // Merge engine decision (authoritative) with Sonnet narrative
   return {
     analysis: {
@@ -531,9 +557,9 @@ Write the attorney memo. Return this exact JSON:
       decision:               engineResult.decision,
       confidence:             engineResult.confidence,
       confidence_score:       engineResult.confidence_score,
-      cause_of_action:        engineResult.cause_of_action,
+      cause_of_action:        resolvedCauseOfAction,
       engine_retain_signals:  engineResult.retain_signals,
-      engine_risk_factors:    engineResult.risk_factors,
+      engine_risk_factors:    [...engineResult.risk_factors, ...solRiskFactors],
       engine_missing_data:    engineResult.missing_data,
       state_law:              engineResult.state_law?.name ?? null,
       state_statute:          engineResult.state_law?.statute ?? null,
