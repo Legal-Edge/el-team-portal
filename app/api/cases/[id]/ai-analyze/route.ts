@@ -148,11 +148,17 @@ export async function POST(
     ? (reg.ai_extraction as Record<string, unknown>).registered_state as string ?? null
     : null
 
+  // Read purchase_date from extracted purchase agreement if not on case record
+  const purchaseDateFromDoc = purchase?.ai_extraction
+    ? (purchase.ai_extraction as Record<string, unknown>).purchase_date as string ?? null
+    : null
+  const resolvedPurchaseDate = purchaseDateFromCase || purchaseDateFromDoc || null
+
   const caseContext = {
     client_name:      clientName,
     vehicle:          vehicleFromPurchase || [caseDetails.vehicle_year, caseDetails.vehicle_make, caseDetails.vehicle_model].filter(Boolean).join(' ') || null,
     state:            stateFromReg || (caseDetails.state_jurisdiction as string) || null,
-    purchase_date:    purchaseDateFromCase,
+    purchase_date:    resolvedPurchaseDate,
     vehicle_year:     (caseDetails.vehicle_year as number) || null,
     vehicle_make:     (caseDetails.vehicle_make as string) || null,
     new_or_used:      newUsedFromCase,
