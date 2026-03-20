@@ -41,8 +41,9 @@ function groupDefects(repairs: RepairRecord[]): DefectGroup[] {
   const groups: Map<string, DefectGroup> = new Map()
 
   for (const r of repairs) {
-    // Use complaint field; fall back to work_performed if complaint is blank
-    const rawText = r.complaint?.trim() || r.work_performed?.trim()
+    // Use complaint field; fall back to diagnosis or work_performed if complaint is blank
+    // Gemini sometimes extracts defect description into diagnosis or work_performed instead of complaint
+    const rawText = r.complaint?.trim() || r.diagnosis?.trim() || r.work_performed?.trim()
     if (!rawText) continue
     // Skip clearly non-warranty repairs
     const complaint = rawText

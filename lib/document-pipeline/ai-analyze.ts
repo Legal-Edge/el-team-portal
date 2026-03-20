@@ -91,6 +91,13 @@ function parseJson(text: string): Record<string, unknown> {
 
 const EXTRACTION_PROMPTS: Record<string, string> = {
   repair_order: `Extract the following fields from this repair order. Return ONLY valid JSON, no other text.
+
+IMPORTANT field definitions:
+- "complaint": The customer's stated concern/problem. Look for labels like "Customer Concern", "Customer States", "CS:", "Complaint", "Problem", "Concern". Extract the full complaint text as a single string. Never return null if any customer concern text exists anywhere on the document.
+- "diagnosis": What the technician found after inspection. Labels: "Cause", "Diagnosis", "Tech Notes", "Found", "Technician Comments".
+- "work_performed": What was actually done to the vehicle. Labels: "Correction", "Work Performed", "Repair", "Labor".
+- "repair_status": Set to "unable_to_duplicate" if technician found no issue, "completed" if repair was made.
+
 {
   "doc_type": "repair_order",
   "ro_number": string | null,
