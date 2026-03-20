@@ -130,40 +130,57 @@ export async function POST(
     }, { status: 422 })
   }
 
-  // Build case context from case + RO extractions
-  const ros = files.filter(f => f.document_type_code === 'repair_order')
+  // ── Build case context: documents are primary source of truth ────────────
+  // Priority order: extracted documents > HubSpot case fields
+  const ros     = files.filter(f => f.document_type_code === 'repair_order')
   const purchase = files.find(f => ['purchase_agreement','lease_agreement'].includes(f.document_type_code ?? ''))
+  const reg      = files.find(f => f.document_type_code === 'vehicle_registration')
 
-  const vehicleFromPurchase = purchase?.ai_extraction
-    ? [
-        (purchase.ai_extraction as Record<string, unknown>).vehicle_year,
-        (purchase.ai_extraction as Record<string, unknown>).vehicle_make,
-        (purchase.ai_extraction as Record<string, unknown>).vehicle_model,
-      ].filter(Boolean).join(' ')
-    : null
+  const purchaseEx = purchase?.ai_extraction as Record<string, unknown> | null ?? null
+  const regEx      = reg?.ai_extraction     as Record<string, unknown> | null ?? null
 
-  // Try to infer state from registration
-  const reg = files.find(f => f.document_type_code === 'vehicle_registration')
-  const stateFromReg = reg?.ai_extraction
-    ? (reg.ai_extraction as Record<string, unknown>).registered_state as string ?? null
-    : null
+  // Vehicle identity — purchase agreement > registration > RO > HubSpot
+  const roEx = ros[0]?.ai_extraction as Record<string, unknown> | null ?? null
+  const yearFromDoc  = (purchaseEx?.vehicle_year  ?? regEx?.vehicle_year  ?? roEx?.vehicle_year)  as number | null ?? null
+  const makeFromDoc  = (purchaseEx?.vehicle_make  ?? regEx?.vehicle_make  ?? roEx?.vehicle_make)  as string | null ?? null
+  const modelFromDoc = (purchaseEx?.vehicle_model ?? regEx?.vehicle_model ?? roEx?.vehicle_model) as string | null ?? null
 
-  // Read purchase_date from extracted purchase agreement if not on case record
-  const purchaseDateFromDoc = purchase?.ai_extraction
-    ? (purchase.ai_extraction as Record<string, unknown>).purchase_date as string ?? null
-    : null
-  const resolvedPurchaseDate = purchaseDateFromCase || purchaseDateFromDoc || null
+  const resolvedYear  = yearFromDoc  || (caseDetails.vehicle_year  as number | null) || null
+  const resolvedMake  = makeFromDoc  || (caseDetails.vehicle_make  as string | null) || null
+  const resolvedModel = modelFromDoc || (caseDetails.vehicle_model as string | null) || null
+  const vehicleStr    = [resolvedYear, resolvedMake, resolvedModel].filter(Boolean).join(' ') || null
+
+  // Purchase date — purchase agreement extraction > HubSpot field
+  const purchaseDateFromDoc = purchaseEx?.purchase_date as string | null ?? null
+  const resolvedPurchaseDate = purchaseDateFromDoc || purchaseDateFromCase || null
+
+  // State — registration > HubSpot
+  const stateFromReg = regEx?.registered_state as string | null ?? null
+  const resolvedState = stateFromReg || (caseDetails.state_jurisdiction as string | null) || null
+
+  // New/used + purchase/lease — purchase agreement > HubSpot
+  const newUsedFromDoc      = purchaseEx?.new_or_used      as string | null ?? null
+  const purchaseLeaseFromDoc = purchaseEx?.purchase_or_lease as string | null ?? null
+  const resolvedNewUsed      = newUsedFromDoc      || newUsedFromCase      || null
+  const resolvedPurchaseLease = purchaseLeaseFromDoc || purchaseLeaseFromCase || null
+
+  // Mileage — latest RO mileage_in > HubSpot current_mileage
+  const roMileages = ros
+    .map(r => (r.ai_extraction as Record<string, unknown> | null)?.mileage_in as number | null ?? null)
+    .filter((m): m is number => typeof m === 'number' && m > 0)
+  const latestRoMileage = roMileages.length > 0 ? Math.max(...roMileages) : null
+  const resolvedMileage = latestRoMileage || mileageFromCase || null
 
   const caseContext = {
-    client_name:      clientName,
-    vehicle:          vehicleFromPurchase || [caseDetails.vehicle_year, caseDetails.vehicle_make, caseDetails.vehicle_model].filter(Boolean).join(' ') || null,
-    state:            stateFromReg || (caseDetails.state_jurisdiction as string) || null,
-    purchase_date:    resolvedPurchaseDate,
-    vehicle_year:     (caseDetails.vehicle_year as number) || null,
-    vehicle_make:     (caseDetails.vehicle_make as string) || null,
-    new_or_used:      newUsedFromCase,
-    purchase_lease:   purchaseLeaseFromCase,
-    mileage_at_intake: mileageFromCase,
+    client_name:       clientName,
+    vehicle:           vehicleStr,
+    state:             resolvedState,
+    purchase_date:     resolvedPurchaseDate,
+    vehicle_year:      resolvedYear,
+    vehicle_make:      resolvedMake,
+    new_or_used:       resolvedNewUsed,
+    purchase_lease:    resolvedPurchaseLease,
+    mileage_at_intake: resolvedMileage,
   }
 
   // Run Sonnet analysis
