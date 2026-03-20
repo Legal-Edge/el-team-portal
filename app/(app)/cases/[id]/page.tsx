@@ -2792,6 +2792,7 @@ export default function CaseDetailPage() {
   const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') ?? 'overview'
+  const backHref   = searchParams.get('from') ?? '/cases'
   const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks'>(initialTab)
 
   const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') => {
@@ -3231,7 +3232,7 @@ export default function CaseDetailPage() {
       <div className="mb-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-3">
-          <a href="/cases" className="hover:text-gray-600 transition-colors">← Cases</a>
+          <a href={backHref} className="hover:text-gray-600 transition-colors">← Cases</a>
           <span>/</span>
           <span className="text-gray-600">{clientName}</span>
         </div>

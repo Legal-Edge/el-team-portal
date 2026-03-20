@@ -395,7 +395,13 @@ function CasesContent() {
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => { window.location.href = `/cases/${c.hubspot_deal_id}` }}
+                      onClick={() => {
+                        const returnParams = new URLSearchParams()
+                        if (activeGroup) returnParams.set('group', activeGroup)
+                        if (activeStage) returnParams.set('status', activeStage)
+                        const qs = returnParams.toString()
+                        window.location.href = `/cases/${c.hubspot_deal_id}${qs ? `?from=${encodeURIComponent('/cases?' + qs)}` : ''}`
+                      }}
                       className={`cursor-pointer transition-all duration-500 border-l-4 ${
                         flashedIds.has(c.id)
                           ? 'bg-lemon-400/10 border-l-lemon-400'
