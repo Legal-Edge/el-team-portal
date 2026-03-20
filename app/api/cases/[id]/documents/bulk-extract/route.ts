@@ -18,12 +18,18 @@ import { extractDocument } from '@/lib/document-pipeline/ai-analyze'
 const DRIVE_ID = 'b!oTYerw9tj0KLIWLLGc_DzIZijDFxI1xNtMSGXezIVsUHL02cd1kmRra7r_dMei8k'
 const CONCURRENCY = 3
 
+const ADMIN_TOKEN = process.env.BACKFILL_IMPORT_TOKEN
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Accept admin token OR authenticated session
+  const authHeader = req.headers.get('authorization') ?? ''
+  if (!ADMIN_TOKEN || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
+    const session = await auth()
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const { id } = await params
   const { types, force = false } = await req.json().catch(() => ({}))
