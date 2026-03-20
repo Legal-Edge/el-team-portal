@@ -10,7 +10,7 @@ import type {
   EngineInput, QualificationResult, DefectGroup, Decision,
   CauseOfAction, Confidence, RepairRecord,
 } from './types'
-import { getStateLaw, FEDERAL_LAW, isSafetyDefect, categorizeDefect } from './states'
+import { getStateLaw, FEDERAL_LAW, isSafetyDefect, categorizeDefect, DEFECT_CATEGORIES } from './states'
 
 // ─── Repair value helpers ───────────────────────────────────────────────────
 
@@ -37,34 +37,56 @@ function daysInShop(r: RepairRecord): number {
 
 // ─── Defect grouping ────────────────────────────────────────────────────────
 
+// Return ALL defect categories that match the full repair text.
+// A single repair visit can span multiple defect categories (e.g. stalling + radio screen on same RO).
+function categorizeDefectAll(text: string): string[] {
+  const lower = text.toLowerCase()
+  const matched: string[] = []
+  for (const [category, keywords] of Object.entries(DEFECT_CATEGORIES)) {
+    if (keywords.some(k => lower.includes(k))) matched.push(category)
+  }
+  return matched.length > 0 ? matched : ['other']
+}
+
 function groupDefects(repairs: RepairRecord[]): DefectGroup[] {
   const groups: Map<string, DefectGroup> = new Map()
 
   for (const r of repairs) {
-    // Use complaint field; fall back to diagnosis or work_performed if complaint is blank
-    // Gemini sometimes extracts defect description into diagnosis or work_performed instead of complaint
-    const rawText = r.complaint?.trim() || r.diagnosis?.trim() || r.work_performed?.trim()
-    if (!rawText) continue
-    // Skip clearly non-warranty repairs
-    const complaint = rawText
-    const category  = categorizeDefect(complaint)
-    const safety    = isSafetyDefect(complaint)
+    // Build full repair text: complaint + diagnosis + work_performed
+    // A single RO often has multiple complaint lines; Gemini may only extract the first
+    // into `complaint` while others land in diagnosis/work_performed. Use all fields.
+    const parts = [
+      r.complaint?.trim(),
+      r.diagnosis?.trim(),
+      r.work_performed?.trim(),
+    ].filter(Boolean)
+    if (parts.length === 0) continue
 
-    if (!groups.has(category)) {
-      groups.set(category, {
-        category,
-        complaints: [],
-        attempts: 0,
-        dates: [],
-        isSafety: false,
-      })
+    const fullText = parts.join(' | ')
+    const safety   = isSafetyDefect(fullText)
+
+    // Count this repair visit in EVERY defect category it matches
+    // (e.g. an RO with stalling + radio screen counts for both engine + electrical)
+    const categories = categorizeDefectAll(fullText)
+
+    for (const category of categories) {
+      if (!groups.has(category)) {
+        groups.set(category, {
+          category,
+          complaints: [],
+          attempts: 0,
+          dates:     [],
+          isSafety:  false,
+        })
+      }
+      const g = groups.get(category)!
+      // Store the primary complaint text for display (avoid duplicates)
+      const displayText = r.complaint?.trim() ?? fullText.slice(0, 200)
+      if (!g.complaints.includes(displayText)) g.complaints.push(displayText)
+      g.attempts++
+      if (r.repair_date_in) g.dates.push(r.repair_date_in)
+      if (safety) g.isSafety = true
     }
-
-    const g = groups.get(category)!
-    g.complaints.push(complaint)
-    g.attempts++
-    if (r.repair_date_in) g.dates.push(r.repair_date_in)
-    if (safety) g.isSafety = true
   }
 
   return Array.from(groups.values()).sort((a, b) => b.attempts - a.attempts)
