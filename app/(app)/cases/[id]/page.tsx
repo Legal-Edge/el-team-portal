@@ -2793,6 +2793,16 @@ export default function CaseDetailPage() {
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') ?? 'overview'
   const backHref   = searchParams.get('from') ?? '/cases'
+
+  // Queue state for prev/next navigation
+  interface QueueState { ids: string[]; idx: number; returnUrl: string }
+  const [queueState, setQueueState] = useState<QueueState | null>(null)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('case_queue')
+      if (raw) setQueueState(JSON.parse(raw) as QueueState)
+    } catch { /* ignore */ }
+  }, [])
   const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks'>(initialTab)
 
   const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') => {
@@ -3230,11 +3240,58 @@ export default function CaseDetailPage() {
 
       {/* ── Page header ── */}
       <div className="mb-6">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-3">
-          <a href={backHref} className="hover:text-gray-600 transition-colors">← Cases</a>
-          <span>/</span>
-          <span className="text-gray-600">{clientName}</span>
+        {/* Breadcrumb + queue nav */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-1.5 text-xs text-gray-400">
+            <a href={backHref} className="hover:text-gray-600 transition-colors">← Cases</a>
+            <span>/</span>
+            <span className="text-gray-600">{clientName}</span>
+            {queueState && (
+              <span className="text-gray-300 ml-1">{queueState.idx + 1} of {queueState.ids.length}</span>
+            )}
+          </div>
+
+          {/* Prev / Next case buttons */}
+          {queueState && (
+            <div className="flex items-center gap-1">
+              <a
+                href={queueState.idx > 0
+                  ? `/cases/${queueState.ids[queueState.idx - 1]}?from=${encodeURIComponent(queueState.returnUrl)}`
+                  : undefined}
+                onClick={() => {
+                  if (queueState.idx > 0) {
+                    sessionStorage.setItem('last_viewed_case_id', String(params.id))
+                    sessionStorage.setItem('case_queue', JSON.stringify({ ...queueState, idx: queueState.idx - 1 }))
+                  }
+                }}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all active:scale-95 ${
+                  queueState.idx > 0
+                    ? 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'
+                    : 'border-gray-100 text-gray-300 cursor-not-allowed pointer-events-none'
+                }`}
+              >
+                ← Prev
+              </a>
+              <a
+                href={queueState.idx < queueState.ids.length - 1
+                  ? `/cases/${queueState.ids[queueState.idx + 1]}?from=${encodeURIComponent(queueState.returnUrl)}`
+                  : undefined}
+                onClick={() => {
+                  if (queueState.idx < queueState.ids.length - 1) {
+                    sessionStorage.setItem('last_viewed_case_id', String(params.id))
+                    sessionStorage.setItem('case_queue', JSON.stringify({ ...queueState, idx: queueState.idx + 1 }))
+                  }
+                }}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all active:scale-95 ${
+                  queueState.idx < queueState.ids.length - 1
+                    ? 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'
+                    : 'border-gray-100 text-gray-300 cursor-not-allowed pointer-events-none'
+                }`}
+              >
+                Next →
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Title + status */}

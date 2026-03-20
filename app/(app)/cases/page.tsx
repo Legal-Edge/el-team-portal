@@ -125,6 +125,13 @@ function CasesContent() {
   const [sortDir,     setSortDir]     = useState<'asc' | 'desc'>('desc')
   const [isLive,      setIsLive]      = useState(false)
   const [flashedIds,  setFlashedIds]  = useState<Set<string>>(new Set())
+  const [lastViewedId, setLastViewedId] = useState<string | null>(null)
+
+  // Read last viewed case from sessionStorage on mount, then clear it
+  useEffect(() => {
+    const id = sessionStorage.getItem('last_viewed_case_id')
+    if (id) { setLastViewedId(id); sessionStorage.removeItem('last_viewed_case_id') }
+  }, [])
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => { document.title = 'Cases | Team Portal' }, [])
@@ -386,25 +393,39 @@ function CasesContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {cases.map(c => {
-                  const clientName = [c.client_first_name, c.client_last_name].filter(Boolean).join(' ')
-                  const vehicle    = [c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ')
-                  const activity   = c.notes_last_updated ?? c.updated_at
-                  const days       = daysSince(activity)
+                {cases.map((c, caseIdx) => {
+                  const clientName   = [c.client_first_name, c.client_last_name].filter(Boolean).join(' ')
+                  const vehicle      = [c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ')
+                  const activity     = c.notes_last_updated ?? c.updated_at
+                  const days         = daysSince(activity)
+                  const isLastViewed = lastViewedId === c.hubspot_deal_id
 
                   return (
                     <tr
                       key={c.id}
+                      ref={isLastViewed ? (el => { if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }) : undefined}
                       onClick={() => {
+                        // Store queue in sessionStorage for prev/next nav on case detail
+                        const queueIds = cases.map(x => x.hubspot_deal_id)
                         const returnParams = new URLSearchParams()
                         if (activeGroup) returnParams.set('group', activeGroup)
                         if (activeStage) returnParams.set('status', activeStage)
-                        const qs = returnParams.toString()
-                        window.location.href = `/cases/${c.hubspot_deal_id}${qs ? `?from=${encodeURIComponent('/cases?' + qs)}` : ''}`
+                        const returnQs = returnParams.toString()
+                        const returnUrl = '/cases' + (returnQs ? '?' + returnQs : '')
+                        sessionStorage.setItem('case_queue', JSON.stringify({
+                          ids:       queueIds,
+                          idx:       caseIdx,
+                          returnUrl,
+                        }))
+                        sessionStorage.setItem('last_viewed_case_id', c.hubspot_deal_id)
+                        const qs = returnQs
+                        window.location.href = `/cases/${c.hubspot_deal_id}${qs ? `?from=${encodeURIComponent(returnUrl)}` : ''}`
                       }}
                       className={`cursor-pointer transition-all duration-500 border-l-4 ${
                         flashedIds.has(c.id)
                           ? 'bg-lemon-400/10 border-l-lemon-400'
+                          : isLastViewed
+                          ? 'bg-blue-50/60 border-l-blue-400'
                           : `hover:bg-gray-50 ${urgencyClass(c)}`
                       }`}
                     >
