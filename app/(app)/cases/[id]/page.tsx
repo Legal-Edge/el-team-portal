@@ -865,12 +865,7 @@ function ROViewerModal({
           ) : !blobUrl ? (
             <p className="text-sm text-gray-400 animate-pulse">Loading document…</p>
           ) : (
-            <object data={blobUrl} type="application/pdf" className="w-full h-full">
-              <p className="text-sm text-gray-500 p-8">
-                PDF preview not supported.{' '}
-                <a href={blobUrl} download={file.file_name} className="text-lemon-600 underline">Download</a>
-              </p>
-            </object>
+            <iframe src={blobUrl} className="w-full h-full border-0" title={file.file_name} />
           )}
         </div>
 
