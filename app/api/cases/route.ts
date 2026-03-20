@@ -7,9 +7,9 @@ const STAGE_GROUPS: Record<string, string> = {
   intake:              'active',
   nurture:             'active',
   document_collection: 'active',
-  attorney_review:     'active',
   info_needed:         'active',
   sign_up:             'active',
+  attorney_review:     'attorney_review',
   retained:            'retained',
   settled:             'settled',
   dropped:             'dropped',
@@ -17,10 +17,11 @@ const STAGE_GROUPS: Record<string, string> = {
 
 // All stages per group
 const GROUP_STAGES: Record<string, string[]> = {
-  active:   ['intake','nurture','document_collection','attorney_review','info_needed','sign_up'],
-  retained: ['retained'],
-  settled:  ['settled'],
-  dropped:  ['dropped'],
+  active:          ['intake','nurture','document_collection','info_needed','sign_up'],
+  attorney_review: ['attorney_review'],
+  retained:        ['retained'],
+  settled:         ['settled'],
+  dropped:         ['dropped'],
 }
 
 const STAGE_KEYS = ['intake','nurture','document_collection','attorney_review','info_needed','sign_up','retained','settled','dropped']
@@ -97,7 +98,7 @@ export async function GET(req: NextRequest) {
   STAGE_KEYS.forEach((s, i) => { stageCounts[s] = stageCountResults[i]?.count ?? 0 })
 
   // Group counts
-  const groupCounts: Record<string, number> = { active: 0, retained: 0, settled: 0, dropped: 0 }
+  const groupCounts: Record<string, number> = { active: 0, attorney_review: 0, retained: 0, settled: 0, dropped: 0 }
   for (const [stage, cnt] of Object.entries(stageCounts)) {
     const g = STAGE_GROUPS[stage]
     if (g) groupCounts[g] = (groupCounts[g] ?? 0) + cnt

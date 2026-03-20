@@ -255,18 +255,20 @@ function CasesContent() {
   // Group tab definitions
   const GROUPS = [
     { id: '',         label: 'All',      count: total },
-    { id: 'active',   label: 'Active',   count: groupCounts.active   ?? 0 },
-    { id: 'retained', label: 'Retained', count: groupCounts.retained ?? 0 },
-    { id: 'settled',  label: 'Settled',  count: groupCounts.settled  ?? 0 },
-    { id: 'dropped',  label: 'Dropped',  count: groupCounts.dropped  ?? 0 },
+    { id: 'active',          label: 'Active',      count: groupCounts.active          ?? 0 },
+    { id: 'attorney_review', label: 'Atty Review', count: groupCounts.attorney_review ?? 0 },
+    { id: 'retained',        label: 'Retained',    count: groupCounts.retained        ?? 0 },
+    { id: 'settled',         label: 'Settled',     count: groupCounts.settled         ?? 0 },
+    { id: 'dropped',         label: 'Dropped',     count: groupCounts.dropped         ?? 0 },
   ]
 
   // Sub-stage filter (only shown when a group is active)
   const GROUP_STAGES: Record<string, string[]> = {
-    active:   ['intake','nurture','document_collection','attorney_review','info_needed','sign_up'],
-    retained: ['retained'],
-    settled:  ['settled'],
-    dropped:  ['dropped'],
+    active:          ['intake','nurture','document_collection','info_needed','sign_up'],
+    attorney_review: ['attorney_review'],
+    retained:        ['retained'],
+    settled:         ['settled'],
+    dropped:         ['dropped'],
   }
   const subStages = activeGroup ? GROUP_STAGES[activeGroup] ?? [] : []
 
