@@ -11,6 +11,7 @@ export const maxDuration = 120
 import { createClient } from '@supabase/supabase-js'
 import { getGraphToken } from '@/lib/sharepoint'
 import { extractDocument } from '@/lib/document-pipeline/ai-analyze'
+import { calculateSOL } from '@/lib/lemon-law/sol'
 
 const DRIVE_ID = 'b!oTYerw9tj0KLIWLLGc_DzIZijDFxI1xNtMSGXezIVsUHL02cd1kmRra7r_dMei8k'
 
@@ -31,7 +32,7 @@ export async function POST(
 
   const { data: file } = await db
     .from('document_files')
-    .select('id, sharepoint_item_id, sharepoint_drive_id, file_name, document_type_code, ai_extraction, ai_extracted_at')
+    .select('id, sharepoint_item_id, sharepoint_drive_id, file_name, document_type_code, ai_extraction, ai_extracted_at, case_id')
     .eq('id', fileId)
     .eq('is_deleted', false)
     .single()
@@ -72,6 +73,36 @@ export async function POST(
     ai_extraction_model: model,
     updated_at:          extractedAt,
   }).eq('id', fileId)
+
+  // ── Auto-recalculate SOL if purchase_date extracted ───────────────────────
+  // If this document has a purchase_date, update the case's ai_analysis SOL fields
+  const extractedPurchaseDate = typeof extraction.purchase_date === 'string' ? extraction.purchase_date : null
+  if (extractedPurchaseDate && file.case_id) {
+    try {
+      // Fetch case context for SOL calculation
+      const { data: caseRow } = await db
+        .from('cases')
+        .select('ai_analysis, vehicle_year, state, current_mileage')
+        .eq('id', file.case_id)
+        .single()
+
+      if (caseRow?.ai_analysis) {
+        const sol = calculateSOL({
+          purchase_date:   extractedPurchaseDate,
+          vehicle_year:    caseRow.vehicle_year,
+          state:           caseRow.state,
+          current_mileage: caseRow.current_mileage,
+        })
+        await db.from('cases').update({
+          ai_analysis: { ...(caseRow.ai_analysis as object), sol },
+          updated_at:  new Date().toISOString(),
+        }).eq('id', file.case_id)
+        console.log(`[sol] Auto-updated SOL for case ${file.case_id} — basis: ${sol.basis}`)
+      }
+    } catch (e) {
+      console.warn('[sol] Auto-update failed (non-critical):', e)
+    }
+  }
 
   return NextResponse.json({ extraction, cached: false, extracted_at: extractedAt })
 }

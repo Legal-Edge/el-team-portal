@@ -718,6 +718,22 @@ interface AnalysisResult {
   decision?:               string
   confidence?:             string
   confidence_score?:       number
+  sol?: {
+    state_sol_date:       string | null
+    federal_sol_date:     string | null
+    basis:                'facts' | 'estimated' | 'unknown'
+    confidence_score:     number
+    estimated_purchase:   string | null
+    state_window_months:  number | null
+    days_until_state_sol: number | null
+    days_until_fed_sol:   number | null
+    state_sol_expired:    boolean
+    federal_sol_expired:  boolean
+    state_sol_urgent:     boolean
+    federal_sol_urgent:   boolean
+    state_name:           string | null
+    notes:                string[]
+  }
   cause_of_action?:        string
   case_strength?:          string
   summary?:                string
@@ -971,6 +987,81 @@ function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseI
           <p className="text-xs text-red-600">{error}</p>
         </div>
       )}
+
+      {/* ── SOL Dates ────────────────────────────────────────────────────── */}
+      {analysis?.sol && analysis.sol.basis !== 'unknown' && (() => {
+        const sol = analysis.sol!
+        const fmtSOL = (d: string | null) => d
+          ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : 'Unknown'
+        const daysBadge = (days: number | null, expired: boolean, urgent: boolean) => {
+          if (days === null) return null
+          if (expired)  return <span className="text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
+          if (urgent)   return <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{days}d left</span>
+          return <span className="text-xs text-gray-400">{days}d remaining</span>
+        }
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Statute of Limitations</p>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  sol.basis === 'facts'
+                    ? 'bg-green-50 text-green-700'
+                    : 'bg-amber-50 text-amber-700'
+                }`}>
+                  {sol.basis === 'facts' ? '✓ Based on facts' : '~ Estimated'}
+                </span>
+                <span className="text-xs text-gray-400">{sol.confidence_score}/100 confidence</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {/* State SOL */}
+              <div className={`rounded-lg p-3 border ${
+                sol.state_sol_expired ? 'border-red-200 bg-red-50' :
+                sol.state_sol_urgent  ? 'border-amber-200 bg-amber-50' :
+                                        'border-gray-100 bg-gray-50'
+              }`}>
+                <p className="text-xs text-gray-500 mb-1">State Lemon Law SOL</p>
+                <p className={`text-sm font-semibold ${
+                  sol.state_sol_expired ? 'text-red-700' :
+                  sol.state_sol_urgent  ? 'text-amber-700' : 'text-gray-900'
+                }`}>{fmtSOL(sol.state_sol_date)}</p>
+                {sol.state_name && <p className="text-xs text-gray-400 mt-0.5">{sol.state_name}</p>}
+                <div className="mt-1">{daysBadge(sol.days_until_state_sol, sol.state_sol_expired, sol.state_sol_urgent)}</div>
+              </div>
+
+              {/* Federal SOL */}
+              <div className={`rounded-lg p-3 border ${
+                sol.federal_sol_expired ? 'border-red-200 bg-red-50' :
+                sol.federal_sol_urgent  ? 'border-amber-200 bg-amber-50' :
+                                          'border-gray-100 bg-gray-50'
+              }`}>
+                <p className="text-xs text-gray-500 mb-1">Magnuson-Moss (Federal) SOL</p>
+                <p className={`text-sm font-semibold ${
+                  sol.federal_sol_expired ? 'text-red-700' :
+                  sol.federal_sol_urgent  ? 'text-amber-700' : 'text-gray-900'
+                }`}>{fmtSOL(sol.federal_sol_date)}</p>
+                <p className="text-xs text-gray-400 mt-0.5">4 years from purchase</p>
+                <div className="mt-1">{daysBadge(sol.days_until_fed_sol, sol.federal_sol_expired, sol.federal_sol_urgent)}</div>
+              </div>
+            </div>
+
+            {/* Estimation note */}
+            {sol.basis === 'estimated' && sol.estimated_purchase && (
+              <p className="text-xs text-amber-600 mt-2">
+                ⚠ Estimated from vehicle year — upload purchase/lease agreement for exact dates
+              </p>
+            )}
+
+            {/* Urgent warnings */}
+            {sol.notes.filter((n: string) => n.startsWith('⚠')).map((n: string, i: number) => (
+              <p key={i} className="text-xs text-red-600 mt-1 font-medium">{n}</p>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* ── Attorney Notes (most actionable — always shown first) ───────── */}
       {analysis?.attorney_notes && (

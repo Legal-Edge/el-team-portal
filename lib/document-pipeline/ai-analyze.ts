@@ -21,6 +21,7 @@ export const EXTRACTION_MODEL = 'gemini-2.5-flash'
 export const ANALYSIS_MODEL   = 'claude-sonnet-4-20250514'
 
 import { runLemonLawEngine } from '../lemon-law/engine'
+import { calculateSOL } from '../lemon-law/sol'
 import type { EngineInput, RepairRecord } from '../lemon-law/types'
 
 // ── State lemon law thresholds ────────────────────────────────────────────
@@ -514,6 +515,14 @@ Write the attorney memo. Return this exact JSON:
   const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
   const sonnetAnalysis = parseJson(text)
 
+  // Calculate SOL dates (deterministic — no AI needed)
+  const solResult = calculateSOL({
+    purchase_date:   caseContext.purchase_date,
+    vehicle_year:    caseContext.vehicle_year,
+    state:           caseContext.state,
+    current_mileage: engineInput.mileage_at_intake ?? null,
+  })
+
   // Merge engine decision (authoritative) with Sonnet narrative
   return {
     analysis: {
@@ -530,6 +539,8 @@ Write the attorney memo. Return this exact JSON:
       state_statute:          engineResult.state_law?.statute ?? null,
       meets_state_threshold:  engineResult.meets_state_repair_threshold || engineResult.meets_state_safety_threshold || engineResult.meets_state_oos_threshold,
       meets_federal_threshold: engineResult.meets_federal_threshold,
+      // SOL dates
+      sol:                    solResult,
     },
     model: ANALYSIS_MODEL,
   }
