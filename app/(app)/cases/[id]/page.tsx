@@ -771,7 +771,7 @@ interface RepairStats {
   totalFiles: number
 }
 
-function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseId: string; repairStats?: RepairStats; onSwitchToDocuments?: () => void }) {
+function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }: { caseId: string; repairStats?: RepairStats; roFiles?: CaseFile[]; onSwitchToDocuments?: () => void }) {
   const [analysis,      setAnalysis]      = useState<AnalysisResult | null>(null)
   const [analyzedAt,    setAnalyzedAt]    = useState<string | null>(null)
   const [filesAnalyzed, setFilesAnalyzed] = useState<number>(0)
@@ -780,6 +780,7 @@ function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseI
   const [error,         setError]         = useState<string | null>(null)
   const [detailsOpen,   setDetailsOpen]   = useState(false)
   const [signalsOpen,   setSignalsOpen]   = useState(true)
+  const [rosOpen,       setRosOpen]       = useState(true)
 
   async function runAnalysis(force = false) {
     setLoading(true); setError(null)
@@ -1166,6 +1167,108 @@ function CaseAnalysisPanel({ caseId, repairStats, onSwitchToDocuments }: { caseI
         </div>
       )}
 
+      {/* ── Repair Orders (collapsible, open by default) ─────────────────── */}
+      {roFiles && roFiles.length > 0 && (() => {
+        const sortedROs = [...roFiles].sort((a, b) => {
+          const ad = (a.ai_extraction?.repair_date_in as string) ?? ''
+          const bd = (b.ai_extraction?.repair_date_in as string) ?? ''
+          return ad.localeCompare(bd)
+        })
+        const fmtD = (d: string | null | undefined) => d
+          ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : null
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <button
+              className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+              onClick={() => setRosOpen(o => !o)}
+            >
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Repair Orders</p>
+                <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roFiles.length}</span>
+              </div>
+              <span className="text-gray-400 text-xs">{rosOpen ? '▴' : '▾'}</span>
+            </button>
+            {rosOpen && (
+              <div className="border-t border-gray-100 divide-y divide-gray-50">
+                {sortedROs.map((file, idx) => {
+                  const ex = file.ai_extraction as Record<string, unknown> | null ?? {}
+                  const dateIn    = fmtD(ex.repair_date_in  as string | null)
+                  const dateOut   = fmtD(ex.repair_date_out as string | null)
+                  const mileageIn = ex.mileage_in  as number | null ?? null
+                  const days      = ex.days_in_shop as number | null ?? null
+                  const complaint = ex.complaint    as string | null ?? null
+                  const diagnosis = ex.diagnosis    as string | null ?? null
+                  const work      = ex.work_performed as string | null ?? null
+                  const warranty  = ex.is_warranty  as boolean | null ?? null
+                  const status    = ex.repair_status as string | null ?? null
+                  const isUTD     = status === 'unable_to_duplicate'
+
+                  return (
+                    <button
+                      key={file.id}
+                      onClick={() => window.open(`/cases/${caseId}/documents/${file.id}`, '_blank')}
+                      className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors group"
+                    >
+                      {/* Header row */}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-semibold text-gray-400 shrink-0">RO {idx + 1}</span>
+                          {dateIn && <span className="text-xs font-medium text-gray-700">{dateIn}{dateOut && dateOut !== dateIn ? ` – ${dateOut}` : ''}</span>}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isUTD && (
+                            <span className="text-[10px] font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">UTD</span>
+                          )}
+                          {warranty === true && (
+                            <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Under Warranty</span>
+                          )}
+                          {warranty === false && (
+                            <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">Out of Warranty</span>
+                          )}
+                          <span className="text-gray-300 group-hover:text-gray-400 transition-colors text-xs">↗</span>
+                        </div>
+                      </div>
+
+                      {/* Complaint */}
+                      {complaint && (
+                        <div className="mb-1.5">
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Complaint</p>
+                          <p className="text-xs text-gray-800 leading-relaxed line-clamp-2">{complaint}</p>
+                        </div>
+                      )}
+
+                      {/* Repairs done */}
+                      {(diagnosis || work) && (
+                        <div className="mb-1.5">
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Repairs / Diagnosis</p>
+                          <p className="text-xs text-gray-700 leading-relaxed line-clamp-2">{work || diagnosis}</p>
+                        </div>
+                      )}
+
+                      {/* Stats row */}
+                      <div className="flex items-center gap-3 mt-2">
+                        {days != null && days > 0 && (
+                          <span className="text-[10px] text-gray-500">
+                            <span className="font-semibold text-gray-700">{days}</span> day{days !== 1 ? 's' : ''} OOS
+                          </span>
+                        )}
+                        {mileageIn != null && mileageIn > 0 && (
+                          <span className="text-[10px] text-gray-500">
+                            <span className="font-semibold text-gray-700">{mileageIn.toLocaleString()}</span> mi
+                          </span>
+                        )}
+                        <span className="text-[10px] text-gray-300 ml-auto group-hover:text-lemon-500 transition-colors">View document →</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {/* ── Footer: state law + missing data ─────────────────────────────── */}
       {analysis && (analysis.state_law || (analysis.engine_missing_data ?? []).length > 0) && (
         <div className="space-y-2">
@@ -1364,7 +1467,12 @@ function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments }: { caseId: stri
   }
 
   return (
-    <CaseAnalysisPanel caseId={caseId} repairStats={files.length > 0 ? repairStats : undefined} onSwitchToDocuments={onSwitchToDocuments} />
+    <CaseAnalysisPanel
+      caseId={caseId}
+      repairStats={files.length > 0 ? repairStats : undefined}
+      roFiles={ros}
+      onSwitchToDocuments={onSwitchToDocuments}
+    />
   )
 }
 
