@@ -107,7 +107,12 @@ export function isSafetyDefect(complaint: string): boolean {
 export const DEFECT_CATEGORIES: Record<string, string[]> = {
   transmission:   ['transmission','shifting','shift','gear','gearbox','cvt','torque converter','clutch','slipping','shudder','jerk'],
   engine:         ['engine','motor','oil','coolant','overheating','misfir','cylinder','piston','timing','knock','tick','rattle','stall','crank','start'],
-  electrical:     ['electrical','battery','alternator','wiring','short circuit','module','ecm','tcm','bcm','fuse','relay','sensor','computer','infotainment','display','screen','camera','radio','navigation'],
+  electrical:     ['electrical','battery','alternator','wiring','short circuit','module','ecm','tcm','bcm','fuse','relay','sensor','computer','infotainment','display','screen','camera','radio','navigation',
+                  // ADAS / driver-assist systems are electronic in nature — same defect category
+                  'collision warning','collision avoidance','forward collision','lane departure','lane keeping','lane assist',
+                  'blind spot','adas','driver assist','driver assistance','adaptive cruise','parking sensor','backup camera',
+                  'warning light','warning system','warning message','malfunction indicator','check system',
+                  'automatic emergency','auto brake','auto stop'],
   brakes:         ['brake','brakes','abs','caliper','rotor','pad','brake fluid','brake line'],
   steering:       ['steering','power steering','rack','pinion','alignment','pull','drift','wander'],
   suspension:     ['suspension','shock','strut','spring','control arm','sway bar','bushing','bearing','wheel','axle','cv joint'],
