@@ -781,6 +781,7 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }
   const [detailsOpen,   setDetailsOpen]   = useState(false)
   const [signalsOpen,   setSignalsOpen]   = useState(true)
   const [rosOpen,       setRosOpen]       = useState(true)
+  const [roModalIdx,    setRoModalIdx]    = useState<number | null>(null)
 
   async function runAnalysis(force = false) {
     setLoading(true); setError(null)
@@ -1174,98 +1175,209 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }
           const bd = (b.ai_extraction?.repair_date_in as string) ?? ''
           return ad.localeCompare(bd)
         })
+
+        // ── Text cleaning helpers ─────────────────────────────────────────
+        const JUNK_PATTERNS = [
+          /multi.?point vehicle inspection/i,
+          /complimentary/i,
+          /tiretax/i,
+          /tire tax/i,
+          /^ok$/i,
+          /^n\/?a$/i,
+          /^see ro$/i,
+          /^see repair order$/i,
+          /^perform$/i,
+          /^completed$/i,
+        ]
+        const cleanLine = (s: string) =>
+          s.replace(/^customer states[:\s]*/i, '').replace(/^cs[:\s]+/i, '').trim()
+        const splitPipes = (raw: string | null | undefined): string[] => {
+          if (!raw) return []
+          return raw
+            .split(/\s*[|·•]\s*|\n+/)
+            .map(s => cleanLine(s))
+            .filter(s => s.length > 3 && !JUNK_PATTERNS.some(p => p.test(s)))
+        }
+
         const fmtD = (d: string | null | undefined) => d
           ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
           : null
+
+        // Detect recurring complaints across ROs (for red accent)
+        const allComplaints = sortedROs.map(f => {
+          const ex = f.ai_extraction as Record<string, unknown> | null ?? {}
+          const lines = splitPipes(ex.complaint as string | null)
+          return lines[0]?.toLowerCase() ?? ''
+        })
+        const complaintsCount: Record<string, number> = {}
+        allComplaints.forEach(c => { if (c) complaintsCount[c] = (complaintsCount[c] ?? 0) + 1 })
+
         return (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <button
-              className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
-              onClick={() => setRosOpen(o => !o)}
-            >
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Repair Orders</p>
-                <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roFiles.length}</span>
-              </div>
-              <span className="text-gray-400 text-xs">{rosOpen ? '▴' : '▾'}</span>
-            </button>
-            {rosOpen && (
-              <div className="border-t border-gray-100 divide-y divide-gray-50">
-                {sortedROs.map((file, idx) => {
-                  const ex = file.ai_extraction as Record<string, unknown> | null ?? {}
-                  const dateIn    = fmtD(ex.repair_date_in  as string | null)
-                  const dateOut   = fmtD(ex.repair_date_out as string | null)
-                  const mileageIn = ex.mileage_in  as number | null ?? null
-                  const days      = ex.days_in_shop as number | null ?? null
-                  const complaint = ex.complaint    as string | null ?? null
-                  const diagnosis = ex.diagnosis    as string | null ?? null
-                  const work      = ex.work_performed as string | null ?? null
-                  const warranty  = ex.is_warranty  as boolean | null ?? null
-                  const status    = ex.repair_status as string | null ?? null
-                  const isUTD     = status === 'unable_to_duplicate'
-
-                  return (
+          <>
+            {/* ── RO Viewer Modal ─────────────────────────────────────────── */}
+            {roModalIdx !== null && (
+              <div
+                className="fixed inset-0 z-50 flex flex-col"
+                style={{ background: 'rgba(0,0,0,0.7)' }}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') setRoModalIdx(null)
+                  if (e.key === 'ArrowLeft'  && roModalIdx > 0)                       setRoModalIdx(i => i! - 1)
+                  if (e.key === 'ArrowRight' && roModalIdx < sortedROs.length - 1)    setRoModalIdx(i => i! + 1)
+                }}
+                tabIndex={-1}
+              >
+                {/* Top bar */}
+                <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shrink-0">
+                  <button
+                    onClick={() => setRoModalIdx(i => Math.max(0, i! - 1))}
+                    disabled={roModalIdx === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
+                  >
+                    ← Previous
+                  </button>
+                  <div className="text-sm font-semibold text-gray-700">
+                    Repair Order {roModalIdx + 1} <span className="text-gray-400 font-normal">of {sortedROs.length}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
-                      key={file.id}
-                      onClick={() => window.open(`/cases/${caseId}/documents/${file.id}`, '_blank')}
-                      className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors group"
+                      onClick={() => setRoModalIdx(i => Math.min(sortedROs.length - 1, i! + 1))}
+                      disabled={roModalIdx === sortedROs.length - 1}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
                     >
-                      {/* Header row */}
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-xs font-semibold text-gray-400 shrink-0">RO {idx + 1}</span>
-                          {dateIn && <span className="text-xs font-medium text-gray-700">{dateIn}{dateOut && dateOut !== dateIn ? ` – ${dateOut}` : ''}</span>}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {isUTD && (
-                            <span className="text-[10px] font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">UTD</span>
-                          )}
-                          {warranty === true && (
-                            <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Under Warranty</span>
-                          )}
-                          {warranty === false && (
-                            <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">Out of Warranty</span>
-                          )}
-                          <span className="text-gray-300 group-hover:text-gray-400 transition-colors text-xs">↗</span>
-                        </div>
-                      </div>
-
-                      {/* Complaint */}
-                      {complaint && (
-                        <div className="mb-1.5">
-                          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Complaint</p>
-                          <p className="text-xs text-gray-800 leading-relaxed line-clamp-2">{complaint}</p>
-                        </div>
-                      )}
-
-                      {/* Repairs done */}
-                      {(diagnosis || work) && (
-                        <div className="mb-1.5">
-                          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Repairs / Diagnosis</p>
-                          <p className="text-xs text-gray-700 leading-relaxed line-clamp-2">{work || diagnosis}</p>
-                        </div>
-                      )}
-
-                      {/* Stats row */}
-                      <div className="flex items-center gap-3 mt-2">
-                        {days != null && days > 0 && (
-                          <span className="text-[10px] text-gray-500">
-                            <span className="font-semibold text-gray-700">{days}</span> day{days !== 1 ? 's' : ''} OOS
-                          </span>
-                        )}
-                        {mileageIn != null && mileageIn > 0 && (
-                          <span className="text-[10px] text-gray-500">
-                            <span className="font-semibold text-gray-700">{mileageIn.toLocaleString()}</span> mi
-                          </span>
-                        )}
-                        <span className="text-[10px] text-gray-300 ml-auto group-hover:text-lemon-500 transition-colors">View document →</span>
-                      </div>
+                      Next →
                     </button>
-                  )
-                })}
+                    <button
+                      onClick={() => setRoModalIdx(null)}
+                      className="ml-2 w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all text-lg leading-none"
+                      aria-label="Close"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                {/* iframe */}
+                <iframe
+                  key={sortedROs[roModalIdx]?.id}
+                  src={`/cases/${caseId}/documents/${sortedROs[roModalIdx]?.id}`}
+                  className="flex-1 w-full border-0 bg-white"
+                  title={`Repair Order ${roModalIdx + 1}`}
+                />
               </div>
             )}
-          </div>
+
+            {/* ── RO Card List ─────────────────────────────────────────────── */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <button
+                className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+                onClick={() => setRosOpen(o => !o)}
+              >
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Repair Orders</p>
+                  <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{sortedROs.length}</span>
+                </div>
+                <span className="text-gray-400 text-xs">{rosOpen ? '▴' : '▾'}</span>
+              </button>
+
+              {rosOpen && (
+                <div className="border-t border-gray-100 divide-y divide-gray-100">
+                  {sortedROs.map((file, idx) => {
+                    const ex         = file.ai_extraction as Record<string, unknown> | null ?? {}
+                    const dateIn     = fmtD(ex.repair_date_in  as string | null)
+                    const dateOut    = fmtD(ex.repair_date_out as string | null)
+                    const mileageIn  = ex.mileage_in   as number | null ?? null
+                    const days       = ex.days_in_shop  as number | null ?? null
+                    const warranty   = ex.is_warranty   as boolean | null ?? null
+                    const status     = ex.repair_status as string | null ?? null
+                    const isUTD      = status === 'unable_to_duplicate'
+
+                    const complaintLines = splitPipes(ex.complaint    as string | null)
+                    const workLines      = splitPipes(ex.work_performed as string | null)
+                    const diagLines      = splitPipes(ex.diagnosis     as string | null)
+                    const repairLines    = workLines.length > 0 ? workLines : diagLines
+
+                    const isRecurring = complaintLines[0] && complaintsCount[complaintLines[0].toLowerCase()] > 1
+                    const accentColor = isRecurring ? 'border-l-red-400' : 'border-l-gray-200'
+
+                    return (
+                      <button
+                        key={file.id}
+                        onClick={() => setRoModalIdx(idx)}
+                        className={`w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors border-l-4 ${accentColor} group`}
+                      >
+                        {/* Header */}
+                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-gray-500">RO {idx + 1}</span>
+                            {dateIn && (
+                              <span className="text-xs font-medium text-gray-700">
+                                {dateIn}{dateOut && dateOut !== dateIn ? ` – ${dateOut}` : ''}
+                              </span>
+                            )}
+                            {isRecurring && (
+                              <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">Recurring</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isUTD && (
+                              <span className="text-[10px] font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">UTD</span>
+                            )}
+                            {warranty === true  && <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Under Warranty</span>}
+                            {warranty === false && <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">Out of Warranty</span>}
+                            <svg className="w-3.5 h-3.5 text-gray-300 group-hover:text-lemon-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                            </svg>
+                          </div>
+                        </div>
+
+                        {/* Complaint */}
+                        {complaintLines.length > 0 && (
+                          <div className="mb-2">
+                            <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Complaint</p>
+                            <ul className="space-y-0.5">
+                              {complaintLines.slice(0, 3).map((line, i) => (
+                                <li key={i} className="text-xs text-gray-800 flex gap-1.5 leading-relaxed">
+                                  <span className="text-gray-300 shrink-0 mt-0.5">·</span>{line}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Repairs */}
+                        {repairLines.length > 0 && (
+                          <div className="mb-2">
+                            <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Repairs / Diagnosis</p>
+                            <ul className="space-y-0.5">
+                              {repairLines.slice(0, 3).map((line, i) => (
+                                <li key={i} className="text-xs text-gray-600 flex gap-1.5 leading-relaxed">
+                                  <span className="text-gray-300 shrink-0 mt-0.5">·</span>{line}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Stats */}
+                        <div className="flex items-center gap-4 mt-2.5 pt-2 border-t border-gray-50">
+                          {days != null && days > 0 && (
+                            <span className="text-[11px] text-gray-500">
+                              <span className="font-semibold text-gray-700">{days}</span> day{days !== 1 ? 's' : ''} OOS
+                            </span>
+                          )}
+                          {mileageIn != null && mileageIn > 0 && (
+                            <span className="text-[11px] text-gray-500">
+                              <span className="font-semibold text-gray-700">{mileageIn.toLocaleString()}</span> mi
+                            </span>
+                          )}
+                          <span className="ml-auto text-[10px] text-gray-300 group-hover:text-lemon-500 transition-colors font-medium">View document →</span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </>
         )
       })()}
 
