@@ -1693,7 +1693,11 @@ function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments, onAnalysisComple
 
   const ros       = files.filter(f => f.document_type_code === 'repair_order' && f.ai_extraction)
   const extracted = ros.map(f => f.ai_extraction as Record<string, unknown>)
-  const totalDays = extracted.reduce((s, e) => s + ((e.days_in_shop as number) ?? 0), 0)
+  const totalDays = extracted.reduce((s, e) => {
+    const d = e.days_in_shop as number | null
+    // Guard against negative/null values Gemini may produce from malformed date fields
+    return s + (d != null && d > 0 ? d : 0)
+  }, 0)
   const utdCount  = extracted.filter(e => e.repair_status === 'unable_to_duplicate').length
   const dates     = extracted.flatMap(e => [e.repair_date_in as string, e.repair_date_out as string]).filter(Boolean).sort()
   const firstDate = dates[0]              ? new Date(dates[0]              + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
