@@ -99,7 +99,7 @@ export function calculateSOL(params: {
     stateWindowMiles  = stateLaw.windowMiles
 
     stateSolDate = new Date(anchorDate)
-    stateSolDate.setMonth(stateSolDate.getMonth() + stateWindowMonths)
+    stateSolDate.setMonth(stateSolDate.getMonth() + Number(stateWindowMonths))
 
     // If mileage cap already passed, SOL is effectively expired regardless of date
     if (current_mileage && stateWindowMiles < 999999 && current_mileage > stateWindowMiles) {
@@ -116,7 +116,7 @@ export function calculateSOL(params: {
   // ── 3. Magnuson-Moss (federal) SOL ───────────────────────────────────────
   // 4 years from purchase date
   const fedSolDate = new Date(anchorDate)
-  fedSolDate.setFullYear(fedSolDate.getFullYear() + 4)
+  fedSolDate.setFullYear(fedSolDate.getFullYear() + 4)  // always a literal 4 — safe
 
   // ── 4. Days until each SOL ───────────────────────────────────────────────
   const msPerDay = 1000 * 60 * 60 * 24
