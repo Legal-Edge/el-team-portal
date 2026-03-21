@@ -3244,10 +3244,10 @@ export default function CaseDetailPage() {
   ] as const
 
   return (
-    <div className="p-4 md:p-8 max-w-screen-xl mx-auto">
+    <div className="flex flex-col h-full overflow-hidden max-w-screen-xl mx-auto px-4 md:px-8">
 
       {/* ── Page header ── */}
-      <div className="mb-6">
+      <div className="mb-6 pt-6 shrink-0">
         {/* Breadcrumb + queue nav */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5 text-xs text-gray-400">
@@ -3320,11 +3320,11 @@ export default function CaseDetailPage() {
         <p className="text-sm text-gray-400 mt-1">{vehicle}</p>
       </div>
 
-      {/* ── Two-column layout ── */}
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
+      {/* ── Two-column layout — each column scrolls independently on desktop ── */}
+      <div className="flex flex-col lg:flex-row gap-6 flex-1 overflow-hidden">
 
         {/* ── Left: tabs + content ── */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 lg:overflow-y-auto lg:pr-1">
 
           {/* Tab bar */}
           <div className="flex gap-0 border-b border-gray-100 mb-5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0">
@@ -3877,7 +3877,7 @@ export default function CaseDetailPage() {
         </div>
 
         {/* ── Right: sticky sidebar ── */}
-        <div className="w-full lg:w-64 lg:shrink-0 lg:sticky top-6 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto lg:pr-1 space-y-4">
+        <div className="w-full lg:w-64 lg:shrink-0 lg:overflow-y-auto lg:pr-1 space-y-4">
 
           {/* Status card */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
