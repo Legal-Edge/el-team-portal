@@ -945,7 +945,7 @@ function ROViewerModal({
   )
 }
 
-function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }: { caseId: string; repairStats?: RepairStats; roFiles?: CaseFile[]; onSwitchToDocuments?: () => void }) {
+function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments, onAnalysisComplete }: { caseId: string; repairStats?: RepairStats; roFiles?: CaseFile[]; onSwitchToDocuments?: () => void; onAnalysisComplete?: () => void }) {
   const [analysis,      setAnalysis]      = useState<AnalysisResult | null>(null)
   const [analyzedAt,    setAnalyzedAt]    = useState<string | null>(null)
   const [filesAnalyzed, setFilesAnalyzed] = useState<number>(0)
@@ -971,7 +971,8 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments }
     setAnalyzedAt(data.analyzed_at ?? null)
     setFilesAnalyzed(data.files_analyzed ?? 0)
     setFilesPending(data.files_pending ?? [])
-    // reset
+    // Notify parent so VerifiedDataCard re-fetches
+    onAnalysisComplete?.()
   }
 
   // Auto-load cached analysis on mount
@@ -1680,7 +1681,7 @@ function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
   )
 }
 
-function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments }: { caseId: string; caseUUID: string | null; onSwitchToDocuments?: () => void }) {
+function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments, onAnalysisComplete }: { caseId: string; caseUUID: string | null; onSwitchToDocuments?: () => void; onAnalysisComplete?: () => void }) {
   const [files,   setFiles]   = useState<CaseFile[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -1726,6 +1727,7 @@ function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments }: { caseId: stri
       repairStats={files.length > 0 ? repairStats : undefined}
       roFiles={ros}
       onSwitchToDocuments={onSwitchToDocuments}
+      onAnalysisComplete={onAnalysisComplete}
     />
   )
 }
@@ -2597,16 +2599,17 @@ function FileRow({
 // Shows key facts extracted from documents (purchase agreement, ROs, registration)
 // with source badges. Falls back to nothing if no extractions available.
 // ─────────────────────────────────────────────────────────────────────────────
-function VerifiedDataCard({ caseId }: { caseId: string }) {
+function VerifiedDataCard({ caseId, refreshTrigger }: { caseId: string; refreshTrigger?: number }) {
   const [files, setFiles] = useState<CaseFile[]>([])
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    setReady(false)
     fetch(`/api/cases/${caseId}/documents`, { credentials: 'include' })
       .then(r => r.json())
       .then(d => { setFiles(d.files ?? []); setReady(true) })
       .catch(() => setReady(true))
-  }, [caseId])
+  }, [caseId, refreshTrigger])
 
   if (!ready) return null
 
@@ -2803,7 +2806,8 @@ export default function CaseDetailPage() {
       if (raw) setQueueState(JSON.parse(raw) as QueueState)
     } catch { /* ignore */ }
   }, [])
-  const [activeTab, setActiveTab] = useState<'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks'>(initialTab)
+  const [activeTab, setActiveTab]     = useState<'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks'>(initialTab)
+  const [analysisVersion, setAnalysisVersion] = useState(0)
 
   const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') => {
     setActiveTab(tab)
@@ -3806,7 +3810,7 @@ export default function CaseDetailPage() {
 
           {/* ── AI Analysis tab ── */}
           {activeTab === 'ai' && (
-            <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => switchTab('documents')} />
+            <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => switchTab('documents')} onAnalysisComplete={() => setAnalysisVersion(v => v + 1)} />
           )}
 
           {/* ── Tasks tab ── */}
@@ -3912,7 +3916,7 @@ export default function CaseDetailPage() {
           </div>
 
           {/* Verified Facts from documents */}
-          <VerifiedDataCard caseId={c.hubspot_deal_id} />
+          <VerifiedDataCard caseId={c.hubspot_deal_id} refreshTrigger={analysisVersion} />
 
           {/* Intake Status */}
           {intakeStatus && (
