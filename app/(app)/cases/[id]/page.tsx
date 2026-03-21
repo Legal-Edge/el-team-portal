@@ -3877,7 +3877,7 @@ export default function CaseDetailPage() {
         </div>
 
         {/* ── Right: sticky sidebar ── */}
-        <div className="w-full lg:w-64 lg:shrink-0 lg:sticky top-6 space-y-4">
+        <div className="w-full lg:w-64 lg:shrink-0 lg:sticky top-6 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto lg:pr-1 space-y-4">
 
           {/* Status card */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
