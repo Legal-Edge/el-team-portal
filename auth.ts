@@ -27,7 +27,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       // Domain restriction
       const domain = user.email.split('@')[1]
-      if (!['easylemon.com', 'rockpointgrowth.com'].includes(domain)) return false
+      if (!['easylemon.com', 'rockpointgrowth.com', 'rockpointlaw.com'].includes(domain)) return false
 
       const staffDb = getStaffDb()
       const azureOid = (profile as any)?.oid ?? null
