@@ -23,6 +23,7 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/sharepoint',           // SharePoint admin endpoints (token-protected)
     '/api/cases/',                     // case-level API routes — bulk-extract etc handle own auth
     '/api/admin/azure-users',          // token-protected directory query
+    '/api/admin/block-user',           // token-protected portal access management
     '/api/webhooks/sharepoint',        // SharePoint Graph webhook (no session)
     '/api/webhooks/hubspot-team',     // HubSpot real-time webhook (token-protected)
   ]
@@ -54,6 +55,6 @@ export default auth((req: NextRequest & { auth: any }) => {
 // Configure which routes should be processed by the middleware
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/admin/azure-users|api/cases/|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/admin/azure-users|api/admin/block-user|api/cases/|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
