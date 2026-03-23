@@ -3319,7 +3319,19 @@ export default function CaseDetailPage() {
             {isLive ? 'Live' : ''}
           </span>
         </div>
-        <p className="text-sm text-gray-400 mt-1">{vehicle}</p>
+        {/* Sub-header: vehicle · state · contact */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+          <span>{vehicle}</span>
+          {c.state_jurisdiction && <><span className="text-gray-300">·</span><span>{c.state_jurisdiction}</span></>}
+          {c.client_phone && (
+            <><span className="text-gray-300">·</span>
+            <a href={`tel:${c.client_phone}`} className="hover:text-gray-800 transition-colors">{c.client_phone}</a></>
+          )}
+          {c.client_email && (
+            <><span className="text-gray-300">·</span>
+            <a href={`mailto:${c.client_email}`} className="hover:text-gray-800 transition-colors truncate max-w-xs">{c.client_email}</a></>
+          )}
+        </div>
       </div>
 
       {/* ── Two-column layout — each column scrolls independently on desktop ── */}
@@ -3349,88 +3361,77 @@ export default function CaseDetailPage() {
           {activeTab === 'overview' && (
             <div className="space-y-4">
 
-              {/* Client + Vehicle side by side */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Client card */}
-                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-3">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Client</h3>
-                  <div className="space-y-2.5">
-                    <div>
-                      <p className="text-xs text-gray-400 mb-0.5">Name</p>
-                      <p className="text-sm font-medium text-gray-900">{clientName}</p>
-                    </div>
-                    {c.client_phone && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">Phone</p>
-                        <a href={`tel:${c.client_phone}`} className="text-sm font-medium text-gray-900 hover:text-lemon-500 transition-colors">
-                          {c.client_phone}
-                        </a>
-                      </div>
-                    )}
-                    {c.client_email && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">Email</p>
-                        <a href={`mailto:${c.client_email}`} className="text-sm text-gray-900 hover:text-lemon-500 transition-colors truncate block">
-                          {c.client_email}
-                        </a>
-                      </div>
-                    )}
-                    {c.state_jurisdiction && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">State</p>
-                        <p className="text-sm text-gray-900">{c.state_jurisdiction}</p>
-                      </div>
-                    )}
-                    {c.client_address && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">Address</p>
-                        <p className="text-sm text-gray-900">{c.client_address}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+              {/* Case Summary */}
+              {(() => {
+                const stageName  = STATUS_LABELS[c.case_status] ?? c.case_status
+                const addedDate  = c.created_at  ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
+                const updatedDate = c.updated_at ? new Date(c.updated_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
 
-                {/* Vehicle card */}
-                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-3">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Vehicle</h3>
-                  <div className="space-y-2.5">
-                    <div>
-                      <p className="text-xs text-gray-400 mb-0.5">Vehicle</p>
-                      <p className="text-sm font-medium text-gray-900">{vehicle || '—'}</p>
-                    </div>
-                    {c.vehicle_vin && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">VIN</p>
-                        <p className="text-sm font-mono text-gray-900">{c.vehicle_vin}</p>
-                      </div>
-                    )}
-                    {c.vehicle_mileage && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">Mileage</p>
-                        <p className="text-sm text-gray-900">{c.vehicle_mileage.toLocaleString()} mi</p>
-                      </div>
-                    )}
-                    {c.vehicle_is_new !== null && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">Condition</p>
-                        <p className="text-sm text-gray-900">{c.vehicle_is_new ? 'New' : 'Used'}</p>
-                      </div>
-                    )}
-                    {c.vehicle_purchase_date && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">Purchase Date</p>
-                        <p className="text-sm text-gray-900">{fmtDate(c.vehicle_purchase_date)}</p>
-                      </div>
-                    )}
-                    {c.vehicle_purchase_price && (
-                      <div>
-                        <p className="text-xs text-gray-400 mb-0.5">Purchase Price</p>
-                        <p className="text-sm text-gray-900">${c.vehicle_purchase_price.toLocaleString()}</p>
-                      </div>
-                    )}
+                // Build issues list from intake problems
+                const issues: string[] = [
+                  intake?.problem_1_notes, intake?.problem_2_notes,
+                  intake?.problem_3_notes, intake?.problem_4_notes,
+                ].filter(Boolean) as string[]
+
+                const repairCount = intake?.repair_count ? Number(intake.repair_count) : null
+                const mileage     = c.vehicle_mileage ? c.vehicle_mileage.toLocaleString() + ' miles' : null
+                const condition   = c.vehicle_is_new !== null ? (c.vehicle_is_new ? 'new' : 'used') : null
+                const estValue    = c.estimated_value ? '$' + c.estimated_value.toLocaleString() : null
+
+                // Compose sentences
+                const sentences: string[] = []
+
+                // Sentence 1: who, stage, when
+                let s1 = `${clientName} is a ${stageName} stage client`
+                if (addedDate) s1 += `, added ${addedDate}`
+                sentences.push(s1 + '.')
+
+                // Sentence 2: vehicle details
+                const vehicleDetails = [vehicle, mileage, condition].filter(Boolean).join(', ')
+                if (vehicleDetails) sentences.push(`They own a ${vehicleDetails}.`)
+
+                // Sentence 3: issues
+                if (issues.length > 0) {
+                  const issueList = issues.length === 1
+                    ? issues[0]
+                    : issues.slice(0, -1).join(', ') + ' and ' + issues[issues.length - 1]
+                  sentences.push(`Reported vehicle issues include ${issueList}.`)
+                }
+
+                // Sentence 4: repairs
+                if (repairCount !== null) {
+                  sentences.push(repairCount === 0
+                    ? 'No dealer repairs have been attempted to date.'
+                    : `The vehicle has been to the dealer ${repairCount} time${repairCount !== 1 ? 's' : ''} for repairs.`)
+                }
+
+                // Sentence 5: estimated value
+                if (estValue) sentences.push(`Estimated case value is ${estValue}.`)
+
+                // Sentence 6: last updated
+                if (updatedDate) sentences.push(`The case was last updated ${updatedDate}.`)
+
+                return (
+                  <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Summary</h3>
+                    <p className="text-sm text-gray-700 leading-relaxed">{sentences.join(' ')}</p>
+                  </div>
+                )
+              })()}
+
+              {/* Vehicle card — slim */}
+              {(c.vehicle_vin || c.vehicle_mileage || c.vehicle_is_new !== null || c.vehicle_purchase_date || c.vehicle_purchase_price) && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Vehicle</h3>
+                  <div className="flex flex-wrap gap-x-8 gap-y-3">
+                    {c.vehicle_vin       && <Field label="VIN"            value={c.vehicle_vin} mono />}
+                    {c.vehicle_mileage   && <Field label="Mileage"        value={c.vehicle_mileage.toLocaleString() + ' mi'} />}
+                    {c.vehicle_is_new !== null && <Field label="Condition" value={c.vehicle_is_new ? 'New' : 'Used'} />}
+                    {c.vehicle_purchase_date  && <Field label="Purchased"  value={fmtDate(c.vehicle_purchase_date)} />}
+                    {c.vehicle_purchase_price && <Field label="Price"      value={'$' + c.vehicle_purchase_price.toLocaleString()} />}
                   </div>
                 </div>
-              </div>
+              )}
 
 
 
