@@ -61,8 +61,8 @@ export async function provisionAllUsersAction(): Promise<{
 
     for (const u of toInsert) {
       const nameParts = (u.name ?? u.email!.split('@')[0]).split(' ')
-      const firstName = nameParts[0] ?? null
-      const lastName  = nameParts.slice(1).join(' ') || null
+      const firstName = nameParts[0] ?? ''
+      const lastName  = nameParts.slice(1).join(' ') || ''
 
       const { error } = await supabaseAdmin
         .schema('staff')

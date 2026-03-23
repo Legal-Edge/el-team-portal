@@ -31,8 +31,8 @@ export async function POST(req: Request) {
 
   for (const u of toInsert) {
     const parts     = (u.name ?? u.email!.split('@')[0]).split(' ')
-    const firstName = parts[0] ?? null
-    const lastName  = parts.slice(1).join(' ') || null
+    const firstName = parts[0] ?? ''
+    const lastName  = parts.slice(1).join(' ') || '' // empty string satisfies NOT NULL
 
     const { error } = await supabaseAdmin
       .schema('staff')
