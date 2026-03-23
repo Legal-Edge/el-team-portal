@@ -24,10 +24,13 @@ export interface StaffRole {
 }
 
 export interface StaffUserRecord {
-  id:             string
-  email:          string
+  id:              string
+  email:           string
   primary_role_id: string | null
-  staff_roles:    { role_name: string } | null
+  display_name:    string | null
+  first_name:      string | null
+  last_name:       string | null
+  staff_roles:     { role_name: string } | null
 }
 
 // ── Role display config ───────────────────────────────────────────────────────
@@ -191,15 +194,15 @@ function RoleCell({ user, staffUser, roles, onRoleChange, canEdit }: {
 
 // ── Delete confirmation modal ─────────────────────────────────────────────────
 
-function DeleteConfirm({ user, onConfirm, onCancel, loading, error }: {
-  user: AzureUser; onConfirm: () => void; onCancel: () => void; loading: boolean; error?: string | null
+function DeleteConfirm({ user, displayName, onConfirm, onCancel, loading, error }: {
+  user: AzureUser; displayName?: string | null; onConfirm: () => void; onCancel: () => void; loading: boolean; error?: string | null
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm mx-4 w-full">
         <h3 className="text-base font-semibold text-gray-900 mb-1">Remove portal access?</h3>
         <p className="text-sm text-gray-500 mb-1">
-          <span className="font-medium text-gray-800">{user.name}</span> ({user.email}) will be removed from the team portal immediately.
+          <span className="font-medium text-gray-800">{displayName ?? user.name}</span> ({user.email}) will be removed from the team portal immediately.
         </p>
         <p className="text-xs text-gray-400 mb-3">Their Azure AD account is not affected.</p>
         {error && (
@@ -346,7 +349,10 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
   return (
     <>
       {deleteUser && (
-        <DeleteConfirm user={deleteUser} onConfirm={handleDelete}
+        <DeleteConfirm
+          user={deleteUser}
+          displayName={staffUsers.find(s => s.email?.toLowerCase() === deleteUser.email?.toLowerCase())?.display_name}
+          onConfirm={handleDelete}
           onCancel={() => { setDeleteUser(null); setDeleteError(null) }}
           loading={isPending} error={deleteError} />
       )}
@@ -411,9 +417,9 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
                   <tr key={u.email} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <Avatar name={u.name} />
+                        <Avatar name={su?.display_name ?? u.name} />
                         <div className="min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{u.name ?? '—'}</p>
+                          <p className="font-medium text-gray-900 truncate">{su?.display_name ?? u.name ?? '—'}</p>
                           <p className="text-xs text-gray-400 truncate">{u.email ?? '—'}</p>
                         </div>
                       </div>
@@ -461,11 +467,11 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
             const su = staffUsers.find(s => s.email?.toLowerCase() === u.email?.toLowerCase())
             return (
               <div key={u.email} className="flex items-start gap-3 p-4">
-                <Avatar name={u.name} />
+                <Avatar name={su?.display_name ?? u.name} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900 truncate">{u.name ?? '—'}</p>
+                      <p className="font-medium text-gray-900 truncate">{su?.display_name ?? u.name ?? '—'}</p>
                       <p className="text-xs text-gray-400 truncate">{u.email ?? '—'}</p>
                     </div>
                     <button onClick={() => setDeleteUser(u)} className="text-gray-300 hover:text-red-400 shrink-0">

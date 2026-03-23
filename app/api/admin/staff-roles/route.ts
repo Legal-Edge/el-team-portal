@@ -16,7 +16,7 @@ export async function GET(req: Request) {
         .select('id, role_name, role_level, description')
         .order('role_level', { ascending: false }),
       supabaseAdmin.schema('staff').from('staff_users')
-        .select('id, email, primary_role_id, staff_roles!primary_role_id(role_name)')
+        .select('id, email, primary_role_id, display_name, first_name, last_name, staff_roles!primary_role_id(role_name)')
         .eq('is_deleted', false),
     ])
 
