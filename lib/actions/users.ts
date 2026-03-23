@@ -34,6 +34,9 @@ export async function blockUserAction(
   }
 }
 
+// The only email allowed to assign/edit portal roles
+const ROLE_EDITOR_EMAIL = process.env.PORTAL_OWNER_EMAIL ?? 'novaj@rockpointgrowth.com'
+
 // Assign a portal role to a staff user
 export async function assignRoleAction(
   email:  string,
@@ -41,8 +44,13 @@ export async function assignRoleAction(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const session = await getTeamSession()
-    if (!session || session.role !== 'admin') {
-      return { success: false, error: 'Unauthorized' }
+    if (!session) return { success: false, error: 'Unauthorized' }
+
+    // Role editing is restricted to the portal owner account
+    // Check real identity even during impersonation
+    const realEmail = session.impersonating?.impersonatorEmail ?? session.email
+    if (realEmail.toLowerCase() !== ROLE_EDITOR_EMAIL.toLowerCase()) {
+      return { success: false, error: 'Only the portal owner can assign roles' }
     }
 
     const { error } = await supabaseAdmin

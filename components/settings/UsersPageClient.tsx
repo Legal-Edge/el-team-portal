@@ -8,13 +8,14 @@ import type { AzureUser, StaffRole, StaffUserRecord } from './UsersTable'
 type Tab = 'users' | 'insights'
 
 interface Props {
-  users:      AzureUser[]
-  error:      string | null
-  roles:      StaffRole[]
-  staffUsers: StaffUserRecord[]
+  users:        AzureUser[]
+  error:        string | null
+  roles:        StaffRole[]
+  staffUsers:   StaffUserRecord[]
+  canEditRoles: boolean
 }
 
-export function UsersPageClient({ users, error, roles, staffUsers }: Props) {
+export function UsersPageClient({ users, error, roles, staffUsers, canEditRoles }: Props) {
   const [tab, setTab] = useState<Tab>('users')
 
   const active  = users.filter(u => u.enabled && !u.blocked).length
@@ -63,7 +64,7 @@ export function UsersPageClient({ users, error, roles, staffUsers }: Props) {
         ))}
       </div>
 
-      {tab === 'users'    && <UsersTable    users={users} roles={roles} staffUsers={staffUsers} />}
+      {tab === 'users'    && <UsersTable    users={users} roles={roles} staffUsers={staffUsers} canEditRoles={canEditRoles} />}
       {tab === 'insights' && <UsersInsights users={users} staffUsers={staffUsers} />}
     </>
   )

@@ -32,6 +32,9 @@ export default async function UsersPage() {
 
   const { users, error, roles, staffUsers } = await fetchAll()
 
+  const ROLE_EDITOR = process.env.PORTAL_OWNER_EMAIL ?? 'novaj@rockpointgrowth.com'
+  const canEditRoles = session.email.toLowerCase() === ROLE_EDITOR.toLowerCase()
+
   return (
     <div className="p-8">
       <div className="mb-6">
@@ -40,7 +43,7 @@ export default async function UsersPage() {
           Staff accounts sync automatically from Azure AD. Portal roles control what each user can see and do.
         </p>
       </div>
-      <UsersPageClient users={users} error={error} roles={roles} staffUsers={staffUsers} />
+      <UsersPageClient users={users} error={error} roles={roles} staffUsers={staffUsers} canEditRoles={canEditRoles} />
     </div>
   )
 }

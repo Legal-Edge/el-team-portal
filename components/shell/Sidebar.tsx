@@ -54,9 +54,25 @@ const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
   ],
+  case_manager: [
+    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
+    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
+    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
+  ],
   paralegal: [
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
+    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
+  ],
+  intake: [
+    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
+    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
+    { label: 'Documents',  href: '/documents',  icon: 'docs'      },
+  ],
+  support: [
+    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
+    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
+    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
   ],
   staff: [
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
@@ -65,19 +81,25 @@ const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
 }
 
 const ROLE_COLORS: Record<TeamRole, string> = {
-  admin:     'bg-red-50 text-red-600',
-  attorney:  'bg-purple-50 text-purple-600',
-  manager:   'bg-blue-50 text-blue-600',
-  paralegal: 'bg-indigo-50 text-indigo-600',
-  staff:     'bg-gray-100 text-gray-500',
+  admin:        'bg-red-50 text-red-600',
+  attorney:     'bg-purple-50 text-purple-600',
+  manager:      'bg-blue-50 text-blue-600',
+  case_manager: 'bg-teal-50 text-teal-700',
+  paralegal:    'bg-indigo-50 text-indigo-600',
+  intake:       'bg-orange-50 text-orange-700',
+  support:      'bg-sky-50 text-sky-700',
+  staff:        'bg-gray-100 text-gray-500',
 }
 
 const ROLE_LABELS: Record<TeamRole, string> = {
-  admin:     'Admin',
-  attorney:  'Attorney',
-  manager:   'Manager',
-  paralegal: 'Paralegal',
-  staff:     'Staff',
+  admin:        'Admin',
+  attorney:     'Attorney',
+  manager:      'Manager',
+  case_manager: 'Case Manager',
+  paralegal:    'Paralegal',
+  intake:       'Intake',
+  support:      'Support',
+  staff:        'Staff',
 }
 
 interface SidebarProps {

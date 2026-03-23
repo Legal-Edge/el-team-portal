@@ -2,7 +2,7 @@ import { auth }    from '@/auth'
 import { cookies } from 'next/headers'
 import { IMPERSONATION_COOKIE, verifyImpersonationToken } from '@/lib/impersonation'
 
-export type TeamRole = 'admin' | 'attorney' | 'manager' | 'paralegal' | 'staff'
+export type TeamRole = 'admin' | 'attorney' | 'manager' | 'case_manager' | 'paralegal' | 'intake' | 'support' | 'staff'
 
 export type TeamSession = {
   staffId:      string
@@ -79,11 +79,11 @@ export async function getTeamSession(): Promise<TeamSession | null> {
             // Grant full permissions for "view as" — we want to see exactly what they see
             permissions: {
               canCreateCases:        ['admin','attorney','manager'].includes(imp.targetRole),
-              canEditAllCases:       ['admin','attorney','manager'].includes(imp.targetRole),
+              canEditAllCases:       ['admin','attorney','manager','case_manager'].includes(imp.targetRole),
               canDeleteCases:        imp.targetRole === 'admin',
               canAccessFinancials:   ['admin','attorney','manager'].includes(imp.targetRole),
               canManageStaff:        ['admin','manager'].includes(imp.targetRole),
-              canAccessAiTools:      ['admin','attorney','manager','paralegal'].includes(imp.targetRole),
+              canAccessAiTools:      ['admin','attorney','manager','paralegal','case_manager'].includes(imp.targetRole),
               canApproveSettlements: ['admin','attorney'].includes(imp.targetRole),
             },
           }
@@ -104,5 +104,5 @@ export function isAdmin(session: TeamSession): boolean {
 
 /** Convenience: can the user send SMS? (admin, attorney, manager) */
 export function canSendSms(session: TeamSession): boolean {
-  return ['admin', 'attorney', 'manager'].includes(session.role)
+  return ['admin', 'attorney', 'manager', 'case_manager', 'support'].includes(session.role)
 }

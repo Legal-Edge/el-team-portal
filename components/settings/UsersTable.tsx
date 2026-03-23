@@ -33,19 +33,25 @@ export interface StaffUserRecord {
 // ── Role display config ───────────────────────────────────────────────────────
 
 const ROLE_COLORS: Record<string, string> = {
-  admin:       'bg-red-50 text-red-600',
-  attorney:    'bg-purple-50 text-purple-700',
-  manager:     'bg-blue-50 text-blue-700',
-  paralegal:   'bg-indigo-50 text-indigo-700',
-  staff:       'bg-gray-100 text-gray-600',
+  admin:        'bg-red-50 text-red-600',
+  attorney:     'bg-purple-50 text-purple-700',
+  manager:      'bg-blue-50 text-blue-700',
+  case_manager: 'bg-teal-50 text-teal-700',
+  paralegal:    'bg-indigo-50 text-indigo-700',
+  intake:       'bg-orange-50 text-orange-700',
+  support:      'bg-sky-50 text-sky-700',
+  staff:        'bg-gray-100 text-gray-600',
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  admin:       'Admin',
-  attorney:    'Attorney',
-  manager:     'Manager',
-  paralegal:   'Paralegal',
-  staff:       'Staff',
+  admin:        'Admin',
+  attorney:     'Attorney',
+  manager:      'Manager',
+  case_manager: 'Case Manager',
+  paralegal:    'Paralegal',
+  intake:       'Intake',
+  support:      'Support',
+  staff:        'Staff',
 }
 
 // Fallback infer from job title when no explicit role assigned
@@ -83,11 +89,12 @@ export function Avatar({ name, size = 'md' }: { name: string | null; size?: 'sm'
 
 // ── Inline role selector ──────────────────────────────────────────────────────
 
-function RoleCell({ user, staffUser, roles, onRoleChange }: {
+function RoleCell({ user, staffUser, roles, onRoleChange, canEdit }: {
   user:         AzureUser
   staffUser:    StaffUserRecord | undefined
   roles:        StaffRole[]
   onRoleChange: (email: string, roleId: string, roleName: string) => void
+  canEdit:      boolean
 }) {
   const [open,    setOpen]    = useState(false)
   const [saving,  setSaving]  = useState(false)
@@ -126,10 +133,16 @@ function RoleCell({ user, staffUser, roles, onRoleChange }: {
   }
 
   if (!staffUser) {
-    // User not in staff_users — not provisioned yet
-    return (
-      <span className="text-xs text-gray-300 italic">Not provisioned</span>
-    )
+    return <span className="text-xs text-gray-300 italic">Not provisioned</span>
+  }
+
+  // Non-editors see a static badge only
+  if (!canEdit) {
+    return assignedRoleName ? (
+      <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${color}`}>
+        {label}
+      </span>
+    ) : <span className="text-gray-300 text-xs">—</span>
   }
 
   return (
@@ -215,12 +228,13 @@ type  StatusFilter = typeof STATUS_OPTS[number]
 const BLANK        = '__blank__'
 
 interface Props {
-  users:      AzureUser[]
-  roles:      StaffRole[]
-  staffUsers: StaffUserRecord[]
+  users:        AzureUser[]
+  roles:        StaffRole[]
+  staffUsers:   StaffUserRecord[]
+  canEditRoles: boolean
 }
 
-export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaffUsers }: Props) {
+export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaffUsers, canEditRoles }: Props) {
   const [users,       setUsers]       = useState<AzureUser[]>(() => initialUsers.filter(u => !u.blocked))
   const [staffUsers,  setStaffUsers]  = useState<StaffUserRecord[]>(initialStaffUsers)
   const [search,      setSearch]      = useState('')
@@ -407,7 +421,7 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
                     <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap">{u.title ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap">{u.department ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-5 py-3.5">
-                      <RoleCell user={u} staffUser={su} roles={roles} onRoleChange={handleRoleChange} />
+                      <RoleCell user={u} staffUser={su} roles={roles} onRoleChange={handleRoleChange} canEdit={canEditRoles} />
                     </td>
                     <td className="px-5 py-3.5">
                       <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${u.enabled ? 'text-green-600' : 'text-gray-400'}`}>
@@ -462,7 +476,7 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
                   </div>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     {u.title && <span className="text-xs text-gray-500">{u.title}</span>}
-                    <RoleCell user={u} staffUser={su} roles={roles} onRoleChange={handleRoleChange} />
+                    <RoleCell user={u} staffUser={su} roles={roles} onRoleChange={handleRoleChange} canEdit={canEditRoles} />
                     <span className={`text-xs font-medium ${u.enabled ? 'text-green-600' : 'text-gray-400'}`}>{u.enabled ? 'Active' : 'Disabled'}</span>
                   </div>
                 </div>
