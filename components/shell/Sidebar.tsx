@@ -38,6 +38,10 @@ interface NavItem {
   icon:  keyof typeof ICONS
 }
 
+const CASES_ONLY: NavItem[] = [
+  { label: 'Cases', href: '/cases', icon: 'cases' },
+]
+
 const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
   admin: [
     { label: 'Dashboard',    href: '/dashboard',          icon: 'dashboard' },
@@ -45,39 +49,16 @@ const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
     { label: 'AI Knowledge', href: '/admin/ai-knowledge', icon: 'brain'     },
     { label: 'Settings',     href: '/settings/users',     icon: 'settings'  },
   ],
-  attorney: [
-    { label: 'Dashboard',  href: '/dashboard',         icon: 'dashboard' },
-    { label: 'My Cases',   href: '/cases?assigned=me', icon: 'cases-me'  },
-    { label: 'All Cases',  href: '/cases',             icon: 'cases'     },
-  ],
   manager: [
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
   ],
-  case_manager: [
-    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
-    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
-  ],
-  paralegal: [
-    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
-    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
-  ],
-  intake: [
-    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
-    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-    { label: 'Documents',  href: '/documents',  icon: 'docs'      },
-  ],
-  support: [
-    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
-    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-    { label: 'Comms',      href: '/comms',      icon: 'comms'     },
-  ],
-  staff: [
-    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
-    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
-  ],
+  attorney:     CASES_ONLY,
+  case_manager: CASES_ONLY,
+  paralegal:    CASES_ONLY,
+  intake:       CASES_ONLY,
+  support:      CASES_ONLY,
+  staff:        CASES_ONLY,
 }
 
 const ROLE_COLORS: Record<TeamRole, string> = {
