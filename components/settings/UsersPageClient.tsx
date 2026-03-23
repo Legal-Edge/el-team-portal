@@ -1,10 +1,8 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { useRouter }     from 'next/navigation'
+import { useState } from 'react'
 import { UsersTable }    from './UsersTable'
 import { UsersInsights } from './UsersInsights'
-import { provisionAllUsersAction } from '@/lib/actions/provision'
 import type { AzureUser, StaffRole, StaffUserRecord } from './UsersTable'
 
 type Tab = 'users' | 'insights'
@@ -18,23 +16,7 @@ interface Props {
 }
 
 export function UsersPageClient({ users, error, roles, staffUsers, canEditRoles }: Props) {
-  const [tab,        setTab]        = useState<Tab>('users')
-  const [provResult, setProvResult] = useState<string | null>(null)
-  const [isPending,  startTransition] = useTransition()
-  const router = useRouter()
-
-  function handleProvision() {
-    setProvResult(null)
-    startTransition(async () => {
-      const r = await provisionAllUsersAction()
-      if (!r.success) {
-        setProvResult(`Error: ${r.error}`)
-      } else {
-        setProvResult(`✓ Provisioned ${r.created} users (${r.skipped} already existed${r.errors > 0 ? `, ${r.errors} errors` : ''})`)
-        router.refresh()
-      }
-    })
-  }
+  const [tab, setTab] = useState<Tab>('users')
 
   const active  = users.filter(u => u.enabled && !u.blocked).length
   const disabled = users.filter(u => !u.enabled).length
@@ -42,11 +24,6 @@ export function UsersPageClient({ users, error, roles, staffUsers, canEditRoles 
   const noRole   = users.filter(u => {
     const su = staffUsers.find(s => s.email?.toLowerCase() === u.email?.toLowerCase())
     return !su?.staff_roles?.role_name
-  }).length
-
-  const unprovisioned = users.filter(u => {
-    const su = staffUsers.find(s => s.email?.toLowerCase() === u.email?.toLowerCase())
-    return !su
   }).length
 
   if (error) {
@@ -86,25 +63,6 @@ export function UsersPageClient({ users, error, roles, staffUsers, canEditRoles 
           </button>
         ))}
       </div>
-
-      {/* Provision banner */}
-      {canEditRoles && unprovisioned > 0 && (
-        <div className="mb-4 flex items-center justify-between gap-4 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-          <p className="text-sm text-amber-800">
-            <span className="font-semibold">{unprovisioned} users</span> from Azure haven't been provisioned yet — they can't log in or be assigned roles.
-          </p>
-          <div className="flex items-center gap-3 shrink-0">
-            {provResult && <span className="text-xs text-gray-600">{provResult}</span>}
-            <button
-              onClick={handleProvision}
-              disabled={isPending}
-              className="px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors whitespace-nowrap"
-            >
-              {isPending ? 'Provisioning…' : `Provision All (${unprovisioned})`}
-            </button>
-          </div>
-        </div>
-      )}
 
       {tab === 'users'    && <UsersTable    users={users} roles={roles} staffUsers={staffUsers} canEditRoles={canEditRoles} />}
       {tab === 'insights' && <UsersInsights users={users} staffUsers={staffUsers} />}
