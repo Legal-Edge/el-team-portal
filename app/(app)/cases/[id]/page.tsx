@@ -3006,13 +3006,15 @@ export default function CaseDetailPage() {
     }
   }
 
-  // Update tab title when client name loads
+  // Update tab title: "Chris Cobble | Overview" etc.
   useEffect(() => {
     if (!caseData) return
-    const name = [caseData.client_first_name, caseData.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
-    document.title = `${name} | Team Portal`
+    const name    = [caseData.client_first_name, caseData.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
+    const tabLabel = activeTab === 'ai' ? 'AI Analysis'
+      : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)
+    document.title = `${name} | ${tabLabel}`
     return () => { document.title = 'Team Portal' }
-  }, [caseData])
+  }, [caseData, activeTab])
 
   useEffect(() => {
     async function load() {
