@@ -42,12 +42,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Graph API error', detail: usersData }, { status: 500 })
     }
 
-    // Get portal-blocked users from Supabase
-    const { data: blocked } = await supabaseAdmin
-      .from('portal_blocked_users')
-      .select('email')
-
-    const blockedEmails = new Set((blocked ?? []).map((b: { email: string }) => b.email.toLowerCase()))
+    // Get portal-blocked users from Supabase (graceful if table doesn't exist yet)
+    let blockedEmails = new Set<string>()
+    try {
+      const { data: blocked } = await supabaseAdmin
+        .from('portal_blocked_users')
+        .select('email')
+      blockedEmails = new Set((blocked ?? []).map((b: { email: string }) => b.email.toLowerCase()))
+    } catch {
+      // Table not yet created — treat as empty blocklist
+    }
 
     const users = (usersData.value ?? []).map((u: Record<string, unknown>) => {
       const email = ((u.mail ?? u.userPrincipalName) as string | null)?.toLowerCase() ?? null

@@ -55,8 +55,8 @@ const BLANK = '__blank__'
 
 // ── Delete confirmation modal ─────────────────────────────────────────────────
 
-function DeleteConfirm({ user, onConfirm, onCancel, loading }: {
-  user: AzureUser; onConfirm: () => void; onCancel: () => void; loading: boolean
+function DeleteConfirm({ user, onConfirm, onCancel, loading, error }: {
+  user: AzureUser; onConfirm: () => void; onCancel: () => void; loading: boolean; error?: string | null
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
@@ -65,7 +65,12 @@ function DeleteConfirm({ user, onConfirm, onCancel, loading }: {
         <p className="text-sm text-gray-500 mb-1">
           <span className="font-medium text-gray-800">{user.name}</span> ({user.email}) will be removed from the team portal immediately.
         </p>
-        <p className="text-xs text-gray-400 mb-5">Their Azure AD account is not affected.</p>
+        <p className="text-xs text-gray-400 mb-3">Their Azure AD account is not affected.</p>
+        {error && (
+          <div className="mb-4 px-3 py-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-600">
+            {error}
+          </div>
+        )}
         <div className="flex gap-3">
           <button onClick={onCancel} disabled={loading}
             className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
@@ -97,8 +102,9 @@ export function UsersTable({ users: initialUsers }: { users: AzureUser[] }) {
   const [roleF,      setRoleF]      = useState('')
   const [pageSize,   setPageSize]   = useState(25)
   const [page,       setPage]       = useState(1)
-  const [deleteUser, setDeleteUser] = useState<AzureUser | null>(null)
-  const [isPending,  startTransition] = useTransition()
+  const [deleteUser,  setDeleteUser]  = useState<AzureUser | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isPending,   startTransition] = useTransition()
 
   // Unique filter options — include blank sentinel when nulls exist
   const titles = useMemo(() => {
@@ -153,9 +159,13 @@ export function UsersTable({ users: initialUsers }: { users: AzureUser[] }) {
   const handleDelete = useCallback(() => {
     if (!deleteUser?.email) return
     const target = deleteUser
+    setDeleteError(null)
     startTransition(async () => {
-      await blockUserAction(target.email!, target.name)
-      // Remove from local state immediately — no refresh needed
+      const result = await blockUserAction(target.email!, target.name)
+      if (!result.success) {
+        setDeleteError(result.error ?? 'Something went wrong')
+        return
+      }
       setUsers(prev => prev.filter(u => u.email !== target.email))
       setDeleteUser(null)
     })
@@ -175,7 +185,7 @@ export function UsersTable({ users: initialUsers }: { users: AzureUser[] }) {
   return (
     <>
       {deleteUser && (
-        <DeleteConfirm user={deleteUser} onConfirm={handleDelete} onCancel={() => setDeleteUser(null)} loading={isPending} />
+        <DeleteConfirm user={deleteUser} onConfirm={handleDelete} onCancel={() => { setDeleteUser(null); setDeleteError(null) }} loading={isPending} error={deleteError} />
       )}
 
       <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
