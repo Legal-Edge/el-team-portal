@@ -2821,7 +2821,9 @@ export default function CaseDetailPage() {
     } else {
       url.searchParams.set('tab', tab)
     }
-    router.replace(url.pathname + (url.search || ''), { scroll: false })
+    // Use history.replaceState instead of router.replace — avoids Next.js
+    // re-applying layout metadata which would reset the document title
+    window.history.replaceState(null, '', url.pathname + (url.search || ''))
   }
   const [taskCount, setTaskCount] = useState(0)
   const [staffList, setStaffList] = useState<{ id: string; display_name: string }[]>([])
