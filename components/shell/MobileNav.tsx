@@ -35,6 +35,11 @@ const NAV_BY_ROLE: Record<TeamRole, NavItem[]> = {
     { label: 'Cases',     href: '/cases',     icon: <IconCases /> },
     { label: 'Comms',     href: '/comms',     icon: <IconComms /> },
   ],
+  paralegal: [
+    { label: 'Dashboard', href: '/dashboard', icon: <IconDashboard /> },
+    { label: 'Cases',     href: '/cases',     icon: <IconCases /> },
+    { label: 'Comms',     href: '/comms',     icon: <IconComms /> },
+  ],
   staff: [
     { label: 'Dashboard', href: '/dashboard', icon: <IconDashboard /> },
     { label: 'Cases',     href: '/cases',     icon: <IconCases /> },

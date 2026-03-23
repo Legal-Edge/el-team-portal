@@ -1,6 +1,6 @@
 import { auth } from '@/auth'
 
-export type TeamRole = 'admin' | 'attorney' | 'manager' | 'staff'
+export type TeamRole = 'admin' | 'attorney' | 'manager' | 'paralegal' | 'staff'
 
 export type TeamSession = {
   staffId:     string

@@ -4,20 +4,25 @@ import { UsersPageClient }   from '@/components/settings/UsersPageClient'
 
 export const dynamic = 'force-dynamic'
 
-async function fetchAzureUsers() {
-  const token = process.env.BACKFILL_IMPORT_TOKEN!
-  const base  = process.env.NEXTAUTH_URL ?? 'https://team.easylemon.com'
+const BASE  = process.env.NEXTAUTH_URL ?? 'https://team.easylemon.com'
+const TOKEN = process.env.BACKFILL_IMPORT_TOKEN!
 
-  try {
-    const res = await fetch(`${base}/api/admin/azure-users`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store',
-    })
-    if (!res.ok) return { users: [], error: 'Failed to load users' }
-    const data = await res.json()
-    return { users: data.users ?? [], error: null }
-  } catch {
-    return { users: [], error: 'Network error' }
+async function fetchAll() {
+  const [azureRes, rolesRes] = await Promise.all([
+    fetch(`${BASE}/api/admin/azure-users`,  { headers: { Authorization: `Bearer ${TOKEN}` }, cache: 'no-store' }),
+    fetch(`${BASE}/api/admin/staff-roles`,  { headers: { Authorization: `Bearer ${TOKEN}` }, cache: 'no-store' }),
+  ])
+
+  const [azureData, rolesData] = await Promise.all([
+    azureRes.ok  ? azureRes.json()  : { users: [], error: 'Failed to load users' },
+    rolesRes.ok  ? rolesRes.json()  : { roles: [], staffUsers: [] },
+  ])
+
+  return {
+    users:      azureData.users      ?? [],
+    error:      azureData.error      ?? null,
+    roles:      rolesData.roles      ?? [],
+    staffUsers: rolesData.staffUsers ?? [],
   }
 }
 
@@ -25,17 +30,17 @@ export default async function UsersPage() {
   const session = await getTeamSession()
   if (!session || session.role !== 'admin') redirect('/dashboard')
 
-  const { users, error } = await fetchAzureUsers()
+  const { users, error, roles, staffUsers } = await fetchAll()
 
   return (
     <div className="p-8">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-900">Users &amp; Teams</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Staff accounts sync automatically from Azure AD.
+          Staff accounts sync automatically from Azure AD. Portal roles control what each user can see and do.
         </p>
       </div>
-      <UsersPageClient users={users} error={error} />
+      <UsersPageClient users={users} error={error} roles={roles} staffUsers={staffUsers} />
     </div>
   )
 }

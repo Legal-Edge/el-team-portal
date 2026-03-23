@@ -7,17 +7,19 @@ import Image                            from 'next/image'
 import type { TeamRole }                from '@/lib/session'
 
 const ROLE_LABELS: Record<TeamRole, string> = {
-  admin:    'Admin',
-  attorney: 'Attorney',
-  manager:  'Manager',
-  staff:    'Staff',
+  admin:     'Admin',
+  attorney:  'Attorney',
+  manager:   'Manager',
+  paralegal: 'Paralegal',
+  staff:     'Staff',
 }
 
 const ROLE_COLORS: Record<TeamRole, string> = {
-  admin:    'bg-red-50 text-red-600',
-  attorney: 'bg-purple-50 text-purple-600',
-  manager:  'bg-blue-50 text-blue-600',
-  staff:    'bg-gray-100 text-gray-500',
+  admin:     'bg-red-50 text-red-600',
+  attorney:  'bg-purple-50 text-purple-600',
+  manager:   'bg-blue-50 text-blue-600',
+  paralegal: 'bg-indigo-50 text-indigo-600',
+  staff:     'bg-gray-100 text-gray-500',
 }
 
 interface SearchResult {

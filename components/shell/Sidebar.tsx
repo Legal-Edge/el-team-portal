@@ -40,10 +40,10 @@ interface NavItem {
 
 const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
   admin: [
-    { label: 'Dashboard',     href: '/dashboard',          icon: 'dashboard' },
-    { label: 'Cases',         href: '/cases',              icon: 'cases'     },
-    { label: 'AI Knowledge',  href: '/admin/ai-knowledge', icon: 'brain'     },
-    { label: 'Settings',      href: '/settings/users',     icon: 'settings'  },
+    { label: 'Dashboard',    href: '/dashboard',          icon: 'dashboard' },
+    { label: 'Cases',        href: '/cases',              icon: 'cases'     },
+    { label: 'AI Knowledge', href: '/admin/ai-knowledge', icon: 'brain'     },
+    { label: 'Settings',     href: '/settings/users',     icon: 'settings'  },
   ],
   attorney: [
     { label: 'Dashboard',  href: '/dashboard',         icon: 'dashboard' },
@@ -54,6 +54,10 @@ const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
   ],
+  paralegal: [
+    { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
+    { label: 'Cases',      href: '/cases',      icon: 'cases'     },
+  ],
   staff: [
     { label: 'Dashboard',  href: '/dashboard',  icon: 'dashboard' },
     { label: 'Cases',      href: '/cases',      icon: 'cases'     },
@@ -61,17 +65,19 @@ const NAV_ITEMS: Record<TeamRole, NavItem[]> = {
 }
 
 const ROLE_COLORS: Record<TeamRole, string> = {
-  admin:    'bg-red-50 text-red-600',
-  attorney: 'bg-purple-50 text-purple-600',
-  manager:  'bg-blue-50 text-blue-600',
-  staff:    'bg-gray-100 text-gray-500',
+  admin:     'bg-red-50 text-red-600',
+  attorney:  'bg-purple-50 text-purple-600',
+  manager:   'bg-blue-50 text-blue-600',
+  paralegal: 'bg-indigo-50 text-indigo-600',
+  staff:     'bg-gray-100 text-gray-500',
 }
 
 const ROLE_LABELS: Record<TeamRole, string> = {
-  admin:    'Admin',
-  attorney: 'Attorney',
-  manager:  'Manager',
-  staff:    'Staff',
+  admin:     'Admin',
+  attorney:  'Attorney',
+  manager:   'Manager',
+  paralegal: 'Paralegal',
+  staff:     'Staff',
 }
 
 interface SidebarProps {

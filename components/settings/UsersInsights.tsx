@@ -1,13 +1,13 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { AzureUser }    from './UsersTable'
-import { inferPortalRole, Avatar } from './UsersTable'
+import type { AzureUser, StaffUserRecord } from './UsersTable'
+import { Avatar } from './UsersTable'
 
 // ── Segment user popup ────────────────────────────────────────────────────────
 
-function SegmentModal({ label, users, onClose }: {
-  label: string; users: AzureUser[]; onClose: () => void
+function SegmentModal({ label, users, staffUsers, onClose }: {
+  label: string; users: AzureUser[]; staffUsers: StaffUserRecord[]; onClose: () => void
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
@@ -29,7 +29,9 @@ function SegmentModal({ label, users, onClose }: {
         {/* User list */}
         <div className="overflow-y-auto divide-y divide-gray-50">
           {users.map(u => {
-            const role = inferPortalRole(u.title)
+            const su   = staffUsers.find((s: StaffUserRecord) => s.email?.toLowerCase() === u.email?.toLowerCase())
+            const rn   = su?.staff_roles?.role_name
+            const role = rn ? { label: rn, color: `bg-gray-100 text-gray-600` } : null
             return (
               <div key={u.email} className="flex items-center gap-3 px-5 py-3">
                 <Avatar name={u.name} size="sm" />
@@ -108,19 +110,20 @@ const DEPT_COLORS: Record<string, string> = {
   Executive:   'bg-red-400',
 }
 
-export function UsersInsights({ users }: { users: AzureUser[] }) {
+export function UsersInsights({ users, staffUsers }: { users: AzureUser[]; staffUsers: StaffUserRecord[] }) {
   const [modal, setModal] = useState<{ label: string; users: AzureUser[] } | null>(null)
   const active = users.filter(u => u.enabled && !u.blocked)
 
-  // By Role
+  // By Role (use explicit assigned role)
   const byRole = useMemo(() => {
     const map = new Map<string, AzureUser[]>()
     active.forEach(u => {
-      const key = inferPortalRole(u.title)?.label ?? 'Unassigned'
+      const su  = staffUsers.find(s => s.email?.toLowerCase() === u.email?.toLowerCase())
+      const key = su?.staff_roles?.role_name ?? 'Unassigned'
       map.set(key, [...(map.get(key) ?? []), u])
     })
     return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length)
-  }, [active])
+  }, [active, staffUsers])
 
   // By Department
   const byDept = useMemo(() => {
@@ -151,7 +154,7 @@ export function UsersInsights({ users }: { users: AzureUser[] }) {
   return (
     <>
       {modal && (
-        <SegmentModal label={modal.label} users={modal.users} onClose={() => setModal(null)} />
+        <SegmentModal label={modal.label} users={modal.users} staffUsers={staffUsers} onClose={() => setModal(null)} />
       )}
 
       {/* Summary row */}
