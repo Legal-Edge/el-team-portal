@@ -3430,34 +3430,7 @@ export default function CaseDetailPage() {
                 </div>
               </div>
 
-              {/* Case details */}
-              <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Case Details</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
-                  <Field label="Type"           value={c.case_type} />
-                  <Field label="Priority"       value={c.case_priority} />
-                  <Field label="Est. Value"     value={c.estimated_value ? '$' + c.estimated_value.toLocaleString() : null} />
-                  <Field label="Settlement"     value={c.settlement_amount ? '$' + c.settlement_amount.toLocaleString() : null} />
-                  <Field label="Attorney Fees"  value={c.attorney_fees ? '$' + c.attorney_fees.toLocaleString() : null} />
-                  <Field label="Filing Deadline" value={fmtDate(c.filing_deadline)} />
-                  <Field label="SOL"            value={fmtDate(c.statute_of_limitations)} />
-                  <Field label="HubSpot Deal"   value={c.hubspot_deal_id} mono />
-                </div>
-              </div>
 
-              {/* Timeline */}
-              <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Timeline</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
-                  <Field label="Created"          value={fmtDate(c.created_at)} />
-                  <Field label="Last Updated"     value={fmtDate(c.updated_at)} />
-                  <Field label="Intake Completed" value={fmtDate(c.intake_completed_at)} />
-                  <Field label="Review Completed" value={fmtDate(c.review_completed_at)} />
-                  <Field label="Filed"            value={fmtDate(c.filed_at)} />
-                  <Field label="Settled"          value={fmtDate(c.settled_at)} />
-                  <Field label="Closed"           value={fmtDate(c.closed_at)} />
-                </div>
-              </div>
 
               {/* Notes */}
               {(c.case_notes || c.internal_notes) && (
