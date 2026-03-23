@@ -18,13 +18,7 @@ interface Props {
 export function UsersPageClient({ users, error, roles, staffUsers, canEditRoles }: Props) {
   const [tab, setTab] = useState<Tab>('users')
 
-  const active  = users.filter(u => u.enabled && !u.blocked).length
-  const disabled = users.filter(u => !u.enabled).length
-  const blocked  = users.filter(u => u.blocked).length
-  const noRole   = users.filter(u => {
-    const su = staffUsers.find(s => s.email?.toLowerCase() === u.email?.toLowerCase())
-    return !su?.staff_roles?.role_name
-  }).length
+  const active = users.filter(u => u.enabled && !u.blocked).length
 
   if (error) {
     return (
@@ -35,19 +29,14 @@ export function UsersPageClient({ users, error, roles, staffUsers, canEditRoles 
   return (
     <>
       {/* Stats bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 gap-4 mb-6 w-fit">
         {[
-          { label: 'Total Users',    value: users.length,  accent: false },
-          { label: 'Active',         value: active,        accent: false },
-          { label: 'Disabled',       value: disabled,      accent: disabled > 0 },
-          { label: 'Portal Blocked', value: blocked,       accent: blocked > 0 },
-          { label: 'No Role',        value: noRole,        accent: noRole > 0 },
+          { label: 'Total Users', value: users.length },
+          { label: 'Active',      value: active },
         ].map(s => (
-          <div key={s.label} className="bg-white border border-gray-100 rounded-xl p-4">
+          <div key={s.label} className="bg-white border border-gray-100 rounded-xl p-4 min-w-[140px]">
             <p className="text-2xl font-bold text-gray-900">{s.value}</p>
-            <p className={`text-xs mt-0.5 ${s.accent && s.value > 0 ? 'text-amber-500 font-medium' : 'text-gray-500'}`}>
-              {s.label}
-            </p>
+            <p className="text-xs mt-0.5 text-gray-500">{s.label}</p>
           </div>
         ))}
       </div>
