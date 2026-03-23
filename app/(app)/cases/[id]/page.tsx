@@ -2798,7 +2798,7 @@ export default function CaseDetailPage() {
   const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
   const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
-  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') ?? 'overview'
+  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai') ?? 'overview'
   const backHref   = searchParams.get('from') ?? '/cases'
 
   // Queue state for prev/next navigation
@@ -2810,10 +2810,10 @@ export default function CaseDetailPage() {
       if (raw) setQueueState(JSON.parse(raw) as QueueState)
     } catch { /* ignore */ }
   }, [])
-  const [activeTab, setActiveTab]     = useState<'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks'>(initialTab)
+  const [activeTab, setActiveTab]     = useState<'overview' | 'comms' | 'documents' | 'ai'>(initialTab)
   const [analysisVersion, setAnalysisVersion] = useState(0)
 
-  const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai' | 'intake' | 'tasks') => {
+  const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai') => {
     setActiveTab(tab)
     const url = new URL(window.location.href)
     if (tab === 'overview') {
@@ -3239,8 +3239,6 @@ export default function CaseDetailPage() {
     { id: 'comms',      label: `Comms${commTotal > 0 ? ` (${commTotal})` : ''}` },
     { id: 'documents',  label: 'Documents'  },
     { id: 'ai',         label: '✦ AI Analysis' },
-    { id: 'tasks',      label: `Tasks${taskCount > 0 ? ` (${taskCount})` : ''}` },
-    { id: 'intake',     label: 'Intake'     },
   ] as const
 
   return (
@@ -3790,63 +3788,7 @@ export default function CaseDetailPage() {
             <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => switchTab('documents')} onAnalysisComplete={() => setAnalysisVersion(v => v + 1)} />
           )}
 
-          {/* ── Tasks tab ── */}
-          {activeTab === 'tasks' && (
-            <TasksSection
-              caseSlug={params.id as string}
-              caseUUID={caseUUID}
-              staffId={staffId}
-              userRole={userRole}
-              staffList={staffList}
-            />
-          )}
 
-          {/* ── Intake tab ── */}
-          {activeTab === 'intake' && (
-            <div className="space-y-3">
-              <IntakeSection title="Intake Submission" icon="📋">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-                  <Field label="ELA Intake Status"  value={intake?.ela_intake} />
-                  <Field label="Intake Management"  value={intake?.intake_management} />
-                  <Field label="HubSpot Qualifier"  value={intake?.intake_hubspot_qualifier} />
-                  <Field label="Intake Associate"   value={intake?.intake_associate} />
-                  <Field label="Had Repairs"        value={intake?.had_repairs == null ? null : intake.had_repairs ? 'Yes' : 'No'} />
-                  <Field label="Paid for Repairs"   value={intake?.paid_for_repairs} />
-                  <Field label="Number of Repairs"  value={intake?.repair_count} />
-                </div>
-              </IntakeSection>
-              <IntakeSection title="Vehicle Information" icon="🚗">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-                  <Field label="Purchase or Lease" value={intake?.purchase_or_lease} />
-                  <Field label="How Purchased"     value={intake?.how_purchased} />
-                  <Field label="Vehicle Status"    value={intake?.vehicle_status} />
-                </div>
-              </IntakeSection>
-              <IntakeSection title="Issues & Repair History" icon="🔧">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
-                  <IntakeProblem n={1} category={intake?.problem_1_category ?? null} notes={intake?.problem_1_notes ?? null} attempts={intake?.problem_1_repair_attempts ?? null} />
-                  <IntakeProblem n={2} category={intake?.problem_2_category ?? null} notes={intake?.problem_2_notes ?? null} attempts={intake?.problem_2_repair_attempts ?? null} />
-                  <IntakeProblem n={3} category={intake?.problem_3_category ?? null} notes={intake?.problem_3_notes ?? null} attempts={intake?.problem_3_repair_attempts ?? null} />
-                  <IntakeProblem n={4} category={intake?.problem_4_category ?? null} notes={intake?.problem_4_notes ?? null} attempts={intake?.problem_4_repair_attempts ?? null} />
-                </div>
-                {(intake?.repair_attempts || intake?.last_repair_attempt_date) && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-5 border-t border-gray-100 pt-5">
-                    <Field label="Total Repair Attempts"    value={intake?.repair_attempts} />
-                    <Field label="Last Repair Attempt Date" value={intake?.last_repair_attempt_date} />
-                  </div>
-                )}
-              </IntakeSection>
-              <IntakeSection title="Additional Information" icon="📄">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-                  <Field label="Car in Shop 30+ Days"   value={intake?.in_shop_30_days} />
-                  <Field label="Contacted Manufacturer" value={intake?.contacted_manufacturer} />
-                  <Field label="Manufacturer Offer"     value={intake?.manufacturer_offer} />
-                  <Field label="Has Repair Documents"   value={intake?.has_repair_documents} />
-                  <Field label="Refund Preference"      value={intake?.refund_preference} />
-                </div>
-              </IntakeSection>
-            </div>
-          )}
         </div>
 
         {/* ── Right: sticky sidebar ── */}
