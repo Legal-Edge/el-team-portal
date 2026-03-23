@@ -1,12 +1,20 @@
-import { auth } from '@/auth'
+import { auth }    from '@/auth'
+import { cookies } from 'next/headers'
+import { IMPERSONATION_COOKIE, verifyImpersonationToken } from '@/lib/impersonation'
 
 export type TeamRole = 'admin' | 'attorney' | 'manager' | 'paralegal' | 'staff'
 
 export type TeamSession = {
-  staffId:     string
-  email:       string
-  displayName: string
-  role:        TeamRole
+  staffId:      string
+  email:        string
+  displayName:  string
+  role:         TeamRole
+  impersonating?: {
+    email:             string
+    name:              string
+    role:              TeamRole
+    impersonatorEmail: string
+  }
   permissions: {
     canCreateCases:        boolean
     canEditAllCases:       boolean
@@ -22,13 +30,14 @@ export type TeamSession = {
 /**
  * Fetch and validate the current team session from NextAuth.
  * Returns null if unauthenticated.
- * Use this in all server components and API routes for consistent role enforcement.
+ * If an impersonation cookie is present and valid, the returned session reflects
+ * the target user's role/identity while preserving the real admin identity.
  */
 export async function getTeamSession(): Promise<TeamSession | null> {
   const session = await auth()
   if (!session?.user?.email) return null
 
-  return {
+  const teamSession: TeamSession = {
     staffId:     session.user.staffId     ?? '',
     email:       session.user.email,
     displayName: session.user.displayName ?? session.user.name ?? session.user.email,
@@ -44,6 +53,48 @@ export async function getTeamSession(): Promise<TeamSession | null> {
     },
     timeZone: session.user.timeZone ?? 'America/Los_Angeles',
   }
+
+  // ── Impersonation overlay ────────────────────────────────────────────────
+  // Only applies when the real user is an admin
+  if (teamSession.role === 'admin') {
+    try {
+      const jar   = await cookies()
+      const token = jar.get(IMPERSONATION_COOKIE)?.value
+      if (token) {
+        const imp = await verifyImpersonationToken(token)
+        if (imp) {
+          // Overlay the target user's identity onto the session
+          return {
+            ...teamSession,
+            staffId:     imp.targetStaffId,
+            email:       imp.targetEmail,
+            displayName: imp.targetName,
+            role:        imp.targetRole as TeamRole,
+            impersonating: {
+              email:             imp.targetEmail,
+              name:              imp.targetName,
+              role:              imp.targetRole as TeamRole,
+              impersonatorEmail: imp.impersonatorEmail,
+            },
+            // Grant full permissions for "view as" — we want to see exactly what they see
+            permissions: {
+              canCreateCases:        ['admin','attorney','manager'].includes(imp.targetRole),
+              canEditAllCases:       ['admin','attorney','manager'].includes(imp.targetRole),
+              canDeleteCases:        imp.targetRole === 'admin',
+              canAccessFinancials:   ['admin','attorney','manager'].includes(imp.targetRole),
+              canManageStaff:        ['admin','manager'].includes(imp.targetRole),
+              canAccessAiTools:      ['admin','attorney','manager','paralegal'].includes(imp.targetRole),
+              canApproveSettlements: ['admin','attorney'].includes(imp.targetRole),
+            },
+          }
+        }
+      }
+    } catch {
+      // Impersonation cookie parse failure — ignore, return real session
+    }
+  }
+
+  return teamSession
 }
 
 /** Convenience: is the user an admin? */

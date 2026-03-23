@@ -2,6 +2,8 @@
 
 import { useState, useMemo, useCallback, useTransition, useRef, useEffect } from 'react'
 import { blockUserAction, assignRoleAction } from '@/lib/actions/users'
+import { startImpersonationAction }          from '@/lib/actions/impersonation'
+import { useRouter }                         from 'next/navigation'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -230,7 +232,9 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
   const [page,        setPage]        = useState(1)
   const [deleteUser,  setDeleteUser]  = useState<AzureUser | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [impersonating, setImpersonating] = useState<string | null>(null)
   const [isPending,   startTransition] = useTransition()
+  const router = useRouter()
 
   // Unique filter options
   const titles = useMemo(() => {
@@ -291,6 +295,20 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
       setDeleteUser(null)
     })
   }, [deleteUser])
+
+  const handleImpersonate = useCallback((email: string) => {
+    setImpersonating(email)
+    startTransition(async () => {
+      const result = await startImpersonationAction(email)
+      setImpersonating(null)
+      if (result.success) {
+        router.push('/dashboard')
+        router.refresh()
+      } else {
+        alert(result.error ?? 'Failed to start impersonation')
+      }
+    })
+  }, [router])
 
   const handleRoleChange = useCallback((email: string, roleId: string, roleName: string) => {
     setStaffUsers(prev => prev.map(su =>
@@ -397,12 +415,24 @@ export function UsersTable({ users: initialUsers, roles, staffUsers: initialStaf
                         {u.enabled ? 'Active' : 'Disabled'}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <button onClick={() => setDeleteUser(u)} className="text-gray-300 hover:text-red-400 transition-colors" title="Remove portal access">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center justify-end gap-2">
+                        {su && su.staff_roles?.role_name !== 'admin' && (
+                          <button
+                            onClick={() => handleImpersonate(u.email!)}
+                            disabled={impersonating === u.email}
+                            className="text-xs text-gray-400 hover:text-blue-500 font-medium transition-colors disabled:opacity-40"
+                            title="View portal as this user"
+                          >
+                            {impersonating === u.email ? '…' : 'View as'}
+                          </button>
+                        )}
+                        <button onClick={() => setDeleteUser(u)} className="text-gray-300 hover:text-red-400 transition-colors" title="Remove portal access">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )

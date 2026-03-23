@@ -1,9 +1,10 @@
-import { redirect }          from 'next/navigation'
-import { getTeamSession }    from '@/lib/session'
-import { Sidebar }           from '@/components/shell/Sidebar'
-import { Header }            from '@/components/shell/Header'
-import { CommandPalette }    from '@/components/CommandPalette'
-import { MobileNav }         from '@/components/shell/MobileNav'
+import { redirect }               from 'next/navigation'
+import { getTeamSession }         from '@/lib/session'
+import { Sidebar }                from '@/components/shell/Sidebar'
+import { Header }                 from '@/components/shell/Header'
+import { CommandPalette }         from '@/components/CommandPalette'
+import { MobileNav }              from '@/components/shell/MobileNav'
+import { ImpersonationBanner }    from '@/components/shell/ImpersonationBanner'
 
 /**
  * App shell layout — wraps all authenticated pages.
@@ -16,7 +17,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session) redirect('/login')
 
   return (
-    <div className="h-[100dvh] flex overflow-hidden bg-white">
+    <div className="h-[100dvh] flex flex-col overflow-hidden bg-white">
+      {session.impersonating && (
+        <ImpersonationBanner
+          name={session.impersonating.name}
+          role={session.impersonating.role}
+          impersonatorEmail={session.impersonating.impersonatorEmail}
+        />
+      )}
+      <div className="flex flex-1 overflow-hidden">
 
       {/* Sidebar — desktop only */}
       <div className="hidden md:block">
@@ -43,6 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* Mobile bottom nav */}
       <MobileNav role={session.role} />
+      </div>
     </div>
   )
 }
