@@ -46,7 +46,7 @@ const ROLE_COLORS: Record<string, string> = {
   staff:        'bg-gray-100 text-gray-600',
 }
 
-const ROLE_LABELS: Record<string, string> = {
+export const ROLE_LABELS: Record<string, string> = {
   admin:        'Admin',
   attorney:     'Attorney',
   manager:      'Manager',

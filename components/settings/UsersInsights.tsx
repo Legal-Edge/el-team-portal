@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { ROLE_LABELS } from './UsersTable'
 import type { AzureUser, StaffUserRecord } from './UsersTable'
 import { Avatar } from './UsersTable'
 
@@ -31,7 +32,7 @@ function SegmentModal({ label, users, staffUsers, onClose }: {
           {users.map(u => {
             const su   = staffUsers.find((s: StaffUserRecord) => s.email?.toLowerCase() === u.email?.toLowerCase())
             const rn   = su?.staff_roles?.role_name
-            const role = rn ? { label: rn, color: `bg-gray-100 text-gray-600` } : null
+            const role = rn ? { label: ROLE_LABELS[rn] ?? rn, color: `bg-gray-100 text-gray-600` } : null
             return (
               <div key={u.email} className="flex items-center gap-3 px-5 py-3">
                 <Avatar name={u.name} size="sm" />
@@ -119,7 +120,8 @@ export function UsersInsights({ users, staffUsers }: { users: AzureUser[]; staff
     const map = new Map<string, AzureUser[]>()
     active.forEach(u => {
       const su  = staffUsers.find(s => s.email?.toLowerCase() === u.email?.toLowerCase())
-      const key = su?.staff_roles?.role_name ?? 'Unassigned'
+      const rawRole = su?.staff_roles?.role_name ?? 'Unassigned'
+      const key = ROLE_LABELS[rawRole] ?? rawRole
       map.set(key, [...(map.get(key) ?? []), u])
     })
     return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length)
