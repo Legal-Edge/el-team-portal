@@ -266,7 +266,7 @@ export async function fetchHsDeal(dealId: string): Promise<Record<string, unknow
     if (data?.properties) Object.assign(merged, data.properties as Record<string, unknown>)
     else if (i === 0) return data   // passthrough if unexpected shape
   }
-  return { properties: merged }
+  return { id: dealId, properties: merged }
 }
 
 export async function fetchHsContact(dealId: string): Promise<Record<string, unknown> | null> {
