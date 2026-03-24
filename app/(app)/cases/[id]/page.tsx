@@ -3041,9 +3041,10 @@ export default function CaseDetailPage() {
       if (!cursor && !append) {
         try {
           const syncRes = await fetch(`/api/cases/${params.id}/sync-engagements`, { method: 'POST' })
+          const syncData = await syncRes.json().catch(() => ({}))
+          console.log('[timeline] sync result:', JSON.stringify(syncData))
           if (!syncRes.ok) {
-            const err = await syncRes.json().catch(() => ({}))
-            console.warn('[timeline] engagement sync failed:', syncRes.status, err)
+            console.warn('[timeline] engagement sync failed:', syncRes.status, syncData)
           }
         } catch (e) {
           console.warn('[timeline] engagement sync error:', e)
