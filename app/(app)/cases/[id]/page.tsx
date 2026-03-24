@@ -3368,7 +3368,25 @@ export default function CaseDetailPage() {
         })
       })
 
-      // ── HubSpot engagements (synced in background on tab open) ──
+      // ── Case property changes (deal sync via webhook) ──
+      // Fires when webhook updates core.cases — reloads overview data live
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'core', table: 'cases',
+        filter: `id=eq.${caseUUID}`,
+      }, () => {
+        // Re-fetch case data silently so Overview reflects the latest HubSpot state
+        fetch(`/api/cases/${params.id}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data?.case) {
+              setCaseData(data.case)
+              console.log('[Realtime] case updated — overview refreshed')
+            }
+          })
+          .catch(() => { /* non-fatal */ })
+      })
+
+      // ── HubSpot engagements (live from webhook) ──
       .on('postgres_changes', {
         event: 'INSERT', schema: 'core', table: 'hubspot_engagements',
         filter: `case_id=eq.${caseUUID}`,
