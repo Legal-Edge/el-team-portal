@@ -2,6 +2,7 @@
 // Lists active Graph subscriptions + tests the webhook URL is reachable
 
 import { NextRequest, NextResponse }         from 'next/server'
+import { createClient }                      from '@supabase/supabase-js'
 import { listSubscriptions, getGraphToken, DOCUMENTS_DRIVE_ID } from '@/lib/sharepoint'
 
 const TOKEN = process.env.BACKFILL_IMPORT_TOKEN!
@@ -39,7 +40,25 @@ export async function GET(req: NextRequest) {
       ? await directRes.json()
       : { status: directRes.status, error: await directRes.text() }
 
+    // Recent SharePoint webhook calls from sync_log
+    const db2 = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    ).schema('core')
+    const { data: recentLogs } = await db2
+      .from('sync_log')
+      .select('triggered_at, deals_seen, notes')
+      .eq('sync_type', 'webhook')
+      .like('notes', 'sharepoint_notification:%')
+      .order('triggered_at', { ascending: false })
+      .limit(10)
+
     return NextResponse.json({
+      webhook_log: (recentLogs ?? []).map(l => ({
+        at:    l.triggered_at,
+        count: l.deals_seen,
+        body:  (l as {notes?: string}).notes?.replace('sharepoint_notification: ', '').slice(0, 200),
+      })),
       subscriptions: {
         total:   subs.length,
         ours:    ours.map(s => ({

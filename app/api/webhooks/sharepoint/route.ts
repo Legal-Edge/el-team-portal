@@ -21,6 +21,25 @@ function getDb() {
   )
 }
 
+async function logNotificationsToDb(
+  notifications: Array<{ clientState?: string; resource?: string; resourceData?: { id?: string }; changeType?: string }>,
+  rawBody: string,
+) {
+  try {
+    const db = getDb().schema('core')
+    await db.from('sync_log').insert({
+      sync_type:   'webhook',
+      deals_seen:  notifications.length,
+      deals_synced: 0,
+      deals_errored: 0,
+      status:      'success',
+      notes:       `sharepoint_notification: ${rawBody.slice(0, 1000)}`,
+    })
+  } catch (err) {
+    console.error('[sharepoint-webhook] log error:', err)
+  }
+}
+
 // GET — Graph API subscription validation
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('validationToken')
@@ -65,17 +84,19 @@ export async function POST(req: NextRequest) {
   }
 
   const notifications = body.value ?? []
-  console.log(`[sharepoint-webhook] parsed ${notifications.length} notification(s):`,
+  console.log(`[sharepoint-webhook] received ${notifications.length} notification(s):`,
     JSON.stringify(notifications.map(n => ({
-      clientState: n.clientState,
-      changeType:  n.changeType,
-      resource:    n.resource,
+      clientState:    n.clientState,
+      changeType:     n.changeType,
+      resource:       n.resource,
       resourceDataId: n.resourceData?.id,
     })))
   )
 
+  // Log every incoming notification to Supabase for debugging
+  void logNotificationsToDb(notifications, rawText)
+
   // Respond 202 immediately — Graph requires <30s response
-  // Process asynchronously (fire-and-forget per Next.js edge conventions)
   void processNotifications(notifications)
 
   return NextResponse.json({ ok: true, received: notifications.length }, { status: 202 })
