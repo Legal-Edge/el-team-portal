@@ -291,36 +291,58 @@ function FAQSection({ state }: { state: string | null }) {
   )
 }
 
-// ── Communication summary builder ──────────────────────────────────────────────
+// ── Communication timeline component ──────────────────────────────────────────
 
-function buildCommSummary(report: IntelligenceReport): string {
-  const { tier2_comms: t2 } = report
-  if (t2.total_engagements === 0) return 'No prior communications on record.'
+type TimelineEntry = NonNullable<IntelligenceReport['tier2_comms']['timeline']>[number]
 
-  const parts: string[] = []
-
-  if (t2.calls > 0) {
-    parts.push(`${t2.calls} call${t2.calls !== 1 ? 's' : ''} on record.`)
-  }
-  if (t2.notes > 0) {
-    parts.push(`${t2.notes} note${t2.notes !== 1 ? 's' : ''} logged.`)
+function CommTimeline({ entries }: { entries: TimelineEntry[] }) {
+  if (!entries || entries.length === 0) {
+    return <p className="text-sm text-gray-400 italic">No prior communications on record.</p>
   }
 
-  // Add full call summaries (not truncated)
-  if (t2.call_summaries.length > 0) {
-    parts.push(...t2.call_summaries)
+  const TYPE_ICON: Record<string, string> = {
+    CALL: '📞', NOTE: '📝', EMAIL: '✉️', TASK: '✅',
+  }
+  const TYPE_LABEL: Record<string, string> = {
+    CALL: 'Call', NOTE: 'Note', EMAIL: 'Email', TASK: 'Task',
   }
 
-  // Add notes content from engagement texts that aren't calls
-  const noteTexts = (t2.all_engagement_texts ?? []).filter(t =>
-    !t2.call_summaries.some(s => t.includes(s.slice(0, 50)))
-  ).filter(t => t.length > 20).slice(0, 3)
+  return (
+    <div className="space-y-3">
+      {entries.map((entry, i) => {
+        const date = new Date(entry.date)
+        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        const isLast = i === entries.length - 1
 
-  if (noteTexts.length > 0) {
-    parts.push(...noteTexts)
-  }
+        return (
+          <div key={entry.id} className="flex gap-3">
+            {/* Timeline spine */}
+            <div className="flex flex-col items-center">
+              <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm shrink-0">
+                {TYPE_ICON[entry.type] ?? '•'}
+              </div>
+              {!isLast && <div className="w-px flex-1 bg-gray-100 mt-1 mb-0" />}
+            </div>
 
-  return parts.join('\n\n')
+            {/* Content */}
+            <div className="flex-1 pb-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-gray-700">
+                  {TYPE_LABEL[entry.type] ?? entry.type}
+                  {entry.direction === 'OUTBOUND' ? ' · Outbound' : entry.direction === 'INBOUND' ? ' · Inbound' : ''}
+                </span>
+                {entry.agent && (
+                  <span className="text-xs text-gray-400">by {entry.agent}</span>
+                )}
+                <span className="ml-auto text-xs text-gray-400 shrink-0">{dateStr}</span>
+              </div>
+              <p className="text-sm text-gray-600 leading-relaxed">{entry.summary}</p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 // ── Main guidance builder ──────────────────────────────────────────────────────
@@ -509,8 +531,8 @@ export function GuidanceTab({ dealId }: Props) {
     </div>
   )
 
-  const guidance   = buildGuidance(report)
-  const commSummary = buildCommSummary(report)
+  const guidance = buildGuidance(report)
+  const timeline = report.tier2_comms.timeline ?? []
 
   return (
     <>
@@ -535,18 +557,10 @@ export function GuidanceTab({ dealId }: Props) {
           <p className="text-sm text-gray-700 leading-relaxed">{guidance.situation}</p>
         </div>
 
-        {/* Communication summary */}
+        {/* Communication timeline */}
         <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Communication Summary</p>
-          {commSummary === 'No prior communications on record.' ? (
-            <p className="text-sm text-gray-400 italic">No prior communications on record.</p>
-          ) : (
-            <div className="space-y-3">
-              {commSummary.split('\n\n').filter(Boolean).map((block, i) => (
-                <p key={i} className="text-sm text-gray-700 leading-relaxed">{block}</p>
-              ))}
-            </div>
-          )}
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Communication Summary</p>
+          <CommTimeline entries={timeline} />
         </div>
 
         {/* Document status */}

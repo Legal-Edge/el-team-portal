@@ -142,9 +142,18 @@ export interface IntelligenceReport {
     notes:                number
     last_contact_at:      string | null
     days_since_contact:   number | null
+    // Structured timeline entries — one per engagement, short summaries only
+    timeline: {
+      id:         string
+      type:       string        // CALL | NOTE | EMAIL | TASK
+      date:       string        // ISO
+      direction?: string        // OUTBOUND | INBOUND
+      agent?:     string        // who made the contact
+      summary:    string        // 1-3 sentence summary
+    }[]
+    // Legacy — kept for guidance builder compat
     call_summaries:       string[]
     key_facts:            string[]
-    all_engagement_texts: string[]  // full cleaned text from all engagements
   }
   tier3_docs: {
     total_docs:        number
@@ -389,6 +398,48 @@ export async function GET(
     .filter(Boolean)
     .map(s => s.slice(0, 800))
 
+  // ── Build structured timeline (short per-engagement summaries) ─────────────
+  function extractShortSummary(eng: HsEngagement): string {
+    if (eng.type === 'NOTE') {
+      // Notes are usually already short
+      const text = stripHtml(eng.body || '').trim()
+      return text.slice(0, 300) || 'Note logged.'
+    }
+    if (eng.type === 'CALL') {
+      // Prefer callSummary (short AI version) over full body
+      const raw = eng.callSummary || eng.body || ''
+      const text = stripHtml(raw).trim()
+      // Extract just the first substantive paragraph / sentence cluster
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 15)
+      // Skip header lines like "Summary", "Key notes", "Topics discussed"
+      const meaningful = lines.filter(l =>
+        !/^(summary|key notes?|topics? discussed|call summary|lemon law details|reason for|solutions|pitches|actions taken|compliance|call disposition|call outcomes?|agent action|customer action|customer questions?)/i.test(l)
+      )
+      return meaningful.slice(0, 3).join(' ').slice(0, 400) || 'Call completed.'
+    }
+    if (eng.type === 'TASK') {
+      return stripHtml(eng.body || '').slice(0, 150) || `Task: ${eng.title || 'logged'}`
+    }
+    return stripHtml(eng.body || '').slice(0, 200) || `${eng.type} logged.`
+  }
+
+  // Extract agent name from call body (e.g. "Flor Chacon (Browser / Apps) has made...")
+  function extractAgent(eng: HsEngagement): string | undefined {
+    const match = stripHtml(eng.body || '').match(/^([A-Z][a-z]+ [A-Z][a-z]+)/)
+    return match ? match[1] : undefined
+  }
+
+  const timeline = engagements
+    .filter(e => e.type !== 'TASK')  // skip tasks in summary
+    .map(e => ({
+      id:        e.id,
+      type:      e.type,
+      date:      e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString(),
+      direction: e.direction,
+      agent:     extractAgent(e),
+      summary:   extractShortSummary(e),
+    }))
+
   // Extract key facts from all engagement bodies
   const keyFacts: string[] = []
   for (const eng of engagements) {
@@ -491,14 +542,14 @@ export async function GET(
       nurture_notes:  hp['nurture__notes_']  ? String(hp['nurture__notes_'])  : null,
     },
     tier2_comms: {
-      total_engagements:    engagements.length,
-      calls:                calls.length,
-      notes:                notes.length,
-      last_contact_at:      lastContactAt,
-      days_since_contact:   daysSinceContact,
-      call_summaries:       callSummaries,
-      key_facts:            keyFacts,
-      all_engagement_texts: engagements.map(e => stripHtml(e.body || '')).filter(Boolean),
+      total_engagements:  engagements.length,
+      calls:              calls.length,
+      notes:              notes.length,
+      last_contact_at:    lastContactAt,
+      days_since_contact: daysSinceContact,
+      timeline,
+      call_summaries:     callSummaries,
+      key_facts:          keyFacts,
     },
     tier3_docs: {
       total_docs:        totalDocs,
