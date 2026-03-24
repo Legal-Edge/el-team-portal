@@ -272,8 +272,15 @@ export async function syncEngagements(
       // Skip tasks and meetings — not useful in the timeline
       if (rawType === 'TASK' || rawType === 'MEETING') { result.skipped++; continue }
 
-      const bodyText    = m.body        ? stripHtml(m.body).slice(0, 5000)  : null
+      const rawBodyText = m.body ? stripHtml(m.body).slice(0, 5000) : null
       const summaryText = m.callSummary ? stripHtml(m.callSummary).slice(0, 4000) : null
+
+      // For emails, build body from subject + body content
+      let bodyText: string | null = rawBodyText
+      if (rawType === 'EMAIL') {
+        const subject = m.subject ? `Subject: ${m.subject}` : null
+        bodyText = [subject, rawBodyText].filter(Boolean).join('\n\n') || null
+      }
 
       // Classify NOTE engagements — Aloware logs SMS/voicemail/missed calls as NOTEs
       let engType  = rawType === 'CALL' ? 'CALL' : rawType === 'EMAIL' ? 'EMAIL' : 'NOTE'
@@ -318,7 +325,7 @@ export async function syncEngagements(
         call_summary:     summaryText,
         duration_ms:      m.durationMilliseconds ?? null,
         author_email:     null,   // owner lookup skipped for perf
-        metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber, subject: m.subject },
+        metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber, subject: m.subject ?? null },
         synced_at:        new Date().toISOString(),
       })
     } catch (err) {

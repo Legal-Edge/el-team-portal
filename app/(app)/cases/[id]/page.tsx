@@ -3940,9 +3940,22 @@ export default function CaseDetailPage() {
                       </div>
 
                       {/* Body — suppressed for calls (raw HubSpot body is noisy metadata/transcript) */}
-                      {item.body && item.item_type !== 'call' && (
-                        <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
-                      )}
+                      {item.body && item.item_type !== 'call' && (() => {
+                        // For emails: render subject line bold + body below
+                        if (item.item_type === 'email') {
+                          const lines   = item.body.split('\n\n')
+                          const subject = lines[0]?.startsWith('Subject:') ? lines[0].replace('Subject: ', '') : null
+                          const body    = subject ? lines.slice(1).join('\n\n').trim() : item.body
+                          return (
+                            <div className="space-y-1">
+                              {subject && <p className="text-sm font-semibold text-gray-800">{subject}</p>}
+                              {body && <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed line-clamp-3">{body}</p>}
+                              {!subject && !body && <p className="text-xs text-gray-400 italic">No content</p>}
+                            </div>
+                          )
+                        }
+                        return <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
+                      })()}
                       {!item.body && item.source === 'event' && item.payload && (
                         <p className="text-xs text-gray-400 font-mono truncate">
                           {JSON.stringify(item.payload).slice(0, 120)}
