@@ -223,6 +223,29 @@ export async function syncCaseFiles(
     }
   }
 
+  // ── Stale file cleanup ────────────────────────────────────────────────────
+  // Any document_files row for this case whose sharepoint_item_id is NOT in
+  // the current SharePoint listing was deleted in SharePoint — mark is_deleted.
+  const currentItemIds = new Set(files.map(f => f.sharepoint_item_id))
+
+  const { data: existingRows } = await db
+    .from('document_files')
+    .select('id, sharepoint_item_id')
+    .eq('case_id', caseId)
+    .eq('is_deleted', false)
+
+  const staleIds = (existingRows ?? [])
+    .filter(r => !currentItemIds.has(r.sharepoint_item_id))
+    .map(r => r.id)
+
+  if (staleIds.length > 0) {
+    await db
+      .from('document_files')
+      .update({ is_deleted: true, updated_at: now })
+      .in('id', staleIds)
+    console.log(`[sharepoint-sync] soft-deleted ${staleIds.length} stale file(s) for case ${caseId}`)
+  }
+
   // Update sharepoint_synced_at on the case
   await client.schema('core')
     .from('cases')
