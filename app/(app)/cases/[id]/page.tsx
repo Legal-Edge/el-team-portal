@@ -3267,6 +3267,34 @@ export default function CaseDetailPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
+  // ── Timeline polling — refresh every 15s when tab is active ──────────────
+  // Ensures HubSpot adds/deletes appear without manual refresh even if
+  // Supabase Realtime WebSocket events are delayed or missed.
+  useEffect(() => {
+    if (activeTab !== 'timeline') return
+    const interval = setInterval(() => {
+      // Silent background sync — don't show loading spinner
+      fetch(`/api/cases/${params.id}/sync-engagements`, { method: 'POST' })
+        .then(r => r.ok ? r.json() : null)
+        .then(syncData => {
+          if (!syncData) return
+          // Reload timeline items after sync completes
+          fetch(`/api/cases/${params.id}/timeline?limit=50`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (!data?.items) return
+              const items: TimelineItem[] = data.items
+              setTimelineItems(items)
+              setSeenIds(new Set(items.map((i: TimelineItem) => i.id)))
+            })
+            .catch(() => {})
+        })
+        .catch(() => {})
+    }, 15000)  // every 15 seconds
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, params.id])
+
   // ── Supabase Realtime — live timeline updates ─────────────────────────────
   // Subscribes once the case UUID is known. Listens for INSERTs on
   // core.communications, core.events, and core.timeline_notes, filtered
