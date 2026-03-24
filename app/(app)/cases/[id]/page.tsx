@@ -355,6 +355,43 @@ function SmsBubble({ comm }: { comm: Comm }) {
   )
 }
 
+// ── Call summary block — collapsed by default, expandable ──────────────────
+function CallSummaryBlock({ summary, durationMs }: { summary: string; durationMs: number | null }) {
+  const [open, setOpen] = useState(false)
+  const mins = durationMs ? Math.floor(durationMs / 60000) : null
+  const secs = durationMs ? Math.floor((durationMs % 60000) / 1000) : null
+  const durationStr = mins !== null ? `${mins}m ${secs}s` : null
+
+  // Show first 140 chars as preview
+  const preview = summary.slice(0, 140).replace(/\n+/g, ' ') + (summary.length > 140 ? '…' : '')
+
+  return (
+    <div className="mt-2 rounded-lg border border-gray-100 bg-gray-50 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-start justify-between gap-3 px-3 py-2.5 text-left hover:bg-gray-100/60 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-semibold text-gray-500 shrink-0">🤖 AI Summary</span>
+          {!open && <span className="text-xs text-gray-400 truncate">{preview}</span>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {durationStr && <span className="text-xs text-gray-400">{durationStr}</span>}
+          <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 border-t border-gray-100">
+          <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed pt-2">{summary}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Standard card renderer (calls, emails, notes, tasks) ───────────────────
 function CommCard({ comm }: { comm: Comm }) {
   const [expanded, setExpanded] = useState(false)
@@ -2851,14 +2888,18 @@ export default function CaseDetailPage() {
   const [noteError, setNoteError] = useState<string | null>(null)
 
   // ── Unified timeline state ────────────────────────────────────────────────
-  type TimelineSource = 'event' | 'comm' | 'note'
-  type TimelineFilter = 'all' | 'notes' | 'comms' | 'events'
+  type TimelineSource = 'event' | 'comm' | 'note' | 'hubspot'
+  type TimelineFilter = 'all' | 'calls' | 'messages' | 'notes' | 'docs' | 'events'
   interface TimelineItem {
-    source:       TimelineSource; id: string; ts: string; item_type: string
-    body:         string | null;  author_ref: string | null; author_name: string | null
-    visibility:   string;         is_pinned: boolean; payload: Record<string, unknown> | null
-    direction:    'inbound' | 'outbound' | null
-    needs_review: boolean
+    source:        TimelineSource; id: string; ts: string; item_type: string
+    body:          string | null;  author_ref: string | null; author_name: string | null
+    visibility:    string;         is_pinned: boolean; payload: Record<string, unknown> | null
+    direction:     'inbound' | 'outbound' | null
+    needs_review:  boolean
+    // HubSpot-enriched fields
+    call_summary?: string | null
+    engagement_id?: string | null
+    duration_ms?:  number | null
   }
   const [timelineItems,     setTimelineItems]     = useState<TimelineItem[]>([])
   const [timelineLoading,   setTimelineLoading]   = useState(false)
@@ -2868,7 +2909,7 @@ export default function CaseDetailPage() {
   const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
   const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
-  const initialTab = (searchParams.get('tab') as 'overview' | 'guidance' | 'comms' | 'documents' | 'ai' | 'hubspot') ?? 'overview'
+  const initialTab = (searchParams.get('tab') as 'overview' | 'guidance' | 'timeline' | 'documents' | 'ai' | 'hubspot') ?? 'overview'
   const backHref   = searchParams.get('from') ?? '/cases'
 
   // Queue state for prev/next navigation
@@ -2880,10 +2921,10 @@ export default function CaseDetailPage() {
       if (raw) setQueueState(JSON.parse(raw) as QueueState)
     } catch { /* ignore */ }
   }, [])
-  const [activeTab, setActiveTab]     = useState<'overview' | 'guidance' | 'comms' | 'documents' | 'ai' | 'hubspot'>(initialTab)
+  const [activeTab, setActiveTab]     = useState<'overview' | 'guidance' | 'timeline' | 'documents' | 'ai' | 'hubspot'>(initialTab)
   const [analysisVersion, setAnalysisVersion] = useState(0)
 
-  const switchTab = (tab: 'overview' | 'guidance' | 'comms' | 'documents' | 'ai' | 'hubspot') => {
+  const switchTab = (tab: 'overview' | 'guidance' | 'timeline' | 'documents' | 'ai' | 'hubspot') => {
     setActiveTab(tab)
     const url = new URL(window.location.href)
     if (tab === 'overview') {
@@ -2988,19 +3029,76 @@ export default function CaseDetailPage() {
     try {
       const urlParams = new URLSearchParams({ limit: '50' })
       if (cursor) urlParams.set('before_ts', cursor)
-      const res = await fetch(`/api/cases/${params.id}/timeline?${urlParams}`)
-      if (!res.ok) return
-      const d = await res.json()
-      const newItems: TimelineItem[] = d.items ?? []
+
+      // Fetch Supabase timeline + HubSpot engagements in parallel
+      const [sbRes, hsRes] = await Promise.all([
+        fetch(`/api/cases/${params.id}/timeline?${urlParams}`),
+        cursor ? Promise.resolve(null) : fetch(`/api/cases/${params.id}/timeline-hs`),
+      ])
+
+      if (!sbRes.ok) return
+      const d = await sbRes.json()
+      const sbItems: TimelineItem[] = d.items ?? []
+
+      // Merge HubSpot items (first page only; they don't paginate)
+      let merged = sbItems
+      if (hsRes?.ok) {
+        const hd = await hsRes.json() as { items?: { id: string; engagement_id: string; source: 'hubspot'; item_type: string; ts: string; body: string | null; call_summary: string | null; direction: 'inbound' | 'outbound' | null; duration_ms: number | null; author_ref: string | null; author_name: string | null; status: string | null }[] }
+        const hsItems = hd.items ?? []
+
+        // Build lookup: engagement_id → call_summary from HubSpot
+        const summaryMap = new Map<string, string>()
+        for (const h of hsItems) {
+          if (h.call_summary) summaryMap.set(h.engagement_id, h.call_summary)
+        }
+
+        // Enrich existing Supabase items that have a matching engagement_id
+        merged = sbItems.map(item => {
+          const engId = (item as TimelineItem & { hubspot_engagement_id?: string }).hubspot_engagement_id ?? item.engagement_id
+          if (engId && summaryMap.has(engId)) {
+            return { ...item, call_summary: summaryMap.get(engId) ?? null, engagement_id: engId }
+          }
+          return item
+        })
+
+        // Add HubSpot items that have no Supabase counterpart
+        const sbEngIds = new Set(sbItems.map(i => (i as TimelineItem & { hubspot_engagement_id?: string }).hubspot_engagement_id ?? i.engagement_id).filter(Boolean))
+        const sbIds    = new Set(sbItems.map(i => i.id))
+        for (const h of hsItems) {
+          if (!sbEngIds.has(h.engagement_id) && !sbIds.has(h.id)) {
+            merged.push({
+              id:           h.id,
+              source:       h.source as TimelineSource,
+              item_type:    h.item_type,
+              ts:           h.ts,
+              body:         h.body,
+              call_summary: h.call_summary,
+              engagement_id: h.engagement_id,
+              direction:    h.direction,
+              duration_ms:  h.duration_ms,
+              author_ref:   h.author_ref,
+              author_name:  h.author_name,
+              visibility:   'internal',
+              is_pinned:    false,
+              payload:      null,
+              needs_review: false,
+            })
+          }
+        }
+
+        // Re-sort newest first
+        merged.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+      }
+
       if (append) {
         setTimelineItems(prev => {
           const ids = new Set(prev.map(i => i.id))
-          return [...prev, ...newItems.filter(i => !ids.has(i.id))]
+          return [...prev, ...merged.filter(i => !ids.has(i.id))]
         })
-        setSeenIds(prev => { const next = new Set(prev); newItems.forEach(i => next.add(i.id)); return next })
+        setSeenIds(prev => { const next = new Set(prev); merged.forEach(i => next.add(i.id)); return next })
       } else {
-        setTimelineItems(newItems)
-        setSeenIds(new Set(newItems.map(i => i.id)))
+        setTimelineItems(merged)
+        setSeenIds(new Set(merged.map(i => i.id)))
       }
       setTimelineHasMore(d.has_more ?? false)
       setTimelineCursor(d.next_cursor ?? null)
@@ -3169,7 +3267,7 @@ export default function CaseDetailPage() {
   useEffect(() => { loadComms(commChannel) }, [commChannel, loadComms])
   // Load unified timeline when comms tab opens
   useEffect(() => {
-    if (activeTab === 'comms' && timelineItems.length === 0 && !timelineLoading) loadTimeline()
+    if (activeTab === 'timeline' && timelineItems.length === 0 && !timelineLoading) loadTimeline()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
@@ -3342,7 +3440,7 @@ export default function CaseDetailPage() {
   const TABS = [
     { id: 'overview',   label: 'Overview'   },
     { id: 'guidance',   label: '🎯 Guidance' },
-    { id: 'comms',      label: `Comms${commTotal > 0 ? ` (${commTotal})` : ''}` },
+    { id: 'timeline',   label: 'Timeline' },
     { id: 'documents',  label: 'Documents'  },
     { id: 'ai',         label: '✦ AI Analysis' },
     { id: 'hubspot',    label: 'HubSpot Data' },
@@ -3671,20 +3769,24 @@ export default function CaseDetailPage() {
           )}
 
           {/* ── Comms tab ── */}
-          {activeTab === 'comms' && (() => {
+          {activeTab === 'timeline' && (() => {
             // ── Derived timeline data ────────────────────────────────────────
             const pinnedItems   = timelineItems.filter(i => i.source === 'note' && i.is_pinned)
             const filteredItems = timelineItems.filter(i => {
               if (i.source === 'note' && i.is_pinned) return false  // shown in pinned section
-              if (timelineFilter === 'notes')  return i.source === 'note'
-              if (timelineFilter === 'comms')  return i.source === 'comm'
-              if (timelineFilter === 'events') return i.source === 'event'
+              if (timelineFilter === 'calls')    return i.item_type === 'call'
+              if (timelineFilter === 'messages') return (i.source === 'comm' || i.source === 'hubspot') && i.item_type !== 'call'
+              if (timelineFilter === 'notes')    return i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')
+              if (timelineFilter === 'docs')     return i.item_type.startsWith('document.') || i.item_type === 'document'
+              if (timelineFilter === 'events')   return i.source === 'event' && !i.item_type.startsWith('document.')
               return true
             })
             const itemCounts = {
-              notes:  timelineItems.filter(i => i.source === 'note').length,
-              comms:  timelineItems.filter(i => i.source === 'comm').length,
-              events: timelineItems.filter(i => i.source === 'event').length,
+              calls:    timelineItems.filter(i => i.item_type === 'call').length,
+              messages: timelineItems.filter(i => (i.source === 'comm' || i.source === 'hubspot') && i.item_type !== 'call').length,
+              notes:    timelineItems.filter(i => i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')).length,
+              docs:     timelineItems.filter(i => i.item_type.startsWith('document.') || i.item_type === 'document').length,
+              events:   timelineItems.filter(i => i.source === 'event' && !i.item_type.startsWith('document.')).length,
             }
 
             // ── Item rendering config ────────────────────────────────────────
@@ -3821,10 +3923,16 @@ export default function CaseDetailPage() {
                         </p>
                       )}
 
+                      {/* Call summary (collapsed, expandable) */}
+                      {item.call_summary && <CallSummaryBlock summary={item.call_summary} durationMs={item.duration_ms ?? null} />}
+
                       {/* Meta */}
                       <p className="mt-1.5 text-xs text-gray-400">
                         {rawAuthor && <span className="mr-1.5 font-medium text-gray-500">{rawAuthor} ·</span>}
                         {fmtNoteTime(item.ts)}
+                        {item.duration_ms && !item.call_summary && (
+                          <span className="ml-1.5">· {Math.floor(item.duration_ms / 60000)}m {Math.floor((item.duration_ms % 60000) / 1000)}s</span>
+                        )}
                       </p>
                     </div>
 
@@ -3851,10 +3959,12 @@ export default function CaseDetailPage() {
                   {/* Filter tabs */}
                   <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
                     {([
-                      { id: 'all',    label: `All (${timelineItems.length})` },
-                      { id: 'notes',  label: `Notes${itemCounts.notes  ? ` (${itemCounts.notes})`  : ''}` },
-                      { id: 'comms',  label: `Comms${itemCounts.comms  ? ` (${itemCounts.comms})`  : ''}` },
-                      { id: 'events', label: `Events${itemCounts.events ? ` (${itemCounts.events})` : ''}` },
+                      { id: 'all',      label: `All (${timelineItems.length})` },
+                      { id: 'calls',    label: `Calls${itemCounts.calls    ? ` (${itemCounts.calls})`    : ''}` },
+                      { id: 'messages', label: `Messages${itemCounts.messages ? ` (${itemCounts.messages})` : ''}` },
+                      { id: 'notes',    label: `Notes${itemCounts.notes    ? ` (${itemCounts.notes})`    : ''}` },
+                      { id: 'docs',     label: `Docs${itemCounts.docs      ? ` (${itemCounts.docs})`     : ''}` },
+                      { id: 'events',   label: `Events${itemCounts.events  ? ` (${itemCounts.events})`   : ''}` },
                     ] as { id: typeof timelineFilter; label: string }[]).map(f => (
                       <button
                         key={f.id}
@@ -3975,7 +4085,7 @@ export default function CaseDetailPage() {
                 )}
 
                 {/* ── SMS Compose ── */}
-                {userCanSms && (timelineFilter === 'all' || timelineFilter === 'comms') && (
+                {userCanSms && (timelineFilter === 'all' || timelineFilter === 'messages') && (
                   <SmsCompose caseId={params.id as string} onSent={() => loadTimeline()} />
                 )}
 
@@ -4163,7 +4273,7 @@ export default function CaseDetailPage() {
                 </a>
               )}
               <button
-                onClick={() => switchTab('comms')}
+                onClick={() => switchTab('timeline')}
                 className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-all duration-150 active:scale-95"
               >
                 <svg className="w-4 h-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
