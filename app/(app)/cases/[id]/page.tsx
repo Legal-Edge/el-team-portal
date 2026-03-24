@@ -3041,9 +3041,11 @@ export default function CaseDetailPage() {
     private:    { label: 'Private',    cls: 'bg-purple-50 text-purple-700', icon: '👤' },
   }
   function fmtNoteTime(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime()
-    const m = Math.floor(diff / 60000), h = Math.floor(diff / 3600000), d = Math.floor(diff / 86400000)
-    if (m < 60) return `${m}m ago`; if (h < 24) return `${h}h ago`; return `${d}d ago`
+    const d = new Date(iso)
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    })
   }
 
   async function loadNotes() {
@@ -3890,11 +3892,13 @@ export default function CaseDetailPage() {
               // Author display
               const rawAuthor  = item.source === 'note'
                 ? (item.author_name ?? 'Unknown')
-                : item.source === 'comm'
-                  ? (item.item_type === 'sms' || item.item_type === 'call'
-                      ? formatPhone(item.author_ref)
-                      : (item.author_ref ?? ''))
-                  : (item.author_ref ?? '')
+                : item.source === 'hubspot'
+                  ? (item.author_ref ?? null)   // agent name extracted from Aloware body
+                  : item.source === 'comm'
+                    ? (item.item_type === 'sms' || item.item_type === 'call'
+                        ? formatPhone(item.author_ref)
+                        : (item.author_ref ?? ''))
+                    : (item.author_ref ?? '')
 
               // Type label
               const HUBSPOT_TYPE_LABELS: Record<string, string> = {

@@ -182,6 +182,7 @@ interface AlowareNote {
   direction: 'inbound' | 'outbound' | null
   body:      string   // cleaned — just the message content, not the metadata header
   phone:     string | null
+  agentName: string | null
 }
 
 function classifyAlowareNote(raw: string): AlowareNote {
@@ -192,24 +193,30 @@ function classifyAlowareNote(raw: string): AlowareNote {
   const phoneMatch = text.match(/\+?1?\s*[\(\-]?(\d{3})[\)\-\s]?(\d{3})[\-\s]?(\d{4})/)
   const phone = phoneMatch ? phoneMatch[0].replace(/\s+/g, '') : null
 
+  // Extract agent name — appears at start of line before "(Browser / Apps)" or "has ..."
+  // e.g. "Alicia Delgado (Browser / Apps) has sent an SMS to..."
+  // e.g. "Erin Hernandez has made an outbound call..."
+  const agentMatch = text.match(/^([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)+)\s*(?:\([^)]+\))?\s+has\s/m)
+  const agentName  = agentMatch ? agentMatch[1].trim() : null
+
   // Extract message body (after "Message:\n")
   const msgMatch = text.match(/message:\s*\n?([\s\S]+)/i)
   const cleanBody = msgMatch ? msgMatch[1].trim() : text.replace(/^[\s\S]*?\n\n/, '').trim()
 
   if (/has sent an sms to/i.test(text) || /sent.*sms/i.test(lower)) {
-    return { type: 'sms', direction: 'outbound', body: cleanBody || text, phone }
+    return { type: 'sms', direction: 'outbound', body: cleanBody || text, phone, agentName }
   }
   if (/has received an sms/i.test(text) || /received.*sms/i.test(lower) || /incoming.*sms/i.test(lower)) {
-    return { type: 'sms', direction: 'inbound', body: cleanBody || text, phone }
+    return { type: 'sms', direction: 'inbound', body: cleanBody || text, phone, agentName }
   }
   if (/left a voicemail|voicemail left|voicemail received/i.test(text)) {
-    return { type: 'voicemail', direction: 'inbound', body: cleanBody || text, phone }
+    return { type: 'voicemail', direction: 'inbound', body: cleanBody || text, phone, agentName }
   }
   if (/missed a call|missed call|no answer/i.test(text)) {
-    return { type: 'call_missed', direction: 'outbound', body: cleanBody || text, phone }
+    return { type: 'call_missed', direction: 'outbound', body: cleanBody || text, phone, agentName }
   }
 
-  return { type: 'note', direction: null, body: text, phone: null }
+  return { type: 'note', direction: null, body: text, phone: null, agentName }
 }
 
 // ── Main sync function ────────────────────────────────────────────────────────
@@ -291,8 +298,9 @@ export async function syncEngagements(
       }
 
       // Classify NOTE engagements — Aloware logs SMS/voicemail/missed calls as NOTEs
-      let engType  = rawType === 'CALL' ? 'CALL' : rawType === 'EMAIL' ? 'EMAIL' : 'NOTE'
+      let engType      = rawType === 'CALL' ? 'CALL' : rawType === 'EMAIL' ? 'EMAIL' : 'NOTE'
       let alowareDirection: 'inbound' | 'outbound' | null = null
+      let alowareAgent: string | null = null
       let cleanBody: string | null = bodyText
 
       if (engType === 'NOTE' && bodyText) {
@@ -300,6 +308,7 @@ export async function syncEngagements(
         if (classified.type !== 'note') {
           engType          = classified.type.toUpperCase()   // SMS | VOICEMAIL | CALL_MISSED
           alowareDirection = classified.direction
+          alowareAgent     = classified.agentName
           cleanBody        = classified.body
         }
       }
@@ -332,7 +341,7 @@ export async function syncEngagements(
         body:             cleanBody,
         call_summary:     summaryText,
         duration_ms:      m.durationMilliseconds ?? null,
-        author_email:     null,   // owner lookup skipped for perf
+        author_email:     alowareAgent,   // extracted from Aloware body; null for non-Aloware
         metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber, subject: m.subject ?? null },
         synced_at:        new Date().toISOString(),
       })
