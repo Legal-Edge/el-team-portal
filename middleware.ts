@@ -18,6 +18,8 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/case-counts',         // case count stats (token-protected)
     '/api/admin/sync-missing-deals',  // gap-closing sync (token-protected)
     '/api/admin/cron',                // Vercel cron jobs (CRON_SECRET-protected)
+    '/api/admin/sharepoint/debug',    // SharePoint subscription debug (token-protected)
+    '/api/admin/sharepoint/subscribe',// SharePoint subscription management (token-protected)
     '/api/admin/count-check',          // HubSpot vs Supabase count reconciliation (token-protected)
     '/api/admin/find-orphaned-deals',  // Find deals in Supabase not in HubSpot (token-protected)
     '/api/admin/sharepoint',           // SharePoint admin endpoints (token-protected)
