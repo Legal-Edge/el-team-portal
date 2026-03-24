@@ -392,6 +392,33 @@ function CallSummaryBlock({ summary, durationMs }: { summary: string; durationMs
   )
 }
 
+// ── Email body block — subject bold, body collapsible ──────────────────────
+function EmailBodyBlock({ subject, body }: { subject: string | null; body: string | null }) {
+  const PREVIEW_CHARS = 300
+  const [expanded, setExpanded] = useState(false)
+  const isLong = (body?.length ?? 0) > PREVIEW_CHARS
+
+  return (
+    <div className="space-y-1 mt-0.5">
+      {subject && <p className="text-sm font-semibold text-gray-800">{subject}</p>}
+      {body ? (
+        <>
+          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+            {expanded || !isLong ? body : body.slice(0, PREVIEW_CHARS) + '…'}
+          </p>
+          {isLong && (
+            <button onClick={() => setExpanded(e => !e)} className="text-xs text-blue-500 hover:text-blue-700 font-medium mt-0.5">
+              {expanded ? 'Show less' : 'Show full email'}
+            </button>
+          )}
+        </>
+      ) : (
+        !subject && <p className="text-xs text-gray-400 italic">No content</p>
+      )}
+    </div>
+  )
+}
+
 // ── Standard card renderer (calls, emails, notes, tasks) ───────────────────
 function CommCard({ comm }: { comm: Comm }) {
   const [expanded, setExpanded] = useState(false)
@@ -3941,18 +3968,12 @@ export default function CaseDetailPage() {
 
                       {/* Body — suppressed for calls (raw HubSpot body is noisy metadata/transcript) */}
                       {item.body && item.item_type !== 'call' && (() => {
-                        // For emails: render subject line bold + body below
+                        // For emails: subject bold + full collapsible body
                         if (item.item_type === 'email') {
                           const lines   = item.body.split('\n\n')
                           const subject = lines[0]?.startsWith('Subject:') ? lines[0].replace('Subject: ', '') : null
                           const body    = subject ? lines.slice(1).join('\n\n').trim() : item.body
-                          return (
-                            <div className="space-y-1">
-                              {subject && <p className="text-sm font-semibold text-gray-800">{subject}</p>}
-                              {body && <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed line-clamp-3">{body}</p>}
-                              {!subject && !body && <p className="text-xs text-gray-400 italic">No content</p>}
-                            </div>
-                          )
+                          return <EmailBodyBlock subject={subject} body={body} />
                         }
                         return <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
                       })()}

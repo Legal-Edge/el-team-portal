@@ -157,6 +157,8 @@ async function fetchEngagement(engId: string, token: string) {
     engagement?: { type?: string; createdAt?: number; ownerId?: number }
     metadata?: {
       body?:                 string
+      html?:                 string   // HubSpot sometimes puts email HTML here
+      text?:                 string   // plain text fallback
       callSummary?:          string
       status?:               string
       durationMilliseconds?: number
@@ -164,6 +166,8 @@ async function fetchEngagement(engId: string, token: string) {
       toNumber?:             string
       fromNumber?:           string
       subject?:              string
+      from?:                 { email?: string; firstName?: string; lastName?: string }
+      to?:                   { email?: string; firstName?: string; lastName?: string }[]
     }
     associations?: { contactIds?: number[] }
   }>
@@ -272,7 +276,11 @@ export async function syncEngagements(
       // Skip tasks and meetings — not useful in the timeline
       if (rawType === 'TASK' || rawType === 'MEETING') { result.skipped++; continue }
 
-      const rawBodyText = m.body ? stripHtml(m.body).slice(0, 5000) : null
+      // For emails try body → html → text in order; strip HTML from whichever has content
+      const emailRaw = rawType === 'EMAIL'
+        ? (m.body || m.html || m.text || null)
+        : m.body
+      const rawBodyText = emailRaw ? stripHtml(emailRaw).replace(/\s{3,}/g, '\n\n').trim().slice(0, 8000) : null
       const summaryText = m.callSummary ? stripHtml(m.callSummary).slice(0, 4000) : null
 
       // For emails, build body from subject + body content
