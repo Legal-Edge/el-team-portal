@@ -2933,6 +2933,8 @@ export default function CaseDetailPage() {
     contact_initials?: string | null
     contact_color?:    string | null
     contact_role?:     string | null
+    // Raw HubSpot metadata (emailFrom, emailTo, subject, etc.)
+    metadata?:         Record<string, unknown> | null
   }
   const [timelineItems,     setTimelineItems]     = useState<TimelineItem[]>([])
   const [timelineLoading,   setTimelineLoading]   = useState(false)
@@ -3974,12 +3976,29 @@ export default function CaseDetailPage() {
 
                       {/* Body — suppressed for calls (raw HubSpot body is noisy metadata/transcript) */}
                       {item.body && item.item_type !== 'call' && (() => {
-                        // For emails: subject bold + full collapsible body
+                        // For emails: direction badge + subject bold + body
                         if (item.item_type === 'email') {
                           const lines   = item.body.split('\n\n')
                           const subject = lines[0]?.startsWith('Subject:') ? lines[0].replace('Subject: ', '') : null
                           const body    = subject ? lines.slice(1).join('\n\n').trim() : item.body
-                          return <EmailBodyBlock subject={subject} body={body} />
+                          const meta    = item.metadata as Record<string, unknown> | undefined
+                          const fromObj = meta?.emailFrom as { email?: string; firstName?: string; lastName?: string } | undefined
+                          const toArr   = meta?.emailTo   as { email?: string; firstName?: string; lastName?: string }[] | undefined
+                          const fromName = [fromObj?.firstName, fromObj?.lastName].filter(Boolean).join(' ') || fromObj?.email
+                          const toName   = toArr?.[0] ? ([toArr[0].firstName, toArr[0].lastName].filter(Boolean).join(' ') || toArr[0].email) : null
+                          return (
+                            <div className="space-y-1.5">
+                              {/* Direction + from → to */}
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${item.direction === 'outbound' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
+                                  {item.direction === 'outbound' ? '↑ Outbound' : '↓ Inbound'}
+                                </span>
+                                {fromName && <span>{fromName}</span>}
+                                {toName   && <><span className="text-gray-300">→</span><span>{toName}</span></>}
+                              </div>
+                              <EmailBodyBlock subject={subject} body={body} />
+                            </div>
+                          )
                         }
                         return <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
                       })()}

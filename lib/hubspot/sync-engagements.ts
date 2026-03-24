@@ -315,6 +315,11 @@ export async function syncEngagements(
       // Skip tasks and meetings — not useful in the timeline
       if (rawType === 'TASK' || rawType === 'MEETING') { result.skipped++; continue }
 
+      // Internal domains — emails FROM these are outbound (team → client)
+      const INTERNAL_DOMAINS = ['easylemon.com', 'rockpointlaw.com', 'rockpointgrowth.com']
+      const isInternalEmail = (email?: string) =>
+        email ? INTERNAL_DOMAINS.some(d => email.toLowerCase().endsWith(`@${d}`)) : false
+
       // For emails try body → html → text in order; strip HTML from whichever has content
       const emailRaw = rawType === 'EMAIL'
         ? (m.body || m.html || m.text || null)
@@ -323,6 +328,7 @@ export async function syncEngagements(
       const summaryText = m.callSummary ? stripHtml(m.callSummary).slice(0, 4000) : null
 
       // For emails, build body from subject + body content
+      // Also resolve direction from sender domain + capture from/to names
       let bodyText: string | null = rawBodyText
       if (rawType === 'EMAIL') {
         const subject = m.subject ? `Subject: ${m.subject}` : null
@@ -355,8 +361,15 @@ export async function syncEngagements(
       }
       const contact = resolvedContactId ? contactById.get(resolvedContactId) : null
 
-      const direction = m.direction?.toLowerCase() === 'outbound' ? 'outbound'
-        : m.direction?.toLowerCase() === 'inbound' ? 'inbound' : null
+      // For emails: derive direction from sender domain; for calls/SMS: use metadata.direction
+      let direction: 'inbound' | 'outbound' | null = null
+      if (rawType === 'EMAIL') {
+        const fromEmail = m.from?.email ?? ''
+        direction = isInternalEmail(fromEmail) ? 'outbound' : fromEmail ? 'inbound' : null
+      } else {
+        direction = m.direction?.toLowerCase() === 'outbound' ? 'outbound'
+          : m.direction?.toLowerCase() === 'inbound'  ? 'inbound'  : null
+      }
 
       rows.push({
         engagement_id:    engId,
@@ -373,9 +386,13 @@ export async function syncEngagements(
         body:             cleanBody,
         call_summary:     summaryText,
         duration_ms:      m.durationMilliseconds ?? null,
-        // Agent name: prefer Aloware body extraction, fall back to HubSpot ownerId
-        author_email:     alowareAgent ?? (e.ownerId ? (ownerMap.get(e.ownerId) ?? null) : null),
-        metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber, subject: m.subject ?? null },
+        // Agent/sender name:
+        // Email → use from.firstName + lastName; fallback to ownerId
+        // Aloware → extracted from body; fallback to ownerId
+        author_email: rawType === 'EMAIL'
+          ? ([m.from?.firstName, m.from?.lastName].filter(Boolean).join(' ') || m.from?.email || (e.ownerId ? ownerMap.get(e.ownerId) : null) || null)
+          : (alowareAgent ?? (e.ownerId ? (ownerMap.get(e.ownerId) ?? null) : null)),
+        metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber, subject: m.subject ?? null, emailFrom: m.from ?? null, emailTo: m.to ?? null },
         synced_at:        new Date().toISOString(),
       })
     } catch (err) {

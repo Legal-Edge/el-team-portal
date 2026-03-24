@@ -193,7 +193,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const { data: engRows } = await db
       .schema('core')
       .from('hubspot_engagements')
-      .select('engagement_id, engagement_type, direction, occurred_at, body, call_summary, duration_ms, author_email, contact_id, contact_name, contact_initials, contact_color, contact_role')
+      .select('engagement_id, engagement_type, direction, occurred_at, body, call_summary, duration_ms, author_email, contact_id, contact_name, contact_initials, contact_color, contact_role, metadata')
       .eq('case_id', caseId)
       .order('occurred_at', { ascending: false })
 
@@ -220,6 +220,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         contact_initials: eng.contact_initials ?? null,
         contact_color:    eng.contact_color ?? null,
         contact_role:     eng.contact_role ?? null,
+        metadata:         (eng.metadata as Record<string, unknown> | null) ?? null,
       } as unknown as TimelineItem)
     }
   }
