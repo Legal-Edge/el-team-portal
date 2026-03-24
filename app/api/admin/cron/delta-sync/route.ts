@@ -64,9 +64,18 @@ export async function GET(req: NextRequest) {
   const bulkMode      = req.nextUrl.searchParams.get('bulk_mode') === 'true'
 
   // Per-page pagination cursor (separate from time cursor)
+  // ?reset=true clears the page cursor to start from scratch
+  const resetCursor = req.nextUrl.searchParams.get('reset') === 'true'
   const { data: afterRow } = await coreDb
     .from('sync_state').select('value').eq('key', 'last_delta_sync_after').maybeSingle()
-  const afterCursor: string | null = sinceOverride ? null : (afterRow?.value ?? null)
+  const afterCursor: string | null = resetCursor ? null : (afterRow?.value ?? null)
+
+  if (resetCursor) {
+    // Clear stored page cursor before starting
+    await coreDb.from('sync_state').upsert({
+      key: 'last_delta_sync_after', value: null, updated_at: new Date().toISOString(),
+    })
+  }
 
   let totalSeen     = 0
   let totalSynced   = 0
