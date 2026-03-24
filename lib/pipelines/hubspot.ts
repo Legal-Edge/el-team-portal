@@ -162,8 +162,68 @@ async function hsFetch(path: string): Promise<Record<string, unknown> | null> {
   return res.json()
 }
 
+// All HubSpot deal properties fetched for full sync (in addition to DEAL_PROPS)
+export const ALL_DEAL_PROPS_EXTRA = [
+  // Activity & engagement
+  'notes_last_contacted','notes_next_activity_date','num_contacted_notes','num_notes',
+  'hs_v2_time_in_current_stage','hs_v2_date_entered_current_stage',
+  // Nurture
+  'nurture__notes_','nurture__reason_',
+  // Case intelligence
+  'case_summary','vehicle_issues','summary_of_repairs','legal_strength__l__m__h_',
+  'sol_deadline','repair_attempts','last_repair_attempt_date','total_days_out_of_service',
+  'legal_issues___grounds','cause_of_action','statute',
+  // Assignments
+  'handling_attorney','case_manager','paralegal','case_resolution_manager',
+  'assistant_case_manager','intake_associate',
+  // Pre-qual form
+  'most_common_problem__notes_','second_common_problem__notes_',
+  'third_common_problem__notes_','fourth_common_problem__notes_',
+  'most_common_problem_repair_attempts','second_common_problem_repair_attempts',
+  'third_common_problem_repair_attempts','fourth_common_problem_repair_attempts',
+  'most_common_problem_status','second_common_problem_status',
+  'have_you_had_any_repairs_done_to_your_vehicle_',
+  'how_many_repairs_have_you_had_done_to_your_vehicle_',
+  'did_you_have_to_pay_for_the_repairs_',
+  'do_you_still_have_the_vehicle__or_have_you_sold__returned__or_traded_it_in_',
+  'have_you_or_the_dealership_contacted_the_manufacturer_of_your_vehicle_',
+  'did_the_manufacturer_offer_a_solution_like_a_refund__exchange_or_additional_repair_coverage_',
+  'what_were_the_exact_terms_of_the_manufacturer_offer_',
+  'do_you_have_the_repair_documents__or_would_you_need_to_get_it_from_the_dealership_',
+  'would_you_prefer_a_full_refund__or_keep_your_car_and_get_a_partial_refund_',
+  'was_your_car_in_the_repair_shop_for_more_than_30_days_at_any_time_',
+  // Legal details
+  'initial_demand_amount','settlement_type','pending_total_settlement_amount',
+  'attorneys_fees','estimated_damages','forecasted_attorneys_fees',
+  'purchase__lease_agreement_amount','purchase__lease_agreement_taxes',
+  'purchase__lease_agreement_rebate','mileage_at_the_time_of_purchase__lease',
+  'facility_name_purchased__leased','co_buyer_first_name','co_buyer_last_name',
+  'attorney_comments','case_preparation_questions','attorney_review_decision',
+  // Stage tracking
+  'hs_v2_date_entered_955864719','hs_v2_date_entered_955864720',
+  'hs_v2_date_entered_955864721','hs_v2_date_entered_955864722',
+  'hs_v2_date_entered_closedwon','hs_v2_date_entered_closedlost',
+  // Analytics
+  'hs_analytics_latest_source','lead_source_demographic',
+  // HubSpot owner
+  'hubspot_owner_id','hs_synced_deal_owner_name_and_email',
+  // Portal
+  'easy_lemon_portal','ela_intake','el_app_status',
+  // Drop/close reasons
+  'closed_lost_reason','closed_won_reason','drop_reasons','drop_reason',
+]
+
+const ALL_DEAL_PROPS = [...new Set([...DEAL_PROPS, ...ALL_DEAL_PROPS_EXTRA])]
+
+// All contact properties for full sync
+const ALL_CONTACT_PROPS = [
+  ...CONTACT_PROPS,
+  'address','city','zip','lifecyclestage','hs_lead_status',
+  'how_did_you_hear_about_us_','createdate','lastmodifieddate',
+]
+
 export async function fetchHsDeal(dealId: string): Promise<Record<string, unknown> | null> {
-  const propsQ = DEAL_PROPS.join(',')
+  const propsQ = ALL_DEAL_PROPS.join(',')
   return hsFetch(`/crm/v3/objects/deals/${dealId}?properties=${propsQ}`)
 }
 
@@ -172,7 +232,7 @@ export async function fetchHsContact(dealId: string): Promise<Record<string, unk
     const assoc = await hsFetch(`/crm/v3/objects/deals/${dealId}/associations/contacts`)
     const first = (assoc?.results as Array<{ id: string }>)?.[0]
     if (!first) return null
-    return hsFetch(`/crm/v3/objects/contacts/${first.id}?properties=${CONTACT_PROPS.join(',')}`)
+    return hsFetch(`/crm/v3/objects/contacts/${first.id}?properties=${ALL_CONTACT_PROPS.join(',')}`)
   } catch { return null }
 }
 
@@ -227,30 +287,34 @@ export async function fetchDeltaDeals(
 // ── Case row builder ──────────────────────────────────────────────────────────
 
 export interface CaseRow {
-  hubspot_deal_id:        string
-  el_app_status:          string | null
-  client_first_name:      string | null
-  client_last_name:       string | null
-  client_email:           string | null
-  client_phone:           string | null
-  vehicle_year:           number | null
-  vehicle_make:           string | null
-  vehicle_model:          string | null
-  vehicle_vin:            string | null
-  vehicle_mileage:        number | null
-  vehicle_purchase_price: number | null
-  vehicle_purchase_date:  string | null
-  vehicle_is_new:         boolean | null
-  state_jurisdiction:     string | null
-  case_status:            string
-  case_type:              string
-  case_priority:          string
-  estimated_value:        number | null
-  created_at:             string | null
-  closed_at:              string | null
-  notes_last_updated:     string | null
-  is_deleted:             boolean
-  updated_at:             string
+  hubspot_deal_id:            string
+  el_app_status:              string | null
+  client_first_name:          string | null
+  client_last_name:           string | null
+  client_email:               string | null
+  client_phone:               string | null
+  vehicle_year:               number | null
+  vehicle_make:               string | null
+  vehicle_model:              string | null
+  vehicle_vin:                string | null
+  vehicle_mileage:            number | null
+  vehicle_purchase_price:     number | null
+  vehicle_purchase_date:      string | null
+  vehicle_is_new:             boolean | null
+  state_jurisdiction:         string | null
+  case_status:                string
+  case_type:                  string
+  case_priority:              string
+  estimated_value:            number | null
+  created_at:                 string | null
+  closed_at:                  string | null
+  notes_last_updated:         string | null
+  is_deleted:                 boolean
+  updated_at:                 string
+  // Full property snapshots — stored as JSONB, schema-free
+  hubspot_properties:         Record<string, unknown>
+  hubspot_contact_properties: Record<string, unknown> | null
+  hubspot_synced_at:          string
 }
 
 export function buildCaseRow(
@@ -297,9 +361,13 @@ export function buildCaseRow(
     created_at:             safeDate(dp['createdate']),
     closed_at:              isClosed ? safeDate(dp['closedate']) : null,
     notes_last_updated:     safeDate(dp['notes_last_updated']),
-    el_app_status:          dp['el_app_status'] ? String(dp['el_app_status']) : null,
-    is_deleted:             false,
-    updated_at:             new Date().toISOString(),
+    el_app_status:              dp['el_app_status'] ? String(dp['el_app_status']) : null,
+    is_deleted:                 false,
+    updated_at:                 new Date().toISOString(),
+    // Full JSONB snapshots — schema-free, always fresh
+    hubspot_properties:         dp as Record<string, unknown>,
+    hubspot_contact_properties: Object.keys(cp).length > 0 ? cp as Record<string, unknown> : null,
+    hubspot_synced_at:          new Date().toISOString(),
   }
 }
 

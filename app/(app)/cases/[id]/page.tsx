@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useRef, useMemo, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useRouter, useSearchParams }    from 'next/navigation'
 import { createClient as sbCreate }                  from '@supabase/supabase-js'
 import TasksSection                                  from '@/components/case/TasksSection'
+import { HubSpotPropertiesPanel }                   from '@/components/cases/HubSpotPropertiesPanel'
 
 interface CaseIntake {
   id: string
@@ -2740,6 +2741,70 @@ function VerifiedDataCard({ caseId, refreshTrigger }: { caseId: string; refreshT
   )
 }
 
+// ── HubSpot Data Tab ──────────────────────────────────────────────────────────
+function HubSpotDataTab({ caseData, dealId }: {
+  caseData: Record<string, unknown> | null
+  dealId:   string
+}) {
+  const [syncing,    setSyncing]    = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [, startTransition]         = useTransition()
+
+  const dealProps    = (caseData?.hubspot_properties         as Record<string, unknown> | null) ?? null
+  const contactProps = (caseData?.hubspot_contact_properties as Record<string, unknown> | null) ?? null
+  const syncedAt     = (caseData?.hubspot_synced_at          as string | null) ?? null
+
+  async function handleSync() {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res  = await fetch(`/api/cases/${dealId}/sync-hubspot`, { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        setSyncResult(`✓ Synced ${data.propCount} properties`)
+        // Reload page data
+        startTransition(() => { window.location.reload() })
+      } else {
+        setSyncResult(`Error: ${data.error}`)
+      }
+    } catch (err) {
+      setSyncResult(`Error: ${String(err)}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-400">
+          All HubSpot deal &amp; contact properties — updated automatically on every change.
+        </p>
+        <div className="flex items-center gap-3">
+          {syncResult && <span className="text-xs text-gray-500">{syncResult}</span>}
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50 transition-all active:scale-95"
+          >
+            <svg className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {syncing ? 'Syncing…' : 'Sync Now'}
+          </button>
+        </div>
+      </div>
+
+      <HubSpotPropertiesPanel
+        dealProps={dealProps}
+        contactProps={contactProps}
+        syncedAt={syncedAt}
+      />
+    </div>
+  )
+}
+
 export default function CaseDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -2798,7 +2863,7 @@ export default function CaseDetailPage() {
   const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
   const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
-  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai') ?? 'overview'
+  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai' | 'hubspot') ?? 'overview'
   const backHref   = searchParams.get('from') ?? '/cases'
 
   // Queue state for prev/next navigation
@@ -2810,10 +2875,10 @@ export default function CaseDetailPage() {
       if (raw) setQueueState(JSON.parse(raw) as QueueState)
     } catch { /* ignore */ }
   }, [])
-  const [activeTab, setActiveTab]     = useState<'overview' | 'comms' | 'documents' | 'ai'>(initialTab)
+  const [activeTab, setActiveTab]     = useState<'overview' | 'comms' | 'documents' | 'ai' | 'hubspot'>(initialTab)
   const [analysisVersion, setAnalysisVersion] = useState(0)
 
-  const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai') => {
+  const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai' | 'hubspot') => {
     setActiveTab(tab)
     const url = new URL(window.location.href)
     if (tab === 'overview') {
@@ -3013,6 +3078,7 @@ export default function CaseDetailPage() {
     if (!caseData) return
     const name    = [caseData.client_first_name, caseData.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
     const tabLabel = activeTab === 'ai' ? 'AI Analysis'
+      : activeTab === 'hubspot' ? 'HubSpot Data'
       : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)
     document.title = `${name} | ${tabLabel}`
     return () => { document.title = 'Team Portal' }
@@ -3272,6 +3338,7 @@ export default function CaseDetailPage() {
     { id: 'comms',      label: `Comms${commTotal > 0 ? ` (${commTotal})` : ''}` },
     { id: 'documents',  label: 'Documents'  },
     { id: 'ai',         label: '✦ AI Analysis' },
+    { id: 'hubspot',    label: 'HubSpot Data' },
   ] as const
 
   return (
@@ -3817,6 +3884,13 @@ export default function CaseDetailPage() {
             <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => switchTab('documents')} onAnalysisComplete={() => setAnalysisVersion(v => v + 1)} />
           )}
 
+          {/* ── HubSpot Data tab ── */}
+          {activeTab === 'hubspot' && (
+            <HubSpotDataTab
+              caseData={caseData as unknown as Record<string, unknown>}
+              dealId={params.id as string}
+            />
+          )}
 
         </div>
 

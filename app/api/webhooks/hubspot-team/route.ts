@@ -4,8 +4,14 @@
  * HubSpot → core.cases real-time webhook handler.
  * Receives HubSpot CRM events → delegates to lib/pipelines/hubspot → emits events.
  *
+ * On every event: fetches ALL deal + contact properties → writes to:
+ *   - Structured columns (vehicle, client, stage, etc.)
+ *   - hubspot_properties JSONB (full deal props snapshot)
+ *   - hubspot_contact_properties JSONB (full contact props snapshot)
+ *   - hubspot_synced_at (timestamp of last sync)
+ *
  * Subscriptions (configured in HubSpot portal):
- *   deal.creation, deal.deletion, deal.propertyChange → dealstage
+ *   deal.creation, deal.deletion, deal.propertyChange (all properties)
  *
  * Security: ?token=<BACKFILL_IMPORT_TOKEN>
  */
