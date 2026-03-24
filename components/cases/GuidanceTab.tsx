@@ -266,7 +266,6 @@ export function GuidanceTab({ dealId }: Props) {
 
   const g  = report.guidance
   const t3 = report.tier3_docs
-  const t2 = report.tier2_comms
 
   // Doc status — show service records OR repair orders depending on case state
   const repairStatus  = g._context.repair_status
@@ -294,12 +293,6 @@ export function GuidanceTab({ dealId }: Props) {
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Situation</p>
           <p className="text-sm text-gray-700 leading-relaxed">{g.situation}</p>
-        </div>
-
-        {/* Communication timeline */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Communication Summary</p>
-          <CommTimeline entries={t2.timeline} />
         </div>
 
         {/* Document status */}

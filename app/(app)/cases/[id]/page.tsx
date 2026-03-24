@@ -3036,9 +3036,9 @@ export default function CaseDetailPage() {
         cursor ? Promise.resolve(null) : fetch(`/api/cases/${params.id}/timeline-hs`),
       ])
 
-      if (!sbRes.ok) return
-      const d = await sbRes.json()
-      const sbItems: TimelineItem[] = d.items ?? []
+      // Don't bail if Supabase fails — HubSpot items should still show
+      const sbJson  = sbRes.ok ? await sbRes.json() : { items: [], has_more: false, next_cursor: null }
+      const sbItems: TimelineItem[] = sbJson.items ?? []
 
       // Merge HubSpot items (first page only; they don't paginate)
       let merged = sbItems
@@ -3100,8 +3100,8 @@ export default function CaseDetailPage() {
         setTimelineItems(merged)
         setSeenIds(new Set(merged.map(i => i.id)))
       }
-      setTimelineHasMore(d.has_more ?? false)
-      setTimelineCursor(d.next_cursor ?? null)
+      setTimelineHasMore(sbJson.has_more ?? false)
+      setTimelineCursor(sbJson.next_cursor ?? null)
     } finally {
       setTimelineLoading(false)
     }
