@@ -6,7 +6,7 @@ import { useParams, useRouter, useSearchParams }    from 'next/navigation'
 import { createClient as sbCreate }                  from '@supabase/supabase-js'
 import TasksSection                                  from '@/components/case/TasksSection'
 import { HubSpotPropertiesPanel }                   from '@/components/cases/HubSpotPropertiesPanel'
-import { NurtureActionPanel }                        from '@/components/cases/NurtureActionPanel'
+import { GuidanceTab }                               from '@/components/cases/GuidanceTab'
 
 interface CaseIntake {
   id: string
@@ -4005,7 +4005,7 @@ export default function CaseDetailPage() {
 
           {/* ── Guidance tab ── */}
           {activeTab === 'guidance' && (
-            <NurtureActionPanel
+            <GuidanceTab
               dealId={params.id as string}
               caseUUID={caseUUID}
             />
