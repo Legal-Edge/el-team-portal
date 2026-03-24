@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     const storedSubId = stateRow?.value as string | null
+    console.log('[sharepoint/subscribe] stored sub ID:', storedSubId)
     let sub
     let action: 'renewed' | 'created' = 'created'
 
@@ -49,16 +50,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Store/update the subscription ID for future renewals
-    await db.from('sync_state').upsert(
+    const { error: upsertErr } = await db.from('sync_state').upsert(
       { key: STATE_KEY, value: sub.id, updated_at: new Date().toISOString() },
       { onConflict: 'key' }
     )
+    if (upsertErr) console.error('[sharepoint/subscribe] sync_state upsert error:', upsertErr)
 
     return NextResponse.json({
       ok:              true,
       action,
       subscription_id: sub.id,
       expires_at:      sub.expirationDateTime,
+      previous_id:     storedSubId,
     })
   } catch (err) {
     console.error('[sharepoint/subscribe] error:', err)
