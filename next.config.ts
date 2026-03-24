@@ -11,8 +11,8 @@ const securityHeaders = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://nllspzmypvtxewrmsred.supabase.co",
-      "connect-src 'self' https://nllspzmypvtxewrmsred.supabase.co wss://realtime.supabase.co wss://nllspzmypvtxewrmsred.supabase.co https://login.microsoftonline.com https://graph.microsoft.com https://app.aloware.com",
+      "img-src 'self' data: blob: https://vixs5hhfoepbobsuifdag.supabase.co",
+      "connect-src 'self' https://vixs5hhfoepbobsuifdag.supabase.co wss://realtime.supabase.co wss://vixs5hhfoepbobsuifdag.supabase.co https://login.microsoftonline.com https://graph.microsoft.com https://app.aloware.com",
       "frame-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
@@ -34,7 +34,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'nllspzmypvtxewrmsred.supabase.co',
+        hostname: 'vixs5hhfoepbobsuifdag.supabase.co',
         pathname: '/storage/v1/object/public/**',
       },
     ],
