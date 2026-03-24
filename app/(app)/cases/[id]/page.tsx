@@ -3774,6 +3774,7 @@ export default function CaseDetailPage() {
             const pinnedItems   = timelineItems.filter(i => i.source === 'note' && i.is_pinned)
             const filteredItems = timelineItems.filter(i => {
               if (i.source === 'note' && i.is_pinned) return false  // shown in pinned section
+              if (i.item_type === 'task' || i.item_type === 'meeting') return false  // HubSpot tasks = internal noise, hide by default
               if (timelineFilter === 'calls')    return i.item_type === 'call'
               if (timelineFilter === 'messages') return (i.source === 'comm' || i.source === 'hubspot') && i.item_type !== 'call'
               if (timelineFilter === 'notes')    return i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')
@@ -3913,8 +3914,8 @@ export default function CaseDetailPage() {
                         )}
                       </div>
 
-                      {/* Body */}
-                      {item.body && (
+                      {/* Body — suppressed for calls (raw HubSpot body is noisy metadata/transcript) */}
+                      {item.body && item.item_type !== 'call' && (
                         <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
                       )}
                       {!item.body && item.source === 'event' && item.payload && (
@@ -3923,8 +3924,13 @@ export default function CaseDetailPage() {
                         </p>
                       )}
 
-                      {/* Call summary (collapsed, expandable) */}
+                      {/* Call summary — collapsed by default, primary content for calls */}
                       {item.call_summary && <CallSummaryBlock summary={item.call_summary} durationMs={item.duration_ms ?? null} />}
+
+                      {/* Call with no summary — show brief meta line */}
+                      {item.item_type === 'call' && !item.call_summary && (
+                        <p className="text-xs text-gray-400 italic mt-0.5">No summary available</p>
+                      )}
 
                       {/* Meta */}
                       <p className="mt-1.5 text-xs text-gray-400">
