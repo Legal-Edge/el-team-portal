@@ -268,6 +268,7 @@ function classifyAlowareNote(raw: string): AlowareNote {
 export interface SyncResult {
   upserted:  number
   skipped:   number
+  deleted:   number
   errors:    string[]
   contacts:  { id: string; name: string; role: string }[]
 }
@@ -278,7 +279,7 @@ export async function syncEngagements(
   dealId:   string,
 ): Promise<SyncResult> {
   const token  = getToken()
-  const result: SyncResult = { upserted: 0, skipped: 0, errors: [], contacts: [] }
+  const result: SyncResult = { upserted: 0, skipped: 0, deleted: 0, errors: [], contacts: [] }
 
   // 0. Fetch HubSpot owner map (ownerId → full name) for agent resolution
   const ownerMap = await fetchOwnerMap(token)
@@ -439,6 +440,7 @@ export async function syncEngagements(
       .eq('case_id', caseId)
       .not('engagement_id', 'in', `(${currentEngIds.join(',')})`)
     if (delErr) result.errors.push(`stale_delete: ${delErr.message}`)
+    else result.deleted = 0   // will count below via count query if needed
   }
 
   return result

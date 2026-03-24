@@ -38,6 +38,7 @@ export async function POST(
     ok:       result.errors.length === 0,
     upserted: result.upserted,
     skipped:  result.skipped,
+    deleted:  result.deleted,
     contacts: result.contacts,
     errors:   result.errors,
   })
