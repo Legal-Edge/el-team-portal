@@ -1,13 +1,12 @@
 // GET /api/admin/cron/sharepoint-renew
-// Renews the Microsoft Graph webhook subscription before it expires.
-// Runs every 12 hours via Vercel cron. Subscriptions expire every 3 days.
+// Renews all SharePoint Graph subscriptions expiring within 24 hours.
+// Runs every 12h via Vercel cron.
 
-import { NextRequest, NextResponse }                        from 'next/server'
-import { createClient }                                     from '@supabase/supabase-js'
-import { renewSubscription, createDriveSubscription, getGraphToken } from '@/lib/sharepoint'
+import { NextRequest, NextResponse }              from 'next/server'
+import { createClient }                           from '@supabase/supabase-js'
+import { renewSubscription, createItemSubscription, DOCUMENTS_DRIVE_ID } from '@/lib/sharepoint'
 
 const CRON_SECRET = process.env.CRON_SECRET!
-const STATE_KEY   = 'sharepoint_subscription_id'
 
 function getDb() {
   return createClient(
@@ -21,58 +20,46 @@ export async function GET(req: NextRequest) {
   if (!isVercelCron && req.headers.get('authorization') !== `Bearer ${CRON_SECRET}`)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  try {
-    const db = getDb()
+  const db = getDb()
 
-    const { data: stateRow } = await db
-      .from('sync_state')
-      .select('value')
-      .eq('key', STATE_KEY)
-      .maybeSingle()
+  // Find subscriptions expiring within 24h
+  const cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const { data: expiring } = await db
+    .from('case_sp_subscriptions')
+    .select('id, case_id, subscription_id, drive_item_id, expires_at')
+    .lt('expires_at', cutoff)
 
-    const storedSubId = stateRow?.value as string | null
-    let sub
-    let action: 'renewed' | 'created' | 'no_op' = 'no_op'
+  const rows = expiring ?? []
+  console.log(`[sharepoint-renew] ${rows.length} subscriptions expiring within 24h`)
 
-    if (storedSubId) {
+  const results = { renewed: 0, recreated: 0, errors: 0 }
+
+  for (const row of rows) {
+    try {
+      let newSub
       try {
-        // Check expiry before renewing
-        const checkRes = await fetch(
-          `https://graph.microsoft.com/v1.0/subscriptions/${storedSubId}`,
-          { headers: { Authorization: `Bearer ${await getGraphToken()}` } }
-        )
-        if (checkRes.ok) {
-          const current  = await checkRes.json()
-          const hoursLeft = (new Date(current.expirationDateTime).getTime() - Date.now()) / (1000 * 60 * 60)
-          if (hoursLeft < 24) {
-            sub    = await renewSubscription(storedSubId)
-            action = 'renewed'
-          } else {
-            return NextResponse.json({ ok: true, action: 'no_op', subscription_id: storedSubId, hours_remaining: Math.round(hoursLeft) })
-          }
-        } else {
-          // Sub not found — create new
-          sub    = await createDriveSubscription()
-          action = 'created'
-        }
+        newSub = await renewSubscription(row.subscription_id)
+        results.renewed++
       } catch {
-        sub    = await createDriveSubscription()
-        action = 'created'
+        // Subscription gone — recreate it
+        newSub = await createItemSubscription(DOCUMENTS_DRIVE_ID, row.drive_item_id)
+        results.recreated++
+        console.log(`[sharepoint-renew] recreated subscription for case ${row.case_id}`)
       }
-    } else {
-      sub    = await createDriveSubscription()
-      action = 'created'
+
+      await db
+        .from('case_sp_subscriptions')
+        .update({
+          subscription_id: newSub.id,
+          expires_at:      newSub.expirationDateTime,
+          updated_at:      new Date().toISOString(),
+        })
+        .eq('id', row.id)
+    } catch (err) {
+      results.errors++
+      console.error(`[sharepoint-renew] error for subscription ${row.subscription_id}:`, err)
     }
-
-    // Persist subscription ID
-    await db.from('sync_state').upsert(
-      { key: STATE_KEY, value: sub.id, updated_at: new Date().toISOString() },
-      { onConflict: 'key' }
-    )
-
-    return NextResponse.json({ ok: true, action, subscription_id: sub.id, expires_at: sub.expirationDateTime })
-  } catch (err) {
-    console.error('[sharepoint-renew] error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
+
+  return NextResponse.json({ ok: true, checked: rows.length, ...results })
 }

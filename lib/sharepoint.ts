@@ -217,15 +217,21 @@ export interface GraphSubscription {
   clientState:        string
 }
 
-const WEBHOOK_ENDPOINT = 'https://team.easylemon.com/api/webhooks/sharepoint'
+const WEBHOOK_ENDPOINT    = 'https://team.easylemon.com/api/webhooks/sharepoint'
+const LIFECYCLE_ENDPOINT  = 'https://team.easylemon.com/api/webhooks/sharepoint/lifecycle'
+const CLIENT_STATE        = 'el-team-portal'
 // Drive subscriptions max expiry: 4,230 min — cron renews every 12h before expiry
-const EXPIRY_MINUTES   = 4200
+const EXPIRY_MINUTES      = 4200
 
-export async function createDriveSubscription(
-  driveId  = DOCUMENTS_DRIVE_ID,
-  clientState = 'el-team-portal',
+/**
+ * Subscribe to a specific folder item (and all its children recursively).
+ * This is the correct approach — subscribing to root does NOT fire for subfolder changes.
+ */
+export async function createItemSubscription(
+  driveId:    string,
+  itemId:     string,
 ): Promise<GraphSubscription> {
-  const token = await getGraphToken()
+  const token  = await getGraphToken()
   const expiry = new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000).toISOString()
 
   const res = await fetch(`${GRAPH_BASE}/subscriptions`, {
@@ -235,17 +241,18 @@ export async function createDriveSubscription(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      changeType:           'updated',
-      notificationUrl:      WEBHOOK_ENDPOINT,
-      resource:             `/drives/${driveId}/root`,
-      expirationDateTime:   expiry,
-      clientState,
+      changeType:                'updated',
+      notificationUrl:           WEBHOOK_ENDPOINT,
+      lifecycleNotificationUrl:  LIFECYCLE_ENDPOINT,
+      resource:                  `/drives/${driveId}/items/${itemId}`,
+      expirationDateTime:        expiry,
+      clientState:               CLIENT_STATE,
     }),
   })
 
   if (!res.ok) {
     const err = await res.text()
-    throw new Error(`createDriveSubscription: ${res.status} ${err.slice(0, 300)}`)
+    throw new Error(`createItemSubscription: ${res.status} ${err.slice(0, 300)}`)
   }
 
   return res.json()
@@ -274,9 +281,17 @@ export async function renewSubscription(
   return res.json()
 }
 
+export async function deleteSubscription(subscriptionId: string): Promise<void> {
+  const token = await getGraphToken()
+  await fetch(`${GRAPH_BASE}/subscriptions/${subscriptionId}`, {
+    method:  'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export async function listSubscriptions(): Promise<GraphSubscription[]> {
   const data = await graphGet<{ value: GraphSubscription[] }>('/subscriptions')
   return data.value ?? []
 }
 
-export { DOCUMENTS_DRIVE_ID }
+export { DOCUMENTS_DRIVE_ID, CLIENT_STATE, EXPIRY_MINUTES }
