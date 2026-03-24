@@ -14,6 +14,8 @@
  * Security: ?token=<BACKFILL_IMPORT_TOKEN>
  */
 
+export const maxDuration = 60   // extend Vercel function timeout to 60s
+
 import { NextRequest, NextResponse }                          from 'next/server'
 import { createClient }                                       from '@supabase/supabase-js'
 import { fetchHsDeal, fetchHsContact, upsertCase, deleteCase } from '@/lib/pipelines/hubspot'

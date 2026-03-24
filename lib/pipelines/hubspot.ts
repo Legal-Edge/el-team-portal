@@ -247,8 +247,16 @@ async function fetchAllDealPropNames(): Promise<string[]> {
 }
 
 export async function fetchHsDeal(dealId: string): Promise<Record<string, unknown> | null> {
-  // Discover all property names dynamically so we never miss a field
-  const allProps = await fetchAllDealPropNames()
+  // Fast path: if property names already cached, use them
+  // Cold path: fall back to known ALL_DEAL_PROPS list first (instant, no extra API call),
+  //            then fire property discovery in the background to warm the cache.
+  const allProps = _allDealPropNames ?? ALL_DEAL_PROPS
+
+  // Warm cache in background on first call (doesn't block this request)
+  if (!_allDealPropNames) {
+    fetchAllDealPropNames().catch(() => {})
+  }
+
   // HubSpot GET query strings can hit URL limits; batch into 500-prop chunks and merge
   const CHUNK = 500
   const merged: Record<string, unknown> = {}
