@@ -29,6 +29,16 @@ export async function GET(req: NextRequest) {
     )
     const folderContents = folderRes.ok ? await folderRes.json() : { error: folderRes.status }
 
+    // Try to fetch the last-created subscription directly by ID
+    const LAST_SUB_ID = '326283b9-991c-4ed7-83a1-b879352b6c69'
+    const directRes = await fetch(
+      `https://graph.microsoft.com/v1.0/subscriptions/${LAST_SUB_ID}`,
+      { headers: { Authorization: `Bearer ${graphToken}` } }
+    )
+    const directSub = directRes.ok
+      ? await directRes.json()
+      : { status: directRes.status, error: await directRes.text() }
+
     return NextResponse.json({
       subscriptions: {
         total:   subs.length,
@@ -38,6 +48,13 @@ export async function GET(req: NextRequest) {
           expiresAt:   s.expirationDateTime,
           clientState: s.clientState,
         })),
+        direct_lookup: {
+          id:        LAST_SUB_ID,
+          found:     directRes.ok,
+          expiresAt: directSub.expirationDateTime ?? null,
+          status:    directSub.status ?? 'ok',
+          error:     directSub.error ?? null,
+        },
       },
       driveRoot,
       caseFolder: {
