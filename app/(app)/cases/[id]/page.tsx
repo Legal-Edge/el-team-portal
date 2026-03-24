@@ -3776,7 +3776,7 @@ export default function CaseDetailPage() {
               if (i.source === 'note' && i.is_pinned) return false  // shown in pinned section
               if (i.item_type === 'task' || i.item_type === 'meeting') return false  // HubSpot tasks = internal noise, hide by default
               if (timelineFilter === 'calls')    return i.item_type === 'call'
-              if (timelineFilter === 'messages') return (i.source === 'comm' || i.source === 'hubspot') && i.item_type !== 'call'
+              if (timelineFilter === 'messages') return i.item_type === 'sms' || i.item_type === 'email'
               if (timelineFilter === 'notes')    return i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')
               if (timelineFilter === 'docs')     return i.item_type.startsWith('document.') || i.item_type === 'document'
               if (timelineFilter === 'events')   return i.source === 'event' && !i.item_type.startsWith('document.')
@@ -3784,7 +3784,7 @@ export default function CaseDetailPage() {
             })
             const itemCounts = {
               calls:    timelineItems.filter(i => i.item_type === 'call').length,
-              messages: timelineItems.filter(i => (i.source === 'comm' || i.source === 'hubspot') && i.item_type !== 'call').length,
+              messages: timelineItems.filter(i => i.item_type === 'sms' || i.item_type === 'email').length,
               notes:    timelineItems.filter(i => i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')).length,
               docs:     timelineItems.filter(i => i.item_type.startsWith('document.') || i.item_type === 'document').length,
               events:   timelineItems.filter(i => i.source === 'event' && !i.item_type.startsWith('document.')).length,
