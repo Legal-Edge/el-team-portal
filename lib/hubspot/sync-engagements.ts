@@ -153,15 +153,30 @@ async function fetchOwnerMap(token: string): Promise<Map<number, string>> {
   return map
 }
 
-/** Fetch engagement IDs associated with an object (deal or contact) */
+/** Fetch ALL engagement IDs associated with an object (paginated, up to 500) */
 async function fetchEngagementIds(objectType: 'deals' | 'contacts', objectId: string, token: string): Promise<string[]> {
-  const res = await fetch(
-    `https://api.hubapi.com/crm/v3/objects/${objectType}/${objectId}/associations/engagements`,
-    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
-  )
-  if (!res.ok) return []
-  const data = await res.json() as { results?: { id: string }[] }
-  return (data.results ?? []).map(r => r.id)
+  const ids: string[] = []
+  let after: string | undefined
+
+  for (let page = 0; page < 5; page++) {   // max 5 pages × 100 = 500 engagements
+    const url = new URL(`https://api.hubapi.com/crm/v3/objects/${objectType}/${objectId}/associations/engagements`)
+    url.searchParams.set('limit', '100')
+    if (after) url.searchParams.set('after', after)
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) break
+
+    const data = await res.json() as { results?: { id: string }[]; paging?: { next?: { after?: string } } }
+    ids.push(...(data.results ?? []).map(r => r.id))
+
+    after = data.paging?.next?.after
+    if (!after) break   // no more pages
+  }
+
+  return ids
 }
 
 /** Fetch a single engagement's details */
