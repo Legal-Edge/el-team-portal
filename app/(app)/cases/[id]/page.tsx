@@ -3238,6 +3238,35 @@ export default function CaseDetailPage() {
     return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
+  function fmtPhone(phone: string | null): string | null {
+    if (!phone) return null
+    const d = phone.replace(/\D/g, '')
+    if (d.length === 11 && d[0] === '1') return `+1 (${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`
+    if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`
+    return phone
+  }
+
+  const STATE_NAMES: Record<string, string> = {
+    AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',CO:'Colorado',
+    CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',HI:'Hawaii',ID:'Idaho',
+    IL:'Illinois',IN:'Indiana',IA:'Iowa',KS:'Kansas',KY:'Kentucky',LA:'Louisiana',
+    ME:'Maine',MD:'Maryland',MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',
+    MS:'Mississippi',MO:'Missouri',MT:'Montana',NE:'Nebraska',NV:'Nevada',
+    NH:'New Hampshire',NJ:'New Jersey',NM:'New Mexico',NY:'New York',
+    NC:'North Carolina',ND:'North Dakota',OH:'Ohio',OK:'Oklahoma',OR:'Oregon',
+    PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',SD:'South Dakota',
+    TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',VA:'Virginia',
+    WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',DC:'Washington D.C.',
+  }
+
+  const CASE_TYPE_LABELS: Record<string, string> = {
+    lemon_law: 'Lemon Law', breach_of_warranty: 'Breach of Warranty',
+    magnuson_moss: 'Magnuson-Moss', other: 'Other',
+  }
+  const PRIORITY_LABELS: Record<string, string> = {
+    low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent',
+  }
+
   const TABS = [
     { id: 'overview',   label: 'Overview'   },
     { id: 'comms',      label: `Comms${commTotal > 0 ? ` (${commTotal})` : ''}` },
@@ -3322,13 +3351,13 @@ export default function CaseDetailPage() {
         {/* Sub-header: vehicle · state · contact */}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
           <span>{vehicle}</span>
-          {c.state_jurisdiction && <><span className="text-gray-300">·</span><span>{c.state_jurisdiction}</span></>}
+          {c.state_jurisdiction && <><span className="text-gray-200">·</span><span>{STATE_NAMES[c.state_jurisdiction] ?? c.state_jurisdiction}</span></>}
           {c.client_phone && (
-            <><span className="text-gray-300">·</span>
-            <a href={`tel:${c.client_phone}`} className="hover:text-gray-800 transition-colors">{c.client_phone}</a></>
+            <><span className="text-gray-200">·</span>
+            <a href={`tel:${c.client_phone}`} className="hover:text-gray-800 transition-colors">{fmtPhone(c.client_phone)}</a></>
           )}
           {c.client_email && (
-            <><span className="text-gray-300">·</span>
+            <><span className="text-gray-200">·</span>
             <a href={`mailto:${c.client_email}`} className="hover:text-gray-800 transition-colors truncate max-w-xs">{c.client_email}</a></>
           )}
         </div>
@@ -3361,77 +3390,70 @@ export default function CaseDetailPage() {
           {activeTab === 'overview' && (
             <div className="space-y-4">
 
-              {/* Case Summary */}
+              {/* ── Case Brief ── */}
               {(() => {
-                const stageName  = STATUS_LABELS[c.case_status] ?? c.case_status
-                const addedDate  = c.created_at  ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
-                const updatedDate = c.updated_at ? new Date(c.updated_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
-
-                // Build issues list from intake problems
-                const issues: string[] = [
-                  intake?.problem_1_notes, intake?.problem_2_notes,
-                  intake?.problem_3_notes, intake?.problem_4_notes,
-                ].filter(Boolean) as string[]
-
+                const stageName   = STATUS_LABELS[c.case_status] ?? c.case_status
+                const stateName   = c.state_jurisdiction ? (STATE_NAMES[c.state_jurisdiction] ?? c.state_jurisdiction) : null
+                const addedDate   = c.created_at  ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
+                const updatedDate = c.updated_at  ? new Date(c.updated_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
                 const repairCount = intake?.repair_count ? Number(intake.repair_count) : null
                 const mileage     = c.vehicle_mileage ? c.vehicle_mileage.toLocaleString() + ' miles' : null
                 const condition   = c.vehicle_is_new !== null ? (c.vehicle_is_new ? 'new' : 'used') : null
                 const estValue    = c.estimated_value ? '$' + c.estimated_value.toLocaleString() : null
 
-                // Compose sentences
-                const sentences: string[] = []
+                const issues: string[] = [
+                  intake?.problem_1_notes, intake?.problem_2_notes,
+                  intake?.problem_3_notes, intake?.problem_4_notes,
+                ].filter(Boolean) as string[]
 
-                // Sentence 1: who, stage, when
+                const sentences: string[] = []
                 let s1 = `${clientName} is a ${stageName} stage client`
                 if (addedDate) s1 += `, added ${addedDate}`
                 sentences.push(s1 + '.')
 
-                // Sentence 2: vehicle details
-                const vehicleDetails = [vehicle, mileage, condition].filter(Boolean).join(', ')
-                if (vehicleDetails) sentences.push(`They own a ${vehicleDetails}.`)
+                const vehicleParts = [vehicle, mileage, condition].filter(Boolean)
+                if (vehicleParts.length) sentences.push(`They own a ${vehicleParts.join(', ')}${stateName ? `, located in ${stateName}` : ''}.`)
 
-                // Sentence 3: issues
-                if (issues.length > 0) {
-                  const issueList = issues.length === 1
-                    ? issues[0]
-                    : issues.slice(0, -1).join(', ') + ' and ' + issues[issues.length - 1]
-                  sentences.push(`Reported vehicle issues include ${issueList}.`)
-                }
-
-                // Sentence 4: repairs
                 if (repairCount !== null) {
                   sentences.push(repairCount === 0
                     ? 'No dealer repairs have been attempted to date.'
                     : `The vehicle has been to the dealer ${repairCount} time${repairCount !== 1 ? 's' : ''} for repairs.`)
                 }
 
-                // Sentence 5: estimated value
                 if (estValue) sentences.push(`Estimated case value is ${estValue}.`)
-
-                // Sentence 6: last updated
-                if (updatedDate) sentences.push(`The case was last updated ${updatedDate}.`)
+                if (updatedDate) sentences.push(`Last updated ${updatedDate}.`)
 
                 return (
-                  <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
-                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Summary</h3>
+                  <div className="bg-white rounded-xl border border-gray-100 shadow-card p-6 space-y-5">
+                    {/* Summary paragraph */}
                     <p className="text-sm text-gray-700 leading-relaxed">{sentences.join(' ')}</p>
+
+                    {/* Issues — only if present */}
+                    {issues.length > 0 && (
+                      <div className="border-t border-gray-50 pt-5">
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Reported Issues</p>
+                        <div className="space-y-2">
+                          {issues.map((issue, i) => (
+                            <div key={i} className="flex items-start gap-2.5">
+                              <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                              <p className="text-sm text-gray-700 capitalize">{issue.toLowerCase()}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Vehicle extras — VIN / purchase info — only if present */}
+                    {(c.vehicle_vin || c.vehicle_purchase_date || c.vehicle_purchase_price) && (
+                      <div className="border-t border-gray-50 pt-5 flex flex-wrap gap-x-8 gap-y-3">
+                        {c.vehicle_vin           && <Field label="VIN"       value={c.vehicle_vin} mono />}
+                        {c.vehicle_purchase_date  && <Field label="Purchased" value={fmtDate(c.vehicle_purchase_date)} />}
+                        {c.vehicle_purchase_price && <Field label="Price"     value={'$' + c.vehicle_purchase_price.toLocaleString()} />}
+                      </div>
+                    )}
                   </div>
                 )
               })()}
-
-              {/* Vehicle card — slim */}
-              {(c.vehicle_vin || c.vehicle_mileage || c.vehicle_is_new !== null || c.vehicle_purchase_date || c.vehicle_purchase_price) && (
-                <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Vehicle</h3>
-                  <div className="flex flex-wrap gap-x-8 gap-y-3">
-                    {c.vehicle_vin       && <Field label="VIN"            value={c.vehicle_vin} mono />}
-                    {c.vehicle_mileage   && <Field label="Mileage"        value={c.vehicle_mileage.toLocaleString() + ' mi'} />}
-                    {c.vehicle_is_new !== null && <Field label="Condition" value={c.vehicle_is_new ? 'New' : 'Used'} />}
-                    {c.vehicle_purchase_date  && <Field label="Purchased"  value={fmtDate(c.vehicle_purchase_date)} />}
-                    {c.vehicle_purchase_price && <Field label="Price"      value={'$' + c.vehicle_purchase_price.toLocaleString()} />}
-                  </div>
-                </div>
-              )}
 
 
 
@@ -3799,44 +3821,73 @@ export default function CaseDetailPage() {
         {/* ── Right: sticky sidebar ── */}
         <div className="w-full lg:w-64 lg:shrink-0 lg:overflow-y-auto lg:pr-1 space-y-4">
 
-          {/* Status card */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Case Status</p>
-            <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full transition-all duration-700 ${
-              statusFlash
-                ? 'bg-yellow-100 text-yellow-800 ring-2 ring-yellow-300'
-                : STATUS_COLORS[c.case_status] ?? STATUS_COLORS.unknown
-            }`}>
-              {STATUS_LABELS[c.case_status] ?? c.case_status}
-            </span>
-            <div className="mt-3 space-y-1.5 text-xs text-gray-400">
-              <div className="flex justify-between">
-                <span>Added</span>
-                <span className="text-gray-600">{fmtDate(c.created_at)}</span>
+          {/* Case Info card — dates + type/priority/value */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-4">
+            {/* Dates grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Added</p>
+                <p className="text-xs font-medium text-gray-700">{fmtDate(c.created_at)}</p>
               </div>
-              <div className="flex justify-between">
-                <span>Updated</span>
-                <span className="text-gray-600">{fmtDate(c.updated_at)}</span>
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Updated</p>
+                <p className="text-xs font-medium text-gray-700">{fmtDate(c.updated_at)}</p>
               </div>
               {c.filed_at && (
-                <div className="flex justify-between">
-                  <span>Filed</span>
-                  <span className="text-gray-600">{fmtDate(c.filed_at)}</span>
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Filed</p>
+                  <p className="text-xs font-medium text-gray-700">{fmtDate(c.filed_at)}</p>
                 </div>
               )}
               {c.settled_at && (
-                <div className="flex justify-between">
-                  <span>Settled</span>
-                  <span className="text-gray-600">{fmtDate(c.settled_at)}</span>
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Settled</p>
+                  <p className="text-xs font-medium text-emerald-700">{fmtDate(c.settled_at)}</p>
                 </div>
               )}
               {c.closed_at && (
-                <div className="flex justify-between">
-                  <span>Closed</span>
-                  <span className="text-gray-600">{fmtDate(c.closed_at)}</span>
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Closed</p>
+                  <p className="text-xs font-medium text-gray-700">{fmtDate(c.closed_at)}</p>
                 </div>
               )}
             </div>
+
+            {/* Divider + case facts */}
+            {(c.case_type || c.case_priority || c.estimated_value || c.settlement_amount || c.state_jurisdiction) && (
+              <div className="border-t border-gray-50 pt-4 space-y-2">
+                {c.estimated_value && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-400">Est. Value</span>
+                    <span className="text-xs font-semibold text-gray-900">${c.estimated_value.toLocaleString()}</span>
+                  </div>
+                )}
+                {c.settlement_amount && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-400">Settlement</span>
+                    <span className="text-xs font-semibold text-emerald-700">${c.settlement_amount.toLocaleString()}</span>
+                  </div>
+                )}
+                {c.case_type && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-400">Type</span>
+                    <span className="text-xs text-gray-700">{CASE_TYPE_LABELS[c.case_type] ?? c.case_type}</span>
+                  </div>
+                )}
+                {c.case_priority && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-400">Priority</span>
+                    <span className="text-xs text-gray-700">{PRIORITY_LABELS[c.case_priority] ?? c.case_priority}</span>
+                  </div>
+                )}
+                {c.state_jurisdiction && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-400">State</span>
+                    <span className="text-xs text-gray-700">{STATE_NAMES[c.state_jurisdiction] ?? c.state_jurisdiction}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Verified Facts from documents */}
@@ -3926,44 +3977,7 @@ export default function CaseDetailPage() {
             </div>
           </div>
 
-          {/* Case meta */}
-          {(c.estimated_value || c.case_type || c.case_priority) && (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Details</p>
-              <div className="space-y-2 text-xs">
-                {c.estimated_value && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Est. Value</span>
-                    <span className="font-semibold text-gray-900">${c.estimated_value.toLocaleString()}</span>
-                  </div>
-                )}
-                {c.settlement_amount && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Settlement</span>
-                    <span className="font-semibold text-emerald-700">${c.settlement_amount.toLocaleString()}</span>
-                  </div>
-                )}
-                {c.case_type && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Type</span>
-                    <span className="text-gray-700">{c.case_type}</span>
-                  </div>
-                )}
-                {c.case_priority && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Priority</span>
-                    <span className="text-gray-700">{c.case_priority}</span>
-                  </div>
-                )}
-                {c.state_jurisdiction && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">State</span>
-                    <span className="text-gray-700">{c.state_jurisdiction}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+
         </div>
       </div>
     </div>
