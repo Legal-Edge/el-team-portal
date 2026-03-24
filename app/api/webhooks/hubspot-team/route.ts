@@ -1,25 +1,24 @@
 /**
  * POST /api/webhooks/hubspot-team
  *
- * HubSpot → core.cases real-time webhook handler.
- * Receives HubSpot CRM events → delegates to lib/pipelines/hubspot → emits events.
+ * HubSpot → Supabase real-time webhook handler.
  *
- * On every event: fetches ALL deal + contact properties → writes to:
- *   - Structured columns (vehicle, client, stage, etc.)
- *   - hubspot_properties JSONB (full deal props snapshot)
- *   - hubspot_contact_properties JSONB (full contact props snapshot)
- *   - hubspot_synced_at (timestamp of last sync)
- *
- * Subscriptions (configured in HubSpot portal):
- *   deal.creation, deal.deletion, deal.propertyChange (all properties)
+ * Handles:
+ *   deal.*           → upsert/delete core.cases (full property sync)
+ *   note.*           → upsert core.hubspot_engagements (Aloware SMS/notes)
+ *   call.*           → upsert core.hubspot_engagements
+ *   email.*          → upsert core.hubspot_engagements
+ *   communication.*  → upsert core.hubspot_engagements
+ *   contact.*        → re-sync contact props on associated cases
  *
  * Security: ?token=<BACKFILL_IMPORT_TOKEN>
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient }              from '@supabase/supabase-js'
+import { NextRequest, NextResponse }                          from 'next/server'
+import { createClient }                                       from '@supabase/supabase-js'
 import { fetchHsDeal, fetchHsContact, upsertCase, deleteCase } from '@/lib/pipelines/hubspot'
-import { EVENT_SOURCES } from '@/lib/events'
+import { syncSingleEngagement }                               from '@/lib/hubspot/sync-single-engagement'
+import { EVENT_SOURCES }                                      from '@/lib/events'
 
 const WEBHOOK_TOKEN = process.env.BACKFILL_IMPORT_TOKEN!
 const SUPABASE_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -52,106 +51,134 @@ export async function POST(req: NextRequest) {
 
   const client = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-  // Deduplicate — HubSpot may batch multiple events for the same deal
-  const deletions = new Set<string>()
-  const upserts   = new Set<string>()
+  // ── Route events by type ──────────────────────────────────────────────────
+  const dealDeletions  = new Set<string>()
+  const dealUpserts    = new Set<string>()
+  const creationIds    = new Set<string>()
+  const engagements: { objectId: string; objectType: string }[] = []
+  const contactIds     = new Set<string>()
 
   for (const e of events) {
-    const dealId = String(e.objectId)
-    if (e.subscriptionType === 'deal.deletion') {
-      deletions.add(dealId)
-      upserts.delete(dealId)   // deletion always wins
-    } else {
-      if (!deletions.has(dealId)) upserts.add(dealId)
+    const id   = String(e.objectId)
+    const type = e.subscriptionType ?? ''
+
+    if (type.startsWith('deal.')) {
+      if (type === 'deal.deletion') {
+        dealDeletions.add(id)
+        dealUpserts.delete(id)
+      } else {
+        if (!dealDeletions.has(id)) dealUpserts.add(id)
+        if (type === 'deal.creation') creationIds.add(id)
+      }
+    } else if (type.startsWith('note.')) {
+      engagements.push({ objectId: id, objectType: 'notes' })
+    } else if (type.startsWith('call.')) {
+      engagements.push({ objectId: id, objectType: 'calls' })
+    } else if (type.startsWith('email.')) {
+      engagements.push({ objectId: id, objectType: 'emails' })
+    } else if (type.startsWith('communication.')) {
+      engagements.push({ objectId: id, objectType: 'communications' })
+    } else if (type.startsWith('contact.')) {
+      contactIds.add(id)
     }
   }
 
   const results: Record<string, string> = {}
 
-  // ── Deletions ─────────────────────────────────────────────────────────────
-  for (const dealId of deletions) {
+  // ── Deal deletions ────────────────────────────────────────────────────────
+  for (const dealId of dealDeletions) {
     const { error } = await deleteCase(client, dealId, {
       emitEvents: true,
       source:     EVENT_SOURCES.HUBSPOT_WEBHOOK,
     })
-    results[dealId] = error ? `delete_err: ${error}` : 'deleted'
-    console.log(`[webhook] DELETE deal ${dealId}: ${results[dealId]}`)
+    results[`deal:${dealId}`] = error ? `delete_err: ${error}` : 'deleted'
   }
 
-  // Which deal IDs came from a deal.creation event (need retry on 404)
-  const creationIds = new Set<string>()
-  for (const e of events) {
-    if (e.subscriptionType === 'deal.creation') creationIds.add(String(e.objectId))
-  }
-
-  // ── Upserts ───────────────────────────────────────────────────────────────
-  for (const dealId of upserts) {
+  // ── Deal upserts ──────────────────────────────────────────────────────────
+  for (const dealId of dealUpserts) {
     try {
-      // HubSpot fires deal.creation webhooks before the deal is queryable via API.
-      // Retry up to 3× with exponential backoff for creation events to avoid
-      // false-positive 'deleted_on_404' outcomes.
       let deal = await fetchHsDeal(dealId)
       if (!deal && creationIds.has(dealId)) {
-        const delays = [1500, 3000, 6000]
-        for (const ms of delays) {
+        for (const ms of [1500, 3000, 6000]) {
           await new Promise(r => setTimeout(r, ms))
           deal = await fetchHsDeal(dealId)
           if (deal) break
         }
       }
-
       if (!deal) {
-        // Still 404 after retries — deal was deleted immediately after creation
-        await deleteCase(client, dealId, {
-          emitEvents: true,
-          source:     EVENT_SOURCES.HUBSPOT_WEBHOOK,
-        })
-        results[dealId] = 'deleted_on_404'
+        await deleteCase(client, dealId, { emitEvents: true, source: EVENT_SOURCES.HUBSPOT_WEBHOOK })
+        results[`deal:${dealId}`] = 'deleted_on_404'
         continue
       }
-
       const contact = await fetchHsContact(dealId)
       const result  = await upsertCase(client, deal, contact, {
         emitEvents: true,
         source:     EVENT_SOURCES.HUBSPOT_WEBHOOK,
       })
+      results[`deal:${dealId}`] = result.error ? `case_err: ${result.error}` : result.isNew ? 'created' : 'upserted'
+    } catch (err) {
+      results[`deal:${dealId}`] = `error: ${(err as Error).message}`
+    }
+  }
 
-      if (result.error) {
-        results[dealId] = `case_err: ${result.error}`
-        console.error(`[webhook] upsert [${dealId}]:`, result.error)
-      } else {
-        results[dealId] = result.isNew ? 'created' : 'upserted'
-        const stage = (deal.properties as Record<string, unknown>)?.dealstage
-        console.log(`[webhook] ${results[dealId]} deal ${dealId} stage=${stage}`)
+  // ── Engagement upserts (call / note / email / communication) ─────────────
+  // Deduplicate by objectId — HubSpot may fire multiple events per activity
+  const seenEngIds = new Set<string>()
+  for (const { objectId, objectType } of engagements) {
+    if (seenEngIds.has(objectId)) continue
+    seenEngIds.add(objectId)
+    try {
+      const r = await syncSingleEngagement(client, objectId, objectType)
+      results[`${objectType}:${objectId}`] = r.error ?? r.result
+    } catch (err) {
+      results[`${objectType}:${objectId}`] = `error: ${(err as Error).message}`
+    }
+  }
+
+  // ── Contact property changes → re-sync contact props on associated cases ──
+  for (const contactId of contactIds) {
+    try {
+      // Find deals associated with this contact
+      const hsToken = process.env.HUBSPOT_ACCESS_TOKEN!
+      const assocRes = await fetch(
+        `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}/associations/deals`,
+        { headers: { Authorization: `Bearer ${hsToken}` }, signal: AbortSignal.timeout(6000) }
+      )
+      if (!assocRes.ok) { results[`contact:${contactId}`] = 'assoc_fetch_failed'; continue }
+      const assocData = await assocRes.json() as { results?: { id: string }[] }
+      const dealIds = (assocData.results ?? []).map(r => r.id)
+
+      for (const dealId of dealIds.slice(0, 5)) {  // cap at 5 deals per contact
+        if (!dealUpserts.has(dealId)) {  // skip if deal already being synced
+          const deal    = await fetchHsDeal(dealId)
+          const contact = await fetchHsContact(dealId)
+          if (deal) {
+            await upsertCase(client, deal, contact, { emitEvents: false, source: EVENT_SOURCES.HUBSPOT_WEBHOOK })
+            results[`contact:${contactId}:deal:${dealId}`] = 'contact_synced'
+          }
+        }
       }
     } catch (err) {
-      results[dealId] = `error: ${(err as Error).message}`
-      console.error(`[webhook] deal ${dealId}:`, (err as Error).message)
+      results[`contact:${contactId}`] = `error: ${(err as Error).message}`
     }
   }
 
   // ── Sync log ──────────────────────────────────────────────────────────────
-  const synced  = Object.values(results).filter(v => ['created','upserted','deleted','deleted_on_404'].includes(v)).length
-  const errored = Object.values(results).filter(v => v.startsWith('case_err') || v.startsWith('error') || v.startsWith('delete_err')).length
-  const status  = errored > 0 && synced === 0 ? 'error' : errored > 0 ? 'partial' : 'success'
-  const errors  = Object.entries(results)
-    .filter(([, v]) => v.startsWith('case_err') || v.startsWith('error') || v.startsWith('delete_err'))
-    .map(([k, v]) => `[${k}] ${v}`)
+  const synced  = Object.values(results).filter(v => ['created','upserted','deleted','deleted_on_404','contact_synced','ok'].includes(v)).length
+  const errored = Object.values(results).filter(v => v.includes('err') || v.startsWith('error')).length
 
   try {
     await client.schema('core').from('sync_log').insert({
       sync_type:     'webhook',
       completed_at:  new Date().toISOString(),
-      deals_seen:    upserts.size + deletions.size,
+      deals_seen:    dealUpserts.size + dealDeletions.size,
       deals_synced:  synced,
       deals_errored: errored,
-      status,
-      notes:         `batch of ${events.length} events`,
-      errors:        errors.slice(0, 50),
+      status:        errored > 0 && synced === 0 ? 'error' : errored > 0 ? 'partial' : 'success',
+      notes:         `batch of ${events.length} events (${dealUpserts.size} deals, ${seenEngIds.size} engagements, ${contactIds.size} contacts)`,
+      errors:        Object.entries(results).filter(([,v]) => v.includes('err') || v.startsWith('error')).map(([k,v]) => `[${k}] ${v}`).slice(0, 50),
     })
-  } catch (logErr) {
-    console.error('[webhook] sync_log failed:', (logErr as Error).message)
-  }
+  } catch { /* log failure is non-fatal */ }
 
   return NextResponse.json({ processed: events.length, results })
 }
