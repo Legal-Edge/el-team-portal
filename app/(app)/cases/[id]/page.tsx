@@ -3330,6 +3330,36 @@ export default function CaseDetailPage() {
         })
       })
 
+      // ── HubSpot engagements (synced in background on tab open) ──
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'core', table: 'hubspot_engagements',
+        filter: `case_id=eq.${caseUUID}`,
+      }, (payload: { new: Record<string, unknown> }) => {
+        const r = payload.new
+        prependItem({
+          source:           'hubspot' as TimelineSource,
+          id:               `hs_${r.engagement_id as string}`,
+          ts:               r.occurred_at as string,
+          item_type:        (r.engagement_type as string).toLowerCase(),
+          body:             (r.body as string | null) ?? null,
+          call_summary:     (r.call_summary as string | null) ?? null,
+          engagement_id:    r.engagement_id as string,
+          duration_ms:      (r.duration_ms as number | null) ?? null,
+          direction:        (r.direction as 'inbound' | 'outbound' | null) ?? null,
+          author_ref:       (r.author_email as string | null) ?? null,
+          author_name:      null,
+          visibility:       'internal',
+          is_pinned:        false,
+          payload:          null,
+          needs_review:     false,
+          contact_id:       (r.contact_id as string | null) ?? null,
+          contact_name:     (r.contact_name as string | null) ?? null,
+          contact_initials: (r.contact_initials as string | null) ?? null,
+          contact_color:    (r.contact_color as string | null) ?? null,
+          contact_role:     (r.contact_role as string | null) ?? null,
+        })
+      })
+
       .subscribe()
     } catch (e) { console.warn('[Realtime] case timeline subscription failed:', e) }
 
