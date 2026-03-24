@@ -259,7 +259,9 @@ export async function syncSingleEngagement(
     }
   }
 
-  // 7. Upsert to core.hubspot_engagements
+  // 7. Upsert to core.hubspot_engagements + touch cases.hubspot_synced_at
+  // Touching hubspot_synced_at triggers the core.cases Realtime subscription
+  // in the browser (already confirmed working) which reloads the timeline.
   const row = {
     engagement_id:    objectId,
     case_id:          caseId,
@@ -291,6 +293,14 @@ export async function syncSingleEngagement(
     .upsert(row, { onConflict: 'engagement_id' })
 
   if (error) return { result: 'upsert_failed', error: error.message }
+
+  // Touch hubspot_synced_at on the case → fires core.cases UPDATE Realtime event
+  // → browser reloads timeline without page refresh
+  await supabase
+    .schema('core')
+    .from('cases')
+    .update({ hubspot_synced_at: new Date().toISOString() })
+    .eq('id', caseId)
 
   console.log(`[webhook] upserted ${engType} engagement ${objectId} → case ${caseId}`)
   return { result: 'ok' }

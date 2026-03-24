@@ -128,6 +128,14 @@ export async function POST(req: NextRequest) {
 
   // ── Engagement deletions ─────────────────────────────────────────────────
   for (const engId of engagementDeletions) {
+    // Find case_id before deleting (needed to touch hubspot_synced_at)
+    const { data: engRow } = await client
+      .schema('core')
+      .from('hubspot_engagements')
+      .select('case_id')
+      .eq('engagement_id', engId)
+      .single()
+
     const { error } = await client
       .schema('core')
       .from('hubspot_engagements')
@@ -135,6 +143,15 @@ export async function POST(req: NextRequest) {
       .eq('engagement_id', engId)
     results[`del:${engId}`] = error ? `delete_err: ${error.message}` : 'deleted'
     console.log(`[webhook] DELETE engagement ${engId}: ${results[`del:${engId}`]}`)
+
+    // Touch hubspot_synced_at → fires core.cases Realtime → browser reloads timeline
+    if (!error && engRow?.case_id) {
+      await client
+        .schema('core')
+        .from('cases')
+        .update({ hubspot_synced_at: new Date().toISOString() })
+        .eq('id', engRow.case_id)
+    }
   }
 
   // ── Engagement upserts (call / note / email / communication) ─────────────

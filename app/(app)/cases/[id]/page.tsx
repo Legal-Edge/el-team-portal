@@ -3371,21 +3371,33 @@ export default function CaseDetailPage() {
       })
 
       // ── Case property changes (deal sync via webhook) ──
-      // Fires when webhook updates core.cases — reloads overview data live
+      // Fires when webhook updates core.cases (deal props or hubspot_synced_at)
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'core', table: 'cases',
         filter: `id=eq.${caseUUID}`,
-      }, () => {
-        // Re-fetch case data silently so Overview reflects the latest HubSpot state
+      }, (payload: { new: Record<string, unknown> }) => {
+        const updated = payload.new
+
+        // Always refresh case data for Overview tab
         fetch(`/api/cases/${params.id}`)
           .then(r => r.ok ? r.json() : null)
-          .then(data => {
-            if (data?.case) {
-              setCaseData(data.case)
-              console.log('[Realtime] case updated — overview refreshed')
-            }
-          })
-          .catch(() => { /* non-fatal */ })
+          .then(data => { if (data?.case) setCaseData(data.case) })
+          .catch(() => {})
+
+        // If hubspot_synced_at changed, an engagement was added/deleted — reload timeline
+        const prevSyncedAt = (caseData as unknown as Record<string,unknown>)?.hubspot_synced_at
+        if (updated.hubspot_synced_at && updated.hubspot_synced_at !== prevSyncedAt) {
+          fetch(`/api/cases/${params.id}/timeline?limit=50`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (!data?.items) return
+              const items: TimelineItem[] = data.items
+              setTimelineItems(items)
+              setSeenIds(new Set(items.map((i: TimelineItem) => i.id)))
+              console.log('[Realtime] engagement change — timeline refreshed')
+            })
+            .catch(() => {})
+        }
       })
 
       // ── HubSpot engagement deletions ──
