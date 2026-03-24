@@ -4069,8 +4069,6 @@ export default function CaseDetailPage() {
                       { id: 'messages', label: `SMS${itemCounts.messages   ? ` (${itemCounts.messages})` : ''}` },
                       { id: 'email',    label: `Email${itemCounts.email    ? ` (${itemCounts.email})`    : ''}` },
                       { id: 'notes',    label: `Notes${itemCounts.notes    ? ` (${itemCounts.notes})`    : ''}` },
-                      { id: 'docs',     label: `Docs${itemCounts.docs      ? ` (${itemCounts.docs})`     : ''}` },
-                      { id: 'events',   label: `Events${itemCounts.events  ? ` (${itemCounts.events})`   : ''}` },
                     ] as { id: typeof timelineFilter; label: string }[]).map(f => (
                       <button
                         key={f.id}
