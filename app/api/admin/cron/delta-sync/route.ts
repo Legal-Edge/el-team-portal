@@ -15,7 +15,7 @@ export const maxDuration = 60   // Vercel Pro: up to 60s per invocation
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient }              from '@supabase/supabase-js'
-import { fetchDeltaDeals, fetchHsContact, upsertCase } from '@/lib/pipelines/hubspot'
+import { fetchDeltaDeals, fetchHsContact, upsertCase, buildCaseRow } from '@/lib/pipelines/hubspot'
 import { EVENT_SOURCES }               from '@/lib/events'
 
 const CRON_SECRET  = process.env.CRON_SECRET
@@ -60,6 +60,8 @@ export async function GET(req: NextRequest) {
   // Reads the stored `after` cursor to continue where the last run left off.
   const pageSize      = Math.min(parseInt(req.nextUrl.searchParams.get('page_size') ?? '100'), 100)
   const skipContacts  = req.nextUrl.searchParams.get('skip_contacts') === 'true'
+  // bulk_mode=true: single-call batch upsert, no events — for fast resync only
+  const bulkMode      = req.nextUrl.searchParams.get('bulk_mode') === 'true'
 
   // Per-page pagination cursor (separate from time cursor)
   const { data: afterRow } = await coreDb
@@ -80,19 +82,33 @@ export async function GET(req: NextRequest) {
     hasMore    = nextAfter !== null
     totalSeen  = deals.length
 
-    for (const deal of deals) {
-      const dealId = String((deal as { id: string }).id)
-      try {
-        const contact = skipContacts ? null : await fetchHsContact(dealId)
-        const result  = await upsertCase(client, deal, contact, {
-          emitEvents: true,
-          source:     EVENT_SOURCES.HUBSPOT_CRON,
-        })
-        if (result.error) { allErrors.push(`[${dealId}] ${result.error}`); totalErrored++ }
-        else                 totalSynced++
-      } catch (err) {
-        allErrors.push(`[${dealId}] ${(err as Error).message}`)
-        totalErrored++
+    if (bulkMode) {
+      // Fast path: build all rows + single batch upsert — no events, no contact fetch
+      const rows = deals.map(d => buildCaseRow(d, null))
+      const { error: bulkErr } = await coreDb
+        .from('cases')
+        .upsert(rows, { onConflict: 'hubspot_deal_id', ignoreDuplicates: false })
+      if (bulkErr) {
+        allErrors.push(`bulk_upsert: ${bulkErr.message}`)
+        totalErrored = deals.length
+      } else {
+        totalSynced = deals.length
+      }
+    } else {
+      for (const deal of deals) {
+        const dealId = String((deal as { id: string }).id)
+        try {
+          const contact = skipContacts ? null : await fetchHsContact(dealId)
+          const result  = await upsertCase(client, deal, contact, {
+            emitEvents: true,
+            source:     EVENT_SOURCES.HUBSPOT_CRON,
+          })
+          if (result.error) { allErrors.push(`[${dealId}] ${result.error}`); totalErrored++ }
+          else                 totalSynced++
+        } catch (err) {
+          allErrors.push(`[${dealId}] ${(err as Error).message}`)
+          totalErrored++
+        }
       }
     }
 
