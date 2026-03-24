@@ -11,12 +11,12 @@ import { fetchHsDeal, fetchHsContact, buildCaseRow } from '@/lib/pipelines/hubsp
 
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getTeamSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const dealId = params.id
+  const { id: dealId } = await params
 
   try {
     const [deal, contact] = await Promise.all([
