@@ -3037,11 +3037,17 @@ export default function CaseDetailPage() {
       const urlParams = new URLSearchParams({ limit: '50' })
       if (cursor) urlParams.set('before_ts', cursor)
 
-      // Trigger engagement sync in the background (fire-and-forget on first load)
-      // This ensures HubSpot engagements are up to date without blocking the UI
+      // Sync HubSpot engagements first (blocking on first load so items are in DB before query)
       if (!cursor && !append) {
-        fetch(`/api/cases/${params.id}/sync-engagements`, { method: 'POST' })
-          .catch(() => {/* silent */})
+        try {
+          const syncRes = await fetch(`/api/cases/${params.id}/sync-engagements`, { method: 'POST' })
+          if (!syncRes.ok) {
+            const err = await syncRes.json().catch(() => ({}))
+            console.warn('[timeline] engagement sync failed:', syncRes.status, err)
+          }
+        } catch (e) {
+          console.warn('[timeline] engagement sync error:', e)
+        }
       }
 
       const res = await fetch(`/api/cases/${params.id}/timeline?${urlParams}`)
