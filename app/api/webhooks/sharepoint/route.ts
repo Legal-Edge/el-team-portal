@@ -44,6 +44,10 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // Clone body for raw logging before consuming
+  const rawText = await req.text()
+  console.log('[sharepoint-webhook] RAW BODY:', rawText.slice(0, 2000))
+
   let body: {
     value?: Array<{
       clientState?: string
@@ -55,12 +59,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    body = await req.json()
+    body = JSON.parse(rawText)
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
   const notifications = body.value ?? []
+  console.log(`[sharepoint-webhook] parsed ${notifications.length} notification(s):`,
+    JSON.stringify(notifications.map(n => ({
+      clientState: n.clientState,
+      changeType:  n.changeType,
+      resource:    n.resource,
+      resourceDataId: n.resourceData?.id,
+    })))
+  )
 
   // Respond 202 immediately — Graph requires <30s response
   // Process asynchronously (fire-and-forget per Next.js edge conventions)
