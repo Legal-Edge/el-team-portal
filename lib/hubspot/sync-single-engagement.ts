@@ -88,6 +88,54 @@ async function getOwnerName(ownerId: number | undefined): Promise<string | null>
   return [p.firstName, p.lastName].filter(Boolean).join(' ') || (p.email ?? null)
 }
 
+// ── CRM v3 property maps per object type ─────────────────────────────────────
+const V3_PROPS: Record<string, string> = {
+  notes:          'hs_note_body,hs_timestamp,hs_createdate,hubspot_owner_id',
+  calls:          'hs_call_body,hs_call_summary,hs_call_direction,hs_call_duration,hs_timestamp,hs_createdate,hubspot_owner_id',
+  emails:         'hs_email_subject,hs_email_text,hs_email_html,hs_email_direction,hs_timestamp,hs_createdate,hubspot_owner_id,hs_email_from_email,hs_email_from_firstname,hs_email_from_lastname',
+  communications: 'hs_body_preview,hs_timestamp,hs_createdate,hubspot_owner_id',
+}
+
+/** Normalise v3 CRM object properties into the v1-like shape our code expects */
+function normalisev3(objectType: string, props: Record<string, string | null>) {
+  const rawType = OBJECT_TYPE_MAP[objectType] ?? 'NOTE'
+  const createdAt = props.hs_timestamp || props.hs_createdate
+  const ownerId   = props.hubspot_owner_id ? Number(props.hubspot_owner_id) : undefined
+
+  let body = ''
+  let callSummary: string | null = null
+  let direction: string | null   = null
+  let subject: string | null     = null
+  let from: Record<string,string> | null = null
+
+  if (objectType === 'notes')         body = props.hs_note_body ?? ''
+  if (objectType === 'communications') body = props.hs_body_preview ?? ''
+  if (objectType === 'calls') {
+    body        = props.hs_call_body ?? ''
+    callSummary = props.hs_call_summary ?? null
+    direction   = props.hs_call_direction?.toLowerCase() ?? null
+  }
+  if (objectType === 'emails') {
+    body      = props.hs_email_text ?? props.hs_email_html ?? ''
+    subject   = props.hs_email_subject ?? null
+    direction = props.hs_email_direction?.toLowerCase() ?? null
+    if (props.hs_email_from_email) {
+      from = {
+        email:     props.hs_email_from_email,
+        firstName: props.hs_email_from_firstname ?? '',
+        lastName:  props.hs_email_from_lastname  ?? '',
+      }
+    }
+  }
+
+  return {
+    engagement: { type: rawType, createdAt: createdAt ? new Date(createdAt).getTime() : Date.now(), ownerId },
+    metadata:   { body, callSummary, direction, subject, from,
+                  durationMilliseconds: props.hs_call_duration ? Number(props.hs_call_duration) : undefined },
+    associations: { contactIds: [] as number[] },
+  }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function syncSingleEngagement(
@@ -100,7 +148,7 @@ export async function syncSingleEngagement(
 
   // 1. Find associated deal
   const dealId = await findDealIdForActivity(objectId, objectType)
-  if (!dealId) return { result: 'no_deal', error: 'No associated deal found' }
+  if (!dealId) return { result: 'no_deal', error: `No deal for ${objectType}:${objectId}` }
 
   // 2. Find case UUID in Supabase
   const { data: caseRow } = await supabase
@@ -113,9 +161,28 @@ export async function syncSingleEngagement(
 
   const caseId = caseRow.id as string
 
-  // 3. Fetch engagement details via v1 API (IDs are compatible)
-  const engData = await hsGet(`/engagements/v1/engagements/${objectId}`)
-  if (!engData) return { result: 'fetch_failed', error: `Could not fetch engagement ${objectId}` }
+  // 3. Fetch engagement — try v3 CRM objects API first (newer HubSpot accounts),
+  //    fall back to v1 engagements API for legacy records.
+  let engData: ReturnType<typeof normalisev3> | null = null
+
+  const v3Props = V3_PROPS[objectType]
+  if (v3Props) {
+    const v3 = await hsGet(`/crm/v3/objects/${objectType}/${objectId}?properties=${v3Props}`)
+    if (v3?.properties) {
+      engData = normalisev3(objectType, v3.properties as Record<string, string | null>)
+      // Also pick up contact associations from v3
+      const assoc = await hsGet(`/crm/v3/objects/${objectType}/${objectId}/associations/contacts`)
+      const contactIds = ((assoc?.results as Array<{id: string}>) ?? []).map(r => Number(r.id))
+      engData.associations.contactIds = contactIds
+    }
+  }
+
+  // Fall back to v1 if v3 returned nothing
+  if (!engData) {
+    const v1 = await hsGet(`/engagements/v1/engagements/${objectId}`)
+    if (!v1) return { result: 'fetch_failed', error: `Could not fetch ${objectType}:${objectId}` }
+    engData = v1 as ReturnType<typeof normalisev3>
+  }
 
   const e = (engData.engagement ?? {}) as Record<string, unknown>
   const m = (engData.metadata   ?? {}) as Record<string, unknown>
