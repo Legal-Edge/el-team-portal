@@ -3281,18 +3281,13 @@ export default function CaseDetailPage() {
       <div className="mb-6 pt-6 shrink-0">
         {/* Breadcrumb + queue nav */}
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 text-xs">
-            <a href={backHref} className="inline-flex items-center gap-1.5 text-gray-400 hover:text-gray-700 transition-colors group">
-              <svg className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-              Cases
+          <div className="flex items-center gap-1.5 text-xs">
+            <a href={backHref} className="flex items-center gap-1 px-2.5 py-1.5 font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-95">
+              ← Cases
             </a>
-            <span className="text-gray-200">/</span>
-            <span className="text-gray-500 font-medium">{clientName}</span>
             {queueState && (
-              <span className="ml-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">
-                {queueState.idx + 1} <span className="text-gray-300">of</span> {queueState.ids.length}
+              <span className="px-2 py-1.5 rounded-lg border border-gray-100 text-gray-400 font-medium">
+                {queueState.idx + 1} of {queueState.ids.length}
               </span>
             )}
           </div>
