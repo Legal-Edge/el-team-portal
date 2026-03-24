@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams }    from 'next/navigation'
 import { createClient as sbCreate }                  from '@supabase/supabase-js'
 import TasksSection                                  from '@/components/case/TasksSection'
 import { HubSpotPropertiesPanel }                   from '@/components/cases/HubSpotPropertiesPanel'
+import { NurtureActionPanel }                        from '@/components/cases/NurtureActionPanel'
 
 interface CaseIntake {
   id: string
@@ -4004,6 +4005,14 @@ export default function CaseDetailPage() {
 
         {/* ── Right: sticky sidebar ── */}
         <div className="w-full lg:w-64 lg:shrink-0 lg:overflow-y-auto lg:pr-1 space-y-4">
+
+          {/* ── Nurture Action Panel — shown on Overview tab for nurture stage ── */}
+          {activeTab === 'overview' && (c.case_status === 'nurture' || c.case_status === 'intake' || c.case_status === 'unknown') && (
+            <NurtureActionPanel
+              dealId={params.id as string}
+              caseUUID={caseUUID}
+            />
+          )}
 
           {/* Case Info card — dates + type/priority/value */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-4">
