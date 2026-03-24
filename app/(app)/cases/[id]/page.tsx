@@ -2916,7 +2916,7 @@ export default function CaseDetailPage() {
 
   // ── Unified timeline state ────────────────────────────────────────────────
   type TimelineSource = 'event' | 'comm' | 'note' | 'hubspot'
-  type TimelineFilter = 'all' | 'calls' | 'messages' | 'notes' | 'docs' | 'events'
+  type TimelineFilter = 'all' | 'calls' | 'messages' | 'email' | 'notes' | 'docs' | 'events'
   interface TimelineItem {
     source:        TimelineSource; id: string; ts: string; item_type: string
     body:          string | null;  author_ref: string | null; author_name: string | null
@@ -3810,7 +3810,8 @@ export default function CaseDetailPage() {
               if (i.item_type === 'task' || i.item_type === 'meeting') return false
               if (contactFilter && i.contact_id && i.contact_id !== contactFilter) return false
               if (timelineFilter === 'calls')    return i.item_type === 'call' || i.item_type === 'call_missed'
-              if (timelineFilter === 'messages') return ['sms', 'email', 'voicemail'].includes(i.item_type)
+              if (timelineFilter === 'messages') return ['sms', 'voicemail'].includes(i.item_type)
+              if (timelineFilter === 'email')    return i.item_type === 'email'
               if (timelineFilter === 'notes')    return i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')
               if (timelineFilter === 'docs')     return i.item_type.startsWith('document.') || i.item_type === 'document'
               if (timelineFilter === 'events')   return i.source === 'event' && !i.item_type.startsWith('document.')
@@ -3818,7 +3819,8 @@ export default function CaseDetailPage() {
             })
             const itemCounts = {
               calls:    timelineItems.filter(i => i.item_type === 'call' || i.item_type === 'call_missed').length,
-              messages: timelineItems.filter(i => ['sms', 'email', 'voicemail'].includes(i.item_type)).length,
+              messages: timelineItems.filter(i => ['sms', 'voicemail'].includes(i.item_type)).length,
+              email:    timelineItems.filter(i => i.item_type === 'email').length,
               notes:    timelineItems.filter(i => i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')).length,
               docs:     timelineItems.filter(i => i.item_type.startsWith('document.') || i.item_type === 'document').length,
               events:   timelineItems.filter(i => i.source === 'event' && !i.item_type.startsWith('document.')).length,
@@ -4064,7 +4066,8 @@ export default function CaseDetailPage() {
                     {([
                       { id: 'all',      label: `All (${timelineItems.length})` },
                       { id: 'calls',    label: `Calls${itemCounts.calls    ? ` (${itemCounts.calls})`    : ''}` },
-                      { id: 'messages', label: `Messages${itemCounts.messages ? ` (${itemCounts.messages})` : ''}` },
+                      { id: 'messages', label: `SMS${itemCounts.messages   ? ` (${itemCounts.messages})` : ''}` },
+                      { id: 'email',    label: `Email${itemCounts.email    ? ` (${itemCounts.email})`    : ''}` },
                       { id: 'notes',    label: `Notes${itemCounts.notes    ? ` (${itemCounts.notes})`    : ''}` },
                       { id: 'docs',     label: `Docs${itemCounts.docs      ? ` (${itemCounts.docs})`     : ''}` },
                       { id: 'events',   label: `Events${itemCounts.events  ? ` (${itemCounts.events})`   : ''}` },
@@ -4166,7 +4169,9 @@ export default function CaseDetailPage() {
                   <div className="py-12 text-center text-gray-400 text-sm">Loading timeline…</div>
                 ) : filteredItems.length === 0 ? (
                   <div className="py-12 text-center text-gray-400 text-sm">
-                    {timelineFilter === 'all' ? 'No timeline activity yet' : `No ${timelineFilter} found`}
+                    {timelineFilter === 'all' ? 'No timeline activity yet'
+                      : timelineFilter === 'email' ? 'No emails found'
+                      : `No ${timelineFilter} found`}
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-50">
