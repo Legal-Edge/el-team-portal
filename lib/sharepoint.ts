@@ -218,8 +218,8 @@ export interface GraphSubscription {
 }
 
 const WEBHOOK_ENDPOINT = 'https://team.easylemon.com/api/webhooks/sharepoint'
-// Subscriptions expire after 4,320 min (3 days) — cron renews before expiry
-const EXPIRY_MINUTES   = 4300
+// Drive subscriptions max expiry: 4,230 min — cron renews every 12h before expiry
+const EXPIRY_MINUTES   = 4200
 
 export async function createDriveSubscription(
   driveId  = DOCUMENTS_DRIVE_ID,
