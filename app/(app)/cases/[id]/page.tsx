@@ -107,6 +107,10 @@ interface CaseDetail {
   closed_at: string | null
   created_at: string
   updated_at: string
+  // Full HubSpot property snapshots — populated by sync pipeline
+  hubspot_properties:         Record<string, unknown> | null
+  hubspot_contact_properties: Record<string, unknown> | null
+  hubspot_synced_at:          string | null
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -3465,15 +3469,52 @@ export default function CaseDetailPage() {
                 const stateName   = c.state_jurisdiction ? (STATE_NAMES[c.state_jurisdiction] ?? c.state_jurisdiction) : null
                 const addedDate   = c.created_at  ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
                 const updatedDate = c.updated_at  ? new Date(c.updated_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
-                const repairCount = intake?.repair_count ? Number(intake.repair_count) : null
+                const repairCount = intake?.repair_count != null ? Number(intake.repair_count) : null
                 const mileage     = c.vehicle_mileage ? c.vehicle_mileage.toLocaleString() + ' miles' : null
                 const condition   = c.vehicle_is_new !== null ? (c.vehicle_is_new ? 'new' : 'used') : null
                 const estValue    = c.estimated_value ? '$' + c.estimated_value.toLocaleString() : null
 
+                // Prefer live JSONB data from HubSpot (updates in real-time);
+                // fall back to intake state for backwards compat
+                const hp = (c.hubspot_properties as Record<string, unknown> | null) ?? {}
                 const issues: string[] = [
-                  intake?.problem_1_notes, intake?.problem_2_notes,
-                  intake?.problem_3_notes, intake?.problem_4_notes,
-                ].filter(Boolean) as string[]
+                  (hp['most_common_problem__notes_']  ?? intake?.problem_1_notes),
+                  (hp['second_common_problem__notes_'] ?? intake?.problem_2_notes),
+                  (hp['third_common_problem__notes_']  ?? intake?.problem_3_notes),
+                  (hp['fourth_common_problem__notes_'] ?? intake?.problem_4_notes),
+                ].filter(Boolean).map(String) as string[]
+
+                // Pull repair count from JSONB if available, else from intake
+                const rawRepairCount = hp['how_many_repairs_have_you_had_done_to_your_vehicle_']
+                  ?? hp['repair_attempts']
+                  ?? intake?.repair_count
+                const repairCountLive = rawRepairCount !== undefined && rawRepairCount !== null
+                  ? Number(rawRepairCount) : null
+
+                // Pull legal strength from JSONB
+                const legalStrength = hp['legal_strength__l__m__h_'] ? String(hp['legal_strength__l__m__h_']) : null
+                const legalStrengthLabel = legalStrength === 'h' ? 'High' : legalStrength === 'm' ? 'Medium' : legalStrength === 'l' ? 'Low' : null
+
+                // Pull team assignments from JSONB
+                const handlingAttorney = hp['handling_attorney'] ? String(hp['handling_attorney']) : null
+                const assignedCM       = hp['case_manager']      ? String(hp['case_manager'])      : null
+                const solDeadline      = hp['sol_deadline']       ? String(hp['sol_deadline'])       : null
+
+                // Pull nurture info from JSONB
+                const nurtureReason = hp['nurture__reason_'] ? String(hp['nurture__reason_']) : null
+                const nurtureNotes  = hp['nurture__notes_']  ? String(hp['nurture__notes_'])  : null
+
+                // Last contacted from JSONB
+                const lastContactedRaw = hp['notes_last_contacted'] ? String(hp['notes_last_contacted']) : null
+                const lastContactedDate = lastContactedRaw
+                  ? (/^\d{13}$/.test(lastContactedRaw)
+                      ? new Date(parseInt(lastContactedRaw))
+                      : new Date(lastContactedRaw)
+                    )
+                  : null
+                const lastContacted = lastContactedDate && !isNaN(lastContactedDate.getTime())
+                  ? lastContactedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                  : null
 
                 const sentences: string[] = []
                 let s1 = `${clientName} is a ${stageName} stage client`
@@ -3483,14 +3524,16 @@ export default function CaseDetailPage() {
                 const vehicleParts = [vehicle, mileage, condition].filter(Boolean)
                 if (vehicleParts.length) sentences.push(`They own a ${vehicleParts.join(', ')}${stateName ? `, located in ${stateName}` : ''}.`)
 
-                if (repairCount !== null) {
-                  sentences.push(repairCount === 0
+                const rc = repairCountLive ?? repairCount
+                if (rc !== null) {
+                  sentences.push(rc === 0
                     ? 'No dealer repairs have been attempted to date.'
-                    : `The vehicle has been to the dealer ${repairCount} time${repairCount !== 1 ? 's' : ''} for repairs.`)
+                    : `The vehicle has been to the dealer ${rc} time${rc !== 1 ? 's' : ''} for repairs.`)
                 }
 
                 if (estValue) sentences.push(`Estimated case value is ${estValue}.`)
-                if (updatedDate) sentences.push(`Last updated ${updatedDate}.`)
+                if (lastContacted) sentences.push(`Last contacted ${lastContacted}.`)
+                else if (updatedDate) sentences.push(`Last updated ${updatedDate}.`)
 
                 return (
                   <div className="bg-white rounded-xl border border-gray-100 shadow-card p-6 space-y-5">
@@ -3515,9 +3558,41 @@ export default function CaseDetailPage() {
                     {/* Vehicle extras — VIN / purchase info — only if present */}
                     {(c.vehicle_vin || c.vehicle_purchase_date || c.vehicle_purchase_price) && (
                       <div className="border-t border-gray-50 pt-5 flex flex-wrap gap-x-8 gap-y-3">
-                        {c.vehicle_vin           && <Field label="VIN"       value={c.vehicle_vin} mono />}
+                        {c.vehicle_vin            && <Field label="VIN"       value={c.vehicle_vin} mono />}
                         {c.vehicle_purchase_date  && <Field label="Purchased" value={fmtDate(c.vehicle_purchase_date)} />}
                         {c.vehicle_purchase_price && <Field label="Price"     value={'$' + c.vehicle_purchase_price.toLocaleString()} />}
+                      </div>
+                    )}
+
+                    {/* Live HubSpot fields — only rendered when populated */}
+                    {(handlingAttorney || assignedCM || legalStrengthLabel || solDeadline || nurtureReason) && (
+                      <div className="border-t border-gray-50 pt-5 grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-3">
+                        {handlingAttorney  && <Field label="Attorney"       value={handlingAttorney} />}
+                        {assignedCM        && <Field label="Case Manager"   value={assignedCM} />}
+                        {legalStrengthLabel && (
+                          <div>
+                            <p className="text-xs text-gray-400 mb-0.5">Case Strength</p>
+                            <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full
+                              ${legalStrengthLabel === 'High'   ? 'bg-green-100 text-green-700' :
+                                legalStrengthLabel === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-red-100 text-red-600'}`}>
+                              {legalStrengthLabel}
+                            </span>
+                          </div>
+                        )}
+                        {solDeadline && <Field label="SOL Deadline" value={(() => {
+                          const d = /^\d{13}$/.test(solDeadline) ? new Date(parseInt(solDeadline)) : new Date(solDeadline)
+                          return isNaN(d.getTime()) ? solDeadline : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        })()} />}
+                        {nurtureReason && <Field label="Nurture Reason" value={nurtureReason} />}
+                      </div>
+                    )}
+
+                    {/* Nurture notes — full width */}
+                    {nurtureNotes && (
+                      <div className="border-t border-gray-50 pt-5">
+                        <p className="text-xs text-gray-400 mb-1.5">Nurture Notes</p>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{nurtureNotes}</p>
                       </div>
                     )}
                   </div>
