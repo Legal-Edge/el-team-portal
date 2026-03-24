@@ -528,15 +528,29 @@ export async function upsertCase(
         if (error) console.error('[pipeline] doc_collection_state upsert error:', error.message)
       })
 
-    // Store sharepoint_file_url on cases if present
+    // Store sharepoint_file_url on cases if present; resolve drive item ID for webhook matching
     if (dp['sharepoint_file_url']) {
+      const spUrl = String(dp['sharepoint_file_url'])
       await client.schema('core')
         .from('cases')
-        .update({ sharepoint_file_url: String(dp['sharepoint_file_url']) })
+        .update({ sharepoint_file_url: spUrl })
         .eq('id', caseId)
         .then(({ error }) => {
           if (error) console.error('[pipeline] sharepoint_file_url update error:', error.message)
         })
+
+      // Pre-resolve the SharePoint folder → store sharepoint_drive_item_id
+      // so that Graph change notifications can match file changes to this case.
+      // Fire-and-forget — don't block the webhook response.
+      void (async () => {
+        try {
+          const { resolveCaseFolder } = await import('@/lib/pipelines/sharepoint-sync')
+          await resolveCaseFolder(client as never, caseId, spUrl)
+          console.log(`[pipeline] resolved sharepoint_drive_item_id for case ${caseId}`)
+        } catch (err) {
+          console.error('[pipeline] sharepoint folder resolve error:', err)
+        }
+      })()
     }
   }
 

@@ -17,6 +17,7 @@ import {
   DOCUMENTS_DRIVE_ID,
 } from '@/lib/sharepoint'
 import { classifyDocument } from '@/lib/document-pipeline/classify'
+import { extractDocument }  from '@/lib/document-pipeline/extract'
 import { AUTO_CLASSIFY_CONFIDENCE_THRESHOLD } from '@/lib/document-pipeline/types'
 
 export interface SyncCaseFilesResult {
@@ -117,7 +118,7 @@ export async function syncCaseFiles(
           continue
         }
 
-        // File changed — update metadata, reset classification
+        // File changed — update metadata, reset classification, re-extract
         const { error: updateErr } = await db.from('document_files').update({
           file_name:          file.name,           // DB column is file_name
           file_extension:     file.file_extension,
@@ -138,6 +139,10 @@ export async function syncCaseFiles(
           } : {}),
         }).eq('id', existing.id)
         if (updateErr) throw new Error(updateErr.message)
+
+        // Re-extract text for changed file
+        void runExtraction(db, existing.id, file)
+
         result.updated++
         continue
       }
@@ -201,6 +206,16 @@ export async function syncCaseFiles(
       })
 
       if (insertErr) throw new Error(insertErr.message)
+
+      // Extract text for new file (fire-and-forget — don't block the sync loop)
+      const { data: newRow } = await db
+        .from('document_files')
+        .select('id')
+        .eq('case_id', caseId)
+        .eq('sharepoint_item_id', file.sharepoint_item_id)
+        .maybeSingle()
+      if (newRow?.id) void runExtraction(db, newRow.id, file)
+
       result.inserted++
     } catch (err) {
       result.errors++
@@ -215,6 +230,41 @@ export async function syncCaseFiles(
     .eq('id', caseId)
 
   return result
+}
+
+// ── Text extraction helper ────────────────────────────────────────────────────
+// Fire-and-forget: downloads the file and stores extracted_text on the DB row.
+// Called after insert/update; doesn't block the sync loop.
+
+async function runExtraction(
+  db:          ReturnType<SupabaseClient['schema']>,
+  documentId:  string,
+  file:        Parameters<typeof extractDocument>[0],
+): Promise<void> {
+  try {
+    // We need a stub classification to call extractDocument (method dispatch only)
+    const stubClassification = {
+      document_type_code:  'unknown',
+      confidence:           1.0,
+      source:               'rule' as const,
+    }
+    const result = await extractDocument(file, stubClassification)
+    if (!result) return  // unsupported format or empty
+
+    const rawText = typeof result.fields.raw_text === 'string'
+      ? result.fields.raw_text
+      : null
+    if (!rawText) return
+
+    await db.from('document_files').update({
+      extracted_text: rawText,
+      updated_at:     new Date().toISOString(),
+    }).eq('id', documentId)
+
+    console.log(`[sharepoint-sync] extracted text for ${documentId} (${rawText.length} chars)`)
+  } catch (err) {
+    console.error(`[sharepoint-sync] extraction error for ${documentId}:`, err)
+  }
 }
 
 // ── Full sync for a case: resolve URL → sync files ────────────────────────────

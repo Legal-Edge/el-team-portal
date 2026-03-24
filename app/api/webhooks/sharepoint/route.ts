@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient }              from '@supabase/supabase-js'
 import { syncCaseFiles, syncCaseByUrl } from '@/lib/pipelines/sharepoint-sync'
+import { DOCUMENTS_DRIVE_ID }           from '@/lib/sharepoint'
 
 const CLIENT_STATE = 'el-team-portal'
 
@@ -134,19 +135,42 @@ async function processNotifications(
             processedCases.add(parentCase.id)
             await syncCaseFiles(client, parentCase.id, parentCase.sharepoint_drive_item_id!)
           } else if (!parentCase) {
-            // Parent folder not in our DB yet — try resolving via sharepoint_file_url
-            // This handles the case where sharepoint_drive_item_id hasn't been populated yet
-            const { data: urlCase } = await db
-              .from('cases')
-              .select('id, sharepoint_file_url')
-              .not('sharepoint_file_url', 'is', null)
-              .eq('is_deleted', false)
-              .limit(1)
-              .maybeSingle()
+            // Parent folder not in our DB yet — get the parent folder's name from Graph
+            // and try to find a case whose sharepoint_file_url contains that folder name.
+            try {
+              const parentRes = await fetch(
+                `https://graph.microsoft.com/v1.0/drives/${DOCUMENTS_DRIVE_ID}/items/${parentId}?$select=id,name,webUrl`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              )
+              if (parentRes.ok) {
+                const parentItem = await parentRes.json()
+                const folderName = parentItem.name as string | undefined
+                const folderWebUrl = parentItem.webUrl as string | undefined
 
-            if (urlCase?.sharepoint_file_url && !processedCases.has(urlCase.id)) {
-              processedCases.add(urlCase.id)
-              await syncCaseByUrl(client, urlCase.id, urlCase.sharepoint_file_url)
+                if (folderName || folderWebUrl) {
+                  // Match against sharepoint_folder_title or sharepoint_file_url
+                  const { data: matchedCase } = await db
+                    .from('cases')
+                    .select('id, sharepoint_file_url, sharepoint_folder_title')
+                    .eq('is_deleted', false)
+                    .or(
+                      folderName
+                        ? `sharepoint_folder_title.eq.${folderName},sharepoint_file_url.ilike.%${encodeURIComponent(folderName)}%`
+                        : `sharepoint_file_url.ilike.%${encodeURIComponent(folderWebUrl ?? '')}%`
+                    )
+                    .maybeSingle()
+
+                  if (matchedCase && !processedCases.has(matchedCase.id)) {
+                    processedCases.add(matchedCase.id)
+                    // Resolve + sync (also stores drive_item_id for future webhooks)
+                    if (matchedCase.sharepoint_file_url) {
+                      await syncCaseByUrl(client, matchedCase.id, matchedCase.sharepoint_file_url)
+                    }
+                  }
+                }
+              }
+            } catch (matchErr) {
+              console.error('[sharepoint-webhook] folder name match error:', matchErr)
             }
           }
         }
