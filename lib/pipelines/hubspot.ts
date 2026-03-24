@@ -207,6 +207,13 @@ export const ALL_DEAL_PROPS_EXTRA = [
   'hs_analytics_latest_source','lead_source_demographic',
   // HubSpot owner
   'hubspot_owner_id','hs_synced_deal_owner_name_and_email',
+  // Attorney review fields
+  'attorney_review_clarification_needed__notes_',
+  'attorney_review_nurture_decision__notes_',
+  'attorney_review__repairs_needed___instruct_pc_client_comment',
+  'attorney_nurture_instructions__ai_',
+  'attorney_review_decision',
+  'attorney_review_clarification_provided__notes_',
   // Portal
   'easy_lemon_portal','ela_intake','el_app_status',
   // Drop/close reasons

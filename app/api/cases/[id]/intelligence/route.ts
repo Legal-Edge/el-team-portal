@@ -137,21 +137,30 @@ export interface IntelligenceReport {
     nurture_notes:     string | null
   }
   tier2_comms: {
-    total_engagements: number
-    calls:             number
-    notes:             number
-    last_contact_at:   string | null
-    days_since_contact:number | null
-    call_summaries:    string[]
-    key_facts:         string[]  // extracted from call bodies
+    total_engagements:    number
+    calls:                number
+    notes:                number
+    last_contact_at:      string | null
+    days_since_contact:   number | null
+    call_summaries:       string[]
+    key_facts:            string[]
+    all_engagement_texts: string[]  // full cleaned text from all engagements
   }
   tier3_docs: {
     total_docs:        number
     doc_types:         string[]
     has_repair_orders: boolean
     has_purchase_agmt: boolean
-    has_warranty:      boolean
     missing_critical:  string[]
+  }
+  attorney: {
+    clarification_needed:  string | null
+    nurture_decision:      string | null
+    repairs_needed_note:   string | null
+    ai_instructions:       string | null
+    review_decision:       string | null
+    // Parsed list of specifically requested documents/info
+    specific_requests:     string[]
   }
 
   gaps:    EvidenceGap[]
@@ -416,9 +425,7 @@ export async function GET(
   const docTypes    = [...new Set((docs ?? []).map(d => d.document_type_code).filter(Boolean))] as string[]
   const totalDocs   = docs?.length ?? 0
   const missingCritical: string[] = []
-  if (!docTypes.includes('repair_order'))       missingCritical.push('Repair orders')
-  if (!docTypes.includes('purchase_agreement')) missingCritical.push('Purchase agreement')
-  if (!docTypes.includes('warranty'))           missingCritical.push('Warranty documentation')
+  if (!docTypes.includes('repair_order')) missingCritical.push('Repair orders')
 
   // ── Tier 1: Intake claims ─────────────────────────────────────────────────
   const vehicleYear  = String(hp['vehicle_year'] ?? hp['what_is_the_approximate_year_of_your_vehicle_'] ?? '')
@@ -429,6 +436,27 @@ export async function GET(
   const issues      = extractIssuesFromProps(hp)
   const repairCount = parseInt(String(hp['how_many_repairs_have_you_had_done_to_your_vehicle_'] ?? hp['repair_attempts'] ?? '')) || null
   const state       = String(hp['which_state_did_you_purchase_or_lease_your_vehicle_'] ?? '').slice(0, 2).toUpperCase() || null
+
+  // ── Attorney notes ─────────────────────────────────────────────────────────
+  const attyClariNeeded  = hp['attorney_review_clarification_needed__notes_']  ? String(hp['attorney_review_clarification_needed__notes_'])  : null
+  const attyNurtureDecis = hp['attorney_review_nurture_decision__notes_']       ? String(hp['attorney_review_nurture_decision__notes_'])       : null
+  const attyRepairsNote  = hp['attorney_review__repairs_needed___instruct_pc_client_comment'] ? String(hp['attorney_review__repairs_needed___instruct_pc_client_comment']) : null
+  const attyAiInstruct   = hp['attorney_nurture_instructions__ai_']             ? String(hp['attorney_nurture_instructions__ai_'])             : null
+  const attyDecision     = hp['attorney_review_decision']                       ? String(hp['attorney_review_decision'])                       : null
+
+  // Parse specific doc/info requests from attorney notes
+  const specificRequests: string[] = []
+  const attyText = [attyClariNeeded, attyNurtureDecis, attyRepairsNote, attyAiInstruct].filter(Boolean).join('\n')
+  if (attyText) {
+    // Check for purchase agreement request
+    if (/purchase|lease agreement|sales contract/i.test(attyText)) specificRequests.push('Purchase or lease agreement')
+    // Check for warranty request
+    if (/warranty/i.test(attyText)) specificRequests.push('Warranty documentation')
+    // Check for photos/video
+    if (/photo|video|picture/i.test(attyText)) specificRequests.push('Photos or video of defect')
+    // Check for manufacturer correspondence
+    if (/manufacturer|correspondence|letter/i.test(attyText)) specificRequests.push('Manufacturer correspondence')
+  }
 
   // ── Build stage-specific guidance ─────────────────────────────────────────
   const stage = String(caseRow.case_status)
@@ -463,21 +491,29 @@ export async function GET(
       nurture_notes:  hp['nurture__notes_']  ? String(hp['nurture__notes_'])  : null,
     },
     tier2_comms: {
-      total_engagements: engagements.length,
-      calls:             calls.length,
-      notes:             notes.length,
-      last_contact_at:   lastContactAt,
-      days_since_contact: daysSinceContact,
-      call_summaries:    callSummaries,
-      key_facts:         keyFacts,
+      total_engagements:    engagements.length,
+      calls:                calls.length,
+      notes:                notes.length,
+      last_contact_at:      lastContactAt,
+      days_since_contact:   daysSinceContact,
+      call_summaries:       callSummaries,
+      key_facts:            keyFacts,
+      all_engagement_texts: engagements.map(e => stripHtml(e.body || '')).filter(Boolean),
     },
     tier3_docs: {
       total_docs:        totalDocs,
       doc_types:         docTypes,
       has_repair_orders: docTypes.includes('repair_order'),
       has_purchase_agmt: docTypes.includes('purchase_agreement'),
-      has_warranty:      docTypes.includes('warranty'),
       missing_critical:  missingCritical,
+    },
+    attorney: {
+      clarification_needed: attyClariNeeded,
+      nurture_decision:     attyNurtureDecis,
+      repairs_needed_note:  attyRepairsNote,
+      ai_instructions:      attyAiInstruct,
+      review_decision:      attyDecision,
+      specific_requests:    specificRequests,
     },
 
     gaps,
