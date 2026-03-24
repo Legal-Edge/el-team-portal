@@ -3477,12 +3477,45 @@ export default function CaseDetailPage() {
                 // Prefer live JSONB data from HubSpot (updates in real-time);
                 // fall back to intake state for backwards compat
                 const hp = (c.hubspot_properties as Record<string, unknown> | null) ?? {}
+
+                /**
+                 * HubSpot stores Typeform responses as concatenated blobs, e.g.:
+                 *   "Most Common Problem: *⚙️ Engine Or Transmission Problems: *_steering,
+                 *    Trouble Changing Gears..._ Repair Attempts: 3x Paid For Repairs: ..."
+                 *
+                 * This parser extracts a clean "Category: specific issues" string.
+                 */
+                function parseIssue(raw: string | null | undefined): string | null {
+                  if (!raw) return null
+                  let s = raw.trim()
+                  // Strip leading ordinal prefix: "Most Common Problem: ", "Second Common Problem: " etc.
+                  s = s.replace(/^(most|second|third|fourth)\s+common\s+problem\s*:\s*/i, '')
+                  // Strip leading * and emoji characters
+                  s = s.replace(/^\*\s*/u, '').replace(/^[\u{1F000}-\u{1FFFF}\u2600-\u27BF\uFE00-\uFE0F]+\s*/u, '')
+                  // Strip trailing "_ Repair Attempts: ..." onwards — this is metadata, not issue description
+                  s = s.replace(/_?\s*repair attempts?[\s\S]*/i, '')
+                  // Clean *_ separators (Typeform uses *_choice1, choice2...)
+                  s = s.replace(/:\s*\*_/g, ': ')
+                  // Remove any remaining leading/trailing * _ . characters
+                  s = s.replace(/^[*_.\s]+/, '').replace(/[*_.\s]+$/, '').trim()
+                  // Title-case the category part (first segment before colon)
+                  const colonIdx = s.indexOf(':')
+                  if (colonIdx > 0) {
+                    const category = s.slice(0, colonIdx).trim()
+                    const detail   = s.slice(colonIdx + 1).trim()
+                    // Limit detail to first ~60 chars to keep it readable
+                    const shortDetail = detail.length > 80 ? detail.slice(0, 77).replace(/,\s*\w+$/, '') + '…' : detail
+                    s = shortDetail ? `${category}: ${shortDetail}` : category
+                  }
+                  return s.length > 2 ? s : null
+                }
+
                 const issues: string[] = [
-                  (hp['most_common_problem__notes_']  ?? intake?.problem_1_notes),
-                  (hp['second_common_problem__notes_'] ?? intake?.problem_2_notes),
-                  (hp['third_common_problem__notes_']  ?? intake?.problem_3_notes),
-                  (hp['fourth_common_problem__notes_'] ?? intake?.problem_4_notes),
-                ].filter(Boolean).map(String) as string[]
+                  parseIssue(String(hp['most_common_problem__notes_']  ?? intake?.problem_1_notes ?? '')),
+                  parseIssue(String(hp['second_common_problem__notes_'] ?? intake?.problem_2_notes ?? '')),
+                  parseIssue(String(hp['third_common_problem__notes_']  ?? intake?.problem_3_notes ?? '')),
+                  parseIssue(String(hp['fourth_common_problem__notes_'] ?? intake?.problem_4_notes ?? '')),
+                ].filter(Boolean) as string[]
 
                 // Pull repair count from JSONB if available, else from intake
                 const rawRepairCount = hp['how_many_repairs_have_you_had_done_to_your_vehicle_']
@@ -3548,7 +3581,7 @@ export default function CaseDetailPage() {
                           {issues.map((issue, i) => (
                             <div key={i} className="flex items-start gap-2.5">
                               <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-                              <p className="text-sm text-gray-700 capitalize">{issue.toLowerCase()}</p>
+                              <p className="text-sm text-gray-700">{issue}</p>
                             </div>
                           ))}
                         </div>
