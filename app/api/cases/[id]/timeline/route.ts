@@ -1,8 +1,9 @@
 /**
  * GET /api/cases/[id]/timeline
  *
- * Calls core.case_timeline_feed() — returns merged events + comms + notes
- * in reverse-chronological order with role-based visibility filtering.
+ * Unified case timeline — merges comms + events + notes from Supabase.
+ * Directly queries the underlying tables instead of the RPC so that
+ * SMS, email, and call records from core.communications always surface.
  *
  * Query params:
  *   before_ts  — cursor timestamp for pagination (ISO string)
@@ -17,7 +18,6 @@ import { createClient }              from '@supabase/supabase-js'
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 
 export interface TimelineItem {
@@ -27,11 +27,10 @@ export interface TimelineItem {
   item_type:    string
   body:         string | null
   author_ref:   string | null
-  author_name:  string | null   // resolved for notes (author_ref is UUID there)
+  author_name:  string | null
   visibility:   string
   is_pinned:    boolean
   payload:      Record<string, unknown> | null
-  // Comm enrichments (populated for source='comm')
   direction:    'inbound' | 'outbound' | null
   needs_review: boolean
 }
@@ -39,7 +38,7 @@ export interface TimelineItem {
 type Params = { params: Promise<{ id: string }> }
 
 export async function GET(req: NextRequest, { params }: Params) {
-  const session = await auth()
+  const session = await getTeamSession()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id }  = await params
@@ -63,78 +62,143 @@ export async function GET(req: NextRequest, { params }: Params) {
     .maybeSingle()
 
   if (!caseRow?.id) return NextResponse.json({ error: 'Case not found' }, { status: 404 })
+  const caseId = caseRow.id
 
-  // Call core.case_timeline_feed() via schema-scoped RPC
-  const { data: rows, error } = await db
-    .schema('core')
-    .rpc('case_timeline_feed', {
-      p_case_id:   caseRow.id,
-      p_role:      role,
-      p_staff_id:  staffId,
-      p_limit:     limit + 1,   // fetch one extra to detect has_more
-      p_before_ts: beforeTs,
-    }) as { data: Array<Record<string, unknown>> | null; error: unknown }
+  const canSeeInternal = role !== 'staff'
+  const ELEVATED = ['admin', 'attorney', 'manager']
 
-  if (error) {
-    console.error('[timeline] rpc error:', (error as { message?: string }).message)
-    return NextResponse.json({ error: (error as { message?: string }).message }, { status: 500 })
+  // ── Fetch all three sources in parallel ───────────────────────────────────
+
+  const [commsResult, eventsResult, notesResult] = await Promise.all([
+
+    // core.communications — SMS, calls, emails from Aloware
+    db.schema('core').from('communications')
+      .select('id, channel, direction, body, snippet, subject, occurred_at, needs_review, is_internal, from_number, to_number, sender_email, hubspot_engagement_id')
+      .eq('case_id', caseId)
+      .eq('is_deleted', false)
+      .lt('occurred_at', beforeTs)
+      .order('occurred_at', { ascending: false })
+      .limit(limit + 1),
+
+    // core.events — stage changes, doc uploads, portal activity
+    db.schema('core').from('events')
+      .select('id, event_type, occurred_at, actor_ref, payload')
+      .eq('case_id', caseId)
+      .lt('occurred_at', beforeTs)
+      .order('occurred_at', { ascending: false })
+      .limit(limit + 1),
+
+    // core.timeline_notes — team notes
+    db.schema('core').from('timeline_notes')
+      .select('id, note_type, body, visibility, is_pinned, created_at, author_id')
+      .eq('case_id', caseId)
+      .eq('is_deleted', false)
+      .lt('created_at', beforeTs)
+      .order('created_at', { ascending: false })
+      .limit(limit + 1),
+
+  ])
+
+  // ── Build unified items ───────────────────────────────────────────────────
+
+  const items: TimelineItem[] = []
+
+  // Comms
+  for (const c of commsResult.data ?? []) {
+    if (!canSeeInternal && c.is_internal) continue
+    const bodyText = c.body ?? c.snippet ?? c.subject ?? null
+    const authorRef = c.channel === 'sms' || c.channel === 'call'
+      ? (c.from_number ?? c.to_number ?? c.sender_email ?? null)
+      : (c.sender_email ?? null)
+    items.push({
+      source:      'comm',
+      id:          c.id,
+      ts:          c.occurred_at,
+      item_type:   c.channel,   // 'sms' | 'call' | 'email'
+      body:        bodyText,
+      author_ref:  authorRef,
+      author_name: null,
+      visibility:  c.is_internal ? 'internal' : 'public',
+      is_pinned:   false,
+      payload:     null,
+      direction:   (c.direction as 'inbound' | 'outbound' | null) ?? null,
+      needs_review: Boolean(c.needs_review),
+    })
   }
 
-  const allRows = rows ?? []
-  const hasMore = allRows.length > limit
-  const items   = allRows.slice(0, limit) as Array<Record<string, unknown>>
+  // Events
+  for (const e of eventsResult.data ?? []) {
+    items.push({
+      source:      'event',
+      id:          e.id,
+      ts:          e.occurred_at,
+      item_type:   e.event_type,
+      body:        null,
+      author_ref:  e.actor_ref ?? null,
+      author_name: null,
+      visibility:  'internal',
+      is_pinned:   false,
+      payload:     (e.payload as Record<string, unknown>) ?? null,
+      direction:   null,
+      needs_review: false,
+    })
+  }
 
-  // Resolve display names for note authors (author_ref is a UUID for notes)
-  const noteAuthorIds = [...new Set(
-    items
-      .filter(r => r.source === 'note' && r.author_ref)
-      .map(r => r.author_ref as string)
-  )].filter(id => id !== NIL_UUID)
+  // Notes — with visibility filtering
+  const noteAuthorIds: string[] = []
+  for (const n of notesResult.data ?? []) {
+    const vis = n.visibility ?? 'internal'
+    // Filter by role
+    if (vis === 'private' && n.author_id !== staffId) continue
+    if (vis === 'restricted' && !ELEVATED.includes(role)) continue
+    if (vis === 'internal' && !canSeeInternal) continue
+    if (n.author_id && n.author_id !== NIL_UUID) noteAuthorIds.push(n.author_id)
+    items.push({
+      source:      'note',
+      id:          n.id,
+      ts:          n.created_at,
+      item_type:   n.note_type ?? 'general',
+      body:        n.body ?? null,
+      author_ref:  n.author_id ?? null,
+      author_name: null,   // resolved below
+      visibility:  vis,
+      is_pinned:   Boolean(n.is_pinned),
+      payload:     null,
+      direction:   null,
+      needs_review: false,
+    })
+  }
 
-  let authorMap: Record<string, string> = {}
+  // Resolve note author names
   if (noteAuthorIds.length > 0) {
     const { data: staffRows } = await db
       .schema('staff')
       .from('staff_users')
       .select('id, display_name')
-      .in('id', noteAuthorIds)
-    for (const s of staffRows ?? []) {
-      authorMap[s.id] = s.display_name ?? 'Unknown'
+      .in('id', [...new Set(noteAuthorIds)])
+    const authorMap: Record<string, string> = {}
+    for (const s of staffRows ?? []) authorMap[s.id] = s.display_name ?? 'Unknown'
+    for (const item of items) {
+      if (item.source === 'note' && item.author_ref) {
+        item.author_name = authorMap[item.author_ref] ?? null
+      }
     }
   }
 
-  // Batch-fetch direction + needs_review for comm items
-  const commIds = items.filter(r => r.source === 'comm').map(r => r.id as string)
-  const commMeta: Record<string, { direction: string | null; needs_review: boolean }> = {}
-  if (commIds.length > 0) {
-    const { data: commRows } = await db
-      .schema('core')
-      .from('communications')
-      .select('id, direction, needs_review')
-      .in('id', commIds)
-    for (const c of commRows ?? []) {
-      commMeta[c.id] = { direction: c.direction ?? null, needs_review: Boolean(c.needs_review) }
-    }
+  // Sort newest first, paginate
+  items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+  const hasMore   = items.length > limit
+  const page      = items.slice(0, limit)
+  const nextCursor = hasMore ? page[page.length - 1]?.ts ?? null : null
+
+  return NextResponse.json({ items: page, has_more: hasMore, next_cursor: nextCursor })
+}
+
+// ── Auth helper (avoid double import) ────────────────────────────────────────
+async function getTeamSession() {
+  const session = await auth()
+  if (!session?.user) return null
+  return session as typeof session & {
+    user: { role?: string; staffId?: string }
   }
-
-  const result: TimelineItem[] = items.map(r => ({
-    source:      r.source      as TimelineItem['source'],
-    id:          r.id          as string,
-    ts:          r.ts          as string,
-    item_type:   r.item_type   as string,
-    body:        (r.body       as string | null) ?? null,
-    author_ref:  (r.author_ref as string | null) ?? null,
-    author_name: r.source === 'note'
-      ? (authorMap[r.author_ref as string] ?? 'Unknown')
-      : null,
-    visibility:  (r.visibility as string) ?? 'internal',
-    is_pinned:    Boolean(r.is_pinned),
-    payload:      (r.payload    as Record<string, unknown> | null) ?? null,
-    direction:    (r.source === 'comm' ? (commMeta[r.id as string]?.direction ?? null) : null) as TimelineItem['direction'],
-    needs_review: r.source === 'comm' ? (commMeta[r.id as string]?.needs_review ?? false) : false,
-  }))
-
-  const nextCursor = hasMore ? result[result.length - 1]?.ts ?? null : null
-
-  return NextResponse.json({ items: result, has_more: hasMore, next_cursor: nextCursor })
 }
