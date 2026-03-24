@@ -135,6 +135,24 @@ async function fetchDealContacts(dealId: string, token: string): Promise<HsConta
   return contacts
 }
 
+/** Fetch all HubSpot owners and return ownerId → full name map */
+async function fetchOwnerMap(token: string): Promise<Map<number, string>> {
+  const map = new Map<number, string>()
+  try {
+    const res = await fetch(
+      'https://api.hubapi.com/crm/v3/owners/?limit=100',
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
+    )
+    if (!res.ok) return map
+    const data = await res.json() as { results?: { id: number; firstName?: string; lastName?: string; email?: string }[] }
+    for (const o of data.results ?? []) {
+      const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || String(o.id)
+      map.set(o.id, name)
+    }
+  } catch { /* ignore — agent names will be blank */ }
+  return map
+}
+
 /** Fetch engagement IDs associated with an object (deal or contact) */
 async function fetchEngagementIds(objectType: 'deals' | 'contacts', objectId: string, token: string): Promise<string[]> {
   const res = await fetch(
@@ -247,6 +265,9 @@ export async function syncEngagements(
   const token  = getToken()
   const result: SyncResult = { upserted: 0, skipped: 0, errors: [], contacts: [] }
 
+  // 0. Fetch HubSpot owner map (ownerId → full name) for agent resolution
+  const ownerMap = await fetchOwnerMap(token)
+
   // 1. Fetch all associated contacts
   const contacts = await fetchDealContacts(dealId, token)
   result.contacts = contacts.map(c => ({ id: c.contactId, name: c.name, role: c.role }))
@@ -352,7 +373,8 @@ export async function syncEngagements(
         body:             cleanBody,
         call_summary:     summaryText,
         duration_ms:      m.durationMilliseconds ?? null,
-        author_email:     alowareAgent,   // extracted from Aloware body; null for non-Aloware
+        // Agent name: prefer Aloware body extraction, fall back to HubSpot ownerId
+        author_email:     alowareAgent ?? (e.ownerId ? (ownerMap.get(e.ownerId) ?? null) : null),
         metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber, subject: m.subject ?? null },
         synced_at:        new Date().toISOString(),
       })
