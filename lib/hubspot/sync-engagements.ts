@@ -209,10 +209,21 @@ function classifyAlowareNote(raw: string): AlowareNote {
   if (/has received an sms/i.test(text) || /received.*sms/i.test(lower) || /incoming.*sms/i.test(lower)) {
     return { type: 'sms', direction: 'inbound', body: cleanBody || text, phone, agentName }
   }
-  if (/left a voicemail|voicemail left|voicemail received/i.test(text)) {
+  // Check voicemail BEFORE missed call — "no answer left VM" is a voicemail, not a missed call
+  // Voicemail = we called out and left a message (outbound)
+  if (/left\s+vm\b|left\s+a\s+voicemail|voicemail\s+left|left\s+voicemail|vm\s+left/i.test(text)) {
+    return { type: 'voicemail', direction: 'outbound', body: cleanBody || text, phone, agentName }
+  }
+  // Voicemail received = client left us a voicemail (inbound)
+  if (/voicemail\s+received|received\s+voicemail/i.test(text)) {
     return { type: 'voicemail', direction: 'inbound', body: cleanBody || text, phone, agentName }
   }
-  if (/missed a call|missed call|no answer/i.test(text)) {
+  // Missed call = client called us and we missed it (inbound)
+  if (/missed\s+a\s+call|missed\s+call/i.test(text)) {
+    return { type: 'call_missed', direction: 'inbound', body: cleanBody || text, phone, agentName }
+  }
+  // No answer (without VM) = we called, they didn't pick up (outbound)
+  if (/no\s+answer/i.test(text)) {
     return { type: 'call_missed', direction: 'outbound', body: cleanBody || text, phone, agentName }
   }
 
