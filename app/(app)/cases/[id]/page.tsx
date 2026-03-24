@@ -2897,15 +2897,22 @@ export default function CaseDetailPage() {
     direction:     'inbound' | 'outbound' | null
     needs_review:  boolean
     // HubSpot-enriched fields
-    call_summary?: string | null
-    engagement_id?: string | null
-    duration_ms?:  number | null
+    call_summary?:     string | null
+    engagement_id?:    string | null
+    duration_ms?:      number | null
+    // Contact attribution
+    contact_id?:       string | null
+    contact_name?:     string | null
+    contact_initials?: string | null
+    contact_color?:    string | null
+    contact_role?:     string | null
   }
   const [timelineItems,     setTimelineItems]     = useState<TimelineItem[]>([])
   const [timelineLoading,   setTimelineLoading]   = useState(false)
   const [timelineHasMore,   setTimelineHasMore]   = useState(false)
   const [timelineCursor,    setTimelineCursor]     = useState<string | null>(null)
   const [timelineFilter,    setTimelineFilter]     = useState<TimelineFilter>('all')
+  const [contactFilter,     setContactFilter]      = useState<string | null>(null)  // null = all contacts
   const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
   const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
@@ -3030,65 +3037,16 @@ export default function CaseDetailPage() {
       const urlParams = new URLSearchParams({ limit: '50' })
       if (cursor) urlParams.set('before_ts', cursor)
 
-      // Fetch Supabase timeline + HubSpot engagements in parallel
-      const [sbRes, hsRes] = await Promise.all([
-        fetch(`/api/cases/${params.id}/timeline?${urlParams}`),
-        cursor ? Promise.resolve(null) : fetch(`/api/cases/${params.id}/timeline-hs`),
-      ])
-
-      // Don't bail if Supabase fails — HubSpot items should still show
-      const sbJson  = sbRes.ok ? await sbRes.json() : { items: [], has_more: false, next_cursor: null }
-      const sbItems: TimelineItem[] = sbJson.items ?? []
-
-      // Merge HubSpot items (first page only; they don't paginate)
-      let merged = sbItems
-      if (hsRes?.ok) {
-        const hd = await hsRes.json() as { items?: { id: string; engagement_id: string; source: 'hubspot'; item_type: string; ts: string; body: string | null; call_summary: string | null; direction: 'inbound' | 'outbound' | null; duration_ms: number | null; author_ref: string | null; author_name: string | null; status: string | null }[] }
-        const hsItems = hd.items ?? []
-
-        // Build lookup: engagement_id → call_summary from HubSpot
-        const summaryMap = new Map<string, string>()
-        for (const h of hsItems) {
-          if (h.call_summary) summaryMap.set(h.engagement_id, h.call_summary)
-        }
-
-        // Enrich existing Supabase items that have a matching engagement_id
-        merged = sbItems.map(item => {
-          const engId = (item as TimelineItem & { hubspot_engagement_id?: string }).hubspot_engagement_id ?? item.engagement_id
-          if (engId && summaryMap.has(engId)) {
-            return { ...item, call_summary: summaryMap.get(engId) ?? null, engagement_id: engId }
-          }
-          return item
-        })
-
-        // Add HubSpot items that have no Supabase counterpart
-        const sbEngIds = new Set(sbItems.map(i => (i as TimelineItem & { hubspot_engagement_id?: string }).hubspot_engagement_id ?? i.engagement_id).filter(Boolean))
-        const sbIds    = new Set(sbItems.map(i => i.id))
-        for (const h of hsItems) {
-          if (!sbEngIds.has(h.engagement_id) && !sbIds.has(h.id)) {
-            merged.push({
-              id:           h.id,
-              source:       h.source as TimelineSource,
-              item_type:    h.item_type,
-              ts:           h.ts,
-              body:         h.body,
-              call_summary: h.call_summary,
-              engagement_id: h.engagement_id,
-              direction:    h.direction,
-              duration_ms:  h.duration_ms,
-              author_ref:   h.author_ref,
-              author_name:  h.author_name,
-              visibility:   'internal',
-              is_pinned:    false,
-              payload:      null,
-              needs_review: false,
-            })
-          }
-        }
-
-        // Re-sort newest first
-        merged.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+      // Trigger engagement sync in the background (fire-and-forget on first load)
+      // This ensures HubSpot engagements are up to date without blocking the UI
+      if (!cursor && !append) {
+        fetch(`/api/cases/${params.id}/sync-engagements`, { method: 'POST' })
+          .catch(() => {/* silent */})
       }
+
+      const res = await fetch(`/api/cases/${params.id}/timeline?${urlParams}`)
+      const sbJson = res.ok ? await res.json() : { items: [], has_more: false, next_cursor: null }
+      const merged: TimelineItem[] = sbJson.items ?? []
 
       if (append) {
         setTimelineItems(prev => {
@@ -3770,11 +3728,23 @@ export default function CaseDetailPage() {
 
           {/* ── Comms tab ── */}
           {activeTab === 'timeline' && (() => {
+            // ── Contacts on this case (for badge + filter) ───────────────────
+            const caseContacts: { id: string; name: string; initials: string; color: string; role: string }[] = []
+            const seenContactIds = new Set<string>()
+            for (const i of timelineItems) {
+              if (i.contact_id && i.contact_name && i.contact_initials && i.contact_color && !seenContactIds.has(i.contact_id)) {
+                seenContactIds.add(i.contact_id)
+                caseContacts.push({ id: i.contact_id, name: i.contact_name, initials: i.contact_initials, color: i.contact_color, role: i.contact_role ?? '' })
+              }
+            }
+            const multiContact = caseContacts.length > 1
+
             // ── Derived timeline data ────────────────────────────────────────
             const pinnedItems   = timelineItems.filter(i => i.source === 'note' && i.is_pinned)
             const filteredItems = timelineItems.filter(i => {
               if (i.source === 'note' && i.is_pinned) return false  // shown in pinned section
-              if (i.item_type === 'task' || i.item_type === 'meeting') return false  // HubSpot tasks = internal noise, hide by default
+              if (i.item_type === 'task' || i.item_type === 'meeting') return false
+              if (contactFilter && i.contact_id && i.contact_id !== contactFilter) return false
               if (timelineFilter === 'calls')    return i.item_type === 'call'
               if (timelineFilter === 'messages') return i.item_type === 'sms' || i.item_type === 'email'
               if (timelineFilter === 'notes')    return i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')
@@ -3879,8 +3849,19 @@ export default function CaseDetailPage() {
                   } ${dirBorder}`}
                 >
                   <div className="flex items-start gap-3">
-                    {/* Icon */}
-                    <div className="shrink-0 mt-0.5 text-lg leading-none">{icon}</div>
+                    {/* Contact avatar — shown when multi-contact case */}
+                    {multiContact && item.contact_id && item.contact_initials ? (
+                      <div
+                        title={`${item.contact_name ?? ''}${item.contact_role ? ` · ${item.contact_role}` : ''}`}
+                        className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold mt-0.5 cursor-default select-none"
+                        style={{ backgroundColor: item.contact_color ?? '#6B7280' }}
+                      >
+                        {item.contact_initials}
+                      </div>
+                    ) : (
+                      /* Icon (non-contact items or single-contact) */
+                      <div className="shrink-0 mt-0.5 text-lg leading-none">{icon}</div>
+                    )}
 
                     <div className="flex-1 min-w-0">
                       {/* Badge row */}
@@ -3934,6 +3915,14 @@ export default function CaseDetailPage() {
 
                       {/* Meta */}
                       <p className="mt-1.5 text-xs text-gray-400">
+                        {/* Contact name (single-contact or no badge) */}
+                        {(!multiContact || !item.contact_id) && item.contact_name && (
+                          <span className="mr-1.5 font-medium" style={{ color: item.contact_color ?? undefined }}>{item.contact_name} ·</span>
+                        )}
+                        {/* Contact role when multi-contact */}
+                        {multiContact && item.contact_id && item.contact_name && (
+                          <span className="mr-1.5 font-medium text-gray-600">{item.contact_name}{item.contact_role ? <span className="font-normal text-gray-400"> · {item.contact_role}</span> : null} ·</span>
+                        )}
                         {rawAuthor && <span className="mr-1.5 font-medium text-gray-500">{rawAuthor} ·</span>}
                         {fmtNoteTime(item.ts)}
                         {item.duration_ms && !item.call_summary && (
@@ -3960,10 +3949,40 @@ export default function CaseDetailPage() {
             return (
               <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
 
+                {/* ── Contact filter bar (multi-contact cases only) ── */}
+                {multiContact && (
+                  <div className="px-6 py-3 border-b border-gray-100 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest shrink-0">People</span>
+                    <button
+                      onClick={() => setContactFilter(null)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                        !contactFilter ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}
+                    >All</button>
+                    {caseContacts.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => setContactFilter(contactFilter === c.id ? null : c.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                          contactFilter === c.id ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        style={contactFilter === c.id ? { backgroundColor: c.color } : undefined}
+                      >
+                        <span
+                          className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                          style={{ backgroundColor: c.color }}
+                        >{c.initials}</span>
+                        {c.name}
+                        {c.role && <span className={`${contactFilter === c.id ? 'text-white/70' : 'text-gray-400'}`}>· {c.role}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* ── Timeline header ── */}
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
                   {/* Filter tabs */}
-                  <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                  <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 overflow-x-auto">
                     {([
                       { id: 'all',      label: `All (${timelineItems.length})` },
                       { id: 'calls',    label: `Calls${itemCounts.calls    ? ` (${itemCounts.calls})`    : ''}` },

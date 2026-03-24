@@ -185,13 +185,52 @@ export async function GET(req: NextRequest, { params }: Params) {
     }
   }
 
-  // Sort newest first, paginate
-  items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-  const hasMore   = items.length > limit
-  const page      = items.slice(0, limit)
-  const nextCursor = hasMore ? page[page.length - 1]?.ts ?? null : null
+  // ── Add HubSpot engagements from core.hubspot_engagements ────────────────
+  // Skip tasks/meetings server-side since we already filter those at sync time.
+  // Only fetch when not paginating (engagements are all synced, no cursor needed).
+  const isPaginating = searchParams.has('before_ts')
+  if (!isPaginating) {
+    const { data: engRows } = await db
+      .schema('core')
+      .from('hubspot_engagements')
+      .select('engagement_id, engagement_type, direction, occurred_at, body, call_summary, duration_ms, author_email, contact_id, contact_name, contact_initials, contact_color, contact_role')
+      .eq('case_id', caseId)
+      .order('occurred_at', { ascending: false })
 
-  return NextResponse.json({ items: page, has_more: hasMore, next_cursor: nextCursor })
+    for (const eng of engRows ?? []) {
+      items.push({
+        source:           'hubspot' as 'event',    // cast to satisfy type, handled by client
+        id:               `hs_${eng.engagement_id}`,
+        ts:               eng.occurred_at,
+        item_type:        eng.engagement_type.toLowerCase(),
+        body:             eng.body ?? null,
+        author_ref:       eng.author_email ?? null,
+        author_name:      null,
+        visibility:       'internal',
+        is_pinned:        false,
+        payload:          null,
+        direction:        (eng.direction as 'inbound' | 'outbound' | null) ?? null,
+        needs_review:     false,
+        // Extended fields (matched by client via cast)
+        call_summary:     eng.call_summary ?? null,
+        engagement_id:    eng.engagement_id,
+        duration_ms:      eng.duration_ms ?? null,
+        contact_id:       eng.contact_id ?? null,
+        contact_name:     eng.contact_name ?? null,
+        contact_initials: eng.contact_initials ?? null,
+        contact_color:    eng.contact_color ?? null,
+        contact_role:     eng.contact_role ?? null,
+      } as unknown as TimelineItem)
+    }
+  }
+
+  // Re-sort everything after merging sources
+  items.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+  const finalHasMore  = items.length > limit
+  const finalPage     = items.slice(0, limit)
+  const finalCursor   = finalHasMore ? finalPage[finalPage.length - 1]?.ts ?? null : null
+
+  return NextResponse.json({ items: finalPage, has_more: finalHasMore, next_cursor: finalCursor })
 }
 
 // ── Auth helper (avoid double import) ────────────────────────────────────────

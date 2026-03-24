@@ -1,0 +1,336 @@
+/**
+ * lib/hubspot/sync-engagements.ts
+ *
+ * Syncs ALL HubSpot engagements for a case into core.hubspot_engagements.
+ * Sources:
+ *   1. Engagements directly associated with the deal
+ *   2. Engagements on each associated contact record
+ *
+ * Deduplicates by engagement_id — same engagement may appear on both deal
+ * and contact, but is stored once.
+ *
+ * Contact color assignment is deterministic per case — first contact seen
+ * gets color[0], second gets color[1], etc. — so badges are stable across
+ * resyncs.
+ */
+
+import { SupabaseClient } from '@supabase/supabase-js'
+
+function getToken() {
+  const t = process.env.HUBSPOT_ACCESS_TOKEN
+  if (!t) throw new Error('HUBSPOT_ACCESS_TOKEN not set')
+  return t
+}
+
+// Stable color palette for contact avatars (index = contact order)
+export const CONTACT_COLORS = [
+  '#3B82F6', // blue
+  '#10B981', // green
+  '#8B5CF6', // purple
+  '#F59E0B', // amber
+  '#EF4444', // red
+  '#06B6D4', // cyan
+  '#EC4899', // pink
+  '#84CC16', // lime
+]
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(p|div|h[1-6]|li|ul|ol)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function toInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+// ── HubSpot API helpers ───────────────────────────────────────────────────────
+
+interface HsContactInfo {
+  contactId:  string
+  name:       string
+  initials:   string
+  color:      string
+  role:       string     // "Primary", "Co-buyer", "Spouse", etc.
+  email:      string | null
+  phone:      string | null
+}
+
+interface HsEngagementRow {
+  engagement_id:    string
+  case_id:          string
+  deal_id:          string
+  contact_id:       string | null
+  contact_name:     string | null
+  contact_initials: string | null
+  contact_color:    string | null
+  contact_role:     string | null
+  engagement_type:  string
+  direction:        string | null
+  occurred_at:      string
+  body:             string | null
+  call_summary:     string | null
+  duration_ms:      number | null
+  author_email:     string | null
+  metadata:         Record<string, unknown>
+  synced_at:        string
+}
+
+/** Fetch all contacts associated with a deal (v4 API for association labels) */
+async function fetchDealContacts(dealId: string, token: string): Promise<HsContactInfo[]> {
+  // v4 gives us association labels (Primary, Co-buyer, etc.)
+  const res = await fetch(
+    `https://api.hubapi.com/crm/v4/objects/deals/${dealId}/associations/contacts`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
+  )
+  if (!res.ok) return []
+  const data = await res.json() as {
+    results?: {
+      toObjectId: number
+      associationTypes?: { label?: string; category?: string }[]
+    }[]
+  }
+
+  const contacts: HsContactInfo[] = []
+  const results = data.results ?? []
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]
+    const contactId = String(r.toObjectId)
+
+    // Resolve association label
+    const labelRaw = r.associationTypes?.find(t => t.label)?.label ?? ''
+    const role = labelRaw || (i === 0 ? 'Primary' : 'Contact')
+
+    // Fetch contact properties
+    try {
+      const cRes = await fetch(
+        `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,lastname,email,phone,mobilephone`,
+        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(6000) }
+      )
+      if (!cRes.ok) continue
+      const cData = await cRes.json() as { properties?: Record<string, string | null> }
+      const p = cData.properties ?? {}
+      const firstName = p.firstname ?? ''
+      const lastName  = p.lastname  ?? ''
+      const fullName  = [firstName, lastName].filter(Boolean).join(' ') || `Contact ${i + 1}`
+      contacts.push({
+        contactId,
+        name:     fullName,
+        initials: toInitials(fullName),
+        color:    CONTACT_COLORS[i % CONTACT_COLORS.length],
+        role,
+        email:    p.email ?? null,
+        phone:    p.phone ?? p.mobilephone ?? null,
+      })
+    } catch { /* skip */ }
+  }
+
+  return contacts
+}
+
+/** Fetch engagement IDs associated with an object (deal or contact) */
+async function fetchEngagementIds(objectType: 'deals' | 'contacts', objectId: string, token: string): Promise<string[]> {
+  const res = await fetch(
+    `https://api.hubapi.com/crm/v3/objects/${objectType}/${objectId}/associations/engagements`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
+  )
+  if (!res.ok) return []
+  const data = await res.json() as { results?: { id: string }[] }
+  return (data.results ?? []).map(r => r.id)
+}
+
+/** Fetch a single engagement's details */
+async function fetchEngagement(engId: string, token: string) {
+  const res = await fetch(
+    `https://api.hubapi.com/engagements/v1/engagements/${engId}`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(6000) }
+  )
+  if (!res.ok) return null
+  return res.json() as Promise<{
+    engagement?: { type?: string; createdAt?: number; ownerId?: number }
+    metadata?: {
+      body?:                 string
+      callSummary?:          string
+      status?:               string
+      durationMilliseconds?: number
+      direction?:            string
+      toNumber?:             string
+      fromNumber?:           string
+      subject?:              string
+    }
+    associations?: { contactIds?: number[] }
+  }>
+}
+
+// ── Main sync function ────────────────────────────────────────────────────────
+
+export interface SyncResult {
+  upserted:  number
+  skipped:   number
+  errors:    string[]
+  contacts:  { id: string; name: string; role: string }[]
+}
+
+export async function syncEngagements(
+  supabase: SupabaseClient,
+  caseId:   string,
+  dealId:   string,
+): Promise<SyncResult> {
+  const token  = getToken()
+  const result: SyncResult = { upserted: 0, skipped: 0, errors: [], contacts: [] }
+
+  // 1. Fetch all associated contacts
+  const contacts = await fetchDealContacts(dealId, token)
+  result.contacts = contacts.map(c => ({ id: c.contactId, name: c.name, role: c.role }))
+
+  // Build contact lookup maps
+  const contactById = new Map<string, HsContactInfo>()
+  for (const c of contacts) contactById.set(c.contactId, c)
+
+  // 2. Collect all engagement IDs: from deal + all contacts
+  const allEngIdSources: { engId: string; contactId: string | null }[] = []
+  const seenEngIds = new Set<string>()
+
+  // Deal engagements
+  const dealEngIds = await fetchEngagementIds('deals', dealId, token)
+  for (const engId of dealEngIds) {
+    if (!seenEngIds.has(engId)) {
+      seenEngIds.add(engId)
+      allEngIdSources.push({ engId, contactId: null })
+    }
+  }
+
+  // Contact engagements
+  for (const contact of contacts) {
+    const contactEngIds = await fetchEngagementIds('contacts', contact.contactId, token)
+    for (const engId of contactEngIds) {
+      if (!seenEngIds.has(engId)) {
+        seenEngIds.add(engId)
+        allEngIdSources.push({ engId, contactId: contact.contactId })
+      }
+    }
+  }
+
+  // 3. Fetch and upsert each engagement
+  const rows: HsEngagementRow[] = []
+
+  for (const { engId, contactId } of allEngIdSources) {
+    try {
+      const data = await fetchEngagement(engId, token)
+      if (!data) { result.skipped++; continue }
+
+      const e = data.engagement ?? {}
+      const m = data.metadata   ?? {}
+      const rawType = (e.type ?? '').toUpperCase()
+
+      // Skip tasks and meetings — not useful in the timeline
+      if (rawType === 'TASK' || rawType === 'MEETING') { result.skipped++; continue }
+
+      const engType = rawType === 'CALL' ? 'CALL' : rawType === 'EMAIL' ? 'EMAIL' : 'NOTE'
+
+      // Resolve which contact this belongs to
+      // If we have a contactId from the source, use it
+      // Otherwise check the engagement's own association data
+      let resolvedContactId = contactId
+      if (!resolvedContactId && data.associations?.contactIds?.length) {
+        const firstContactId = String(data.associations.contactIds[0])
+        if (contactById.has(firstContactId)) resolvedContactId = firstContactId
+      }
+      const contact = resolvedContactId ? contactById.get(resolvedContactId) : null
+
+      const direction = m.direction?.toLowerCase() === 'outbound' ? 'outbound'
+        : m.direction?.toLowerCase() === 'inbound' ? 'inbound' : null
+
+      const bodyText    = m.body        ? stripHtml(m.body).slice(0, 5000)  : null
+      const summaryText = m.callSummary ? stripHtml(m.callSummary).slice(0, 4000) : null
+
+      rows.push({
+        engagement_id:    engId,
+        case_id:          caseId,
+        deal_id:          dealId,
+        contact_id:       resolvedContactId ?? null,
+        contact_name:     contact?.name     ?? null,
+        contact_initials: contact?.initials ?? null,
+        contact_color:    contact?.color    ?? null,
+        contact_role:     contact?.role     ?? null,
+        engagement_type:  engType,
+        direction,
+        occurred_at:      e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString(),
+        body:             bodyText,
+        call_summary:     summaryText,
+        duration_ms:      m.durationMilliseconds ?? null,
+        author_email:     null,   // owner lookup skipped for perf
+        metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber, subject: m.subject },
+        synced_at:        new Date().toISOString(),
+      })
+    } catch (err) {
+      result.errors.push(`eng ${engId}: ${(err as Error).message}`)
+    }
+  }
+
+  // 4. Batch upsert
+  if (rows.length > 0) {
+    const { error } = await supabase
+      .schema('core')
+      .from('hubspot_engagements')
+      .upsert(rows, { onConflict: 'engagement_id' })
+    if (error) {
+      result.errors.push(`upsert: ${error.message}`)
+    } else {
+      result.upserted = rows.length
+    }
+  }
+
+  return result
+}
+
+/** Upsert a single engagement by ID — used by the webhook handler */
+export async function upsertEngagementById(
+  supabase:    SupabaseClient,
+  engId:       string,
+  dealId:      string,
+  caseId:      string,
+  contactInfo: HsContactInfo | null,
+): Promise<void> {
+  const token = getToken()
+  const data  = await fetchEngagement(engId, token)
+  if (!data) return
+
+  const e = data.engagement ?? {}
+  const m = data.metadata   ?? {}
+  const rawType = (e.type ?? '').toUpperCase()
+  if (rawType === 'TASK' || rawType === 'MEETING') return
+
+  const engType   = rawType === 'CALL' ? 'CALL' : rawType === 'EMAIL' ? 'EMAIL' : 'NOTE'
+  const direction = m.direction?.toLowerCase() === 'outbound' ? 'outbound'
+    : m.direction?.toLowerCase() === 'inbound' ? 'inbound' : null
+  const bodyText    = m.body        ? stripHtml(m.body).slice(0, 5000)  : null
+  const summaryText = m.callSummary ? stripHtml(m.callSummary).slice(0, 4000) : null
+
+  await supabase.schema('core').from('hubspot_engagements').upsert({
+    engagement_id:    engId,
+    case_id:          caseId,
+    deal_id:          dealId,
+    contact_id:       contactInfo?.contactId ?? null,
+    contact_name:     contactInfo?.name      ?? null,
+    contact_initials: contactInfo?.initials  ?? null,
+    contact_color:    contactInfo?.color     ?? null,
+    contact_role:     contactInfo?.role      ?? null,
+    engagement_type:  engType,
+    direction,
+    occurred_at:      e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString(),
+    body:             bodyText,
+    call_summary:     summaryText,
+    duration_ms:      m.durationMilliseconds ?? null,
+    author_email:     null,
+    metadata:         { type: e.type, status: m.status, toNumber: m.toNumber, fromNumber: m.fromNumber },
+    synced_at:        new Date().toISOString(),
+  }, { onConflict: 'engagement_id' })
+}
