@@ -80,14 +80,25 @@ async function processNotifications(
   const client = getDb()
   const db     = client.schema('core')
 
-  // Collect unique drive item IDs that changed
+  // Collect unique drive item IDs that changed.
+  // Graph sends: resource = "drives/{id}/root" (the subscription target, NOT the changed item)
+  //              resourceData.id = the actual changed item's ID
   const changedItemIds = new Set<string>()
   for (const n of notifications) {
     if (n.clientState !== CLIENT_STATE) continue
-    // resource looks like: drives/{driveId}/items/{itemId}
+
+    // Primary: resourceData.id is the changed item
+    if (n.resourceData?.id) {
+      changedItemIds.add(n.resourceData.id)
+      continue
+    }
+
+    // Fallback: some notification shapes embed the item ID in resource path
     const match = n.resource?.match(/drives\/[^/]+\/items\/([^/]+)/)
     if (match?.[1]) changedItemIds.add(match[1])
   }
+
+  console.log(`[sharepoint-webhook] changed item IDs: ${[...changedItemIds].join(', ')}`);
 
   if (changedItemIds.size === 0) return
 
