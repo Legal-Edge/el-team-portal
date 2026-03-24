@@ -2,11 +2,16 @@
  * GET /api/admin/cron/delta-sync
  *
  * Vercel cron (every 10 min) — delta sync HubSpot → core.cases.
- * Fetches only deals modified since last successful run.
- * Emits case.created / case.stage_changed events for real changes.
+ * Processes ONE page (100 deals) per invocation to stay within timeout.
+ * Cursor advances after each page — catches up automatically across runs.
+ *
+ * ?since=ISO_DATE  — override cursor (for backfill; still advances cursor)
+ * ?page_size=N     — override page size (default 100)
  *
  * Auth: CRON_SECRET or BACKFILL_IMPORT_TOKEN (Bearer)
  */
+
+export const maxDuration = 60   // Vercel Pro: up to 60s per invocation
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient }              from '@supabase/supabase-js'
@@ -51,55 +56,61 @@ export async function GET(req: NextRequest) {
     .single()
   const logId = logRow?.id ?? null
 
-  // ── Page through modified deals ────────────────────────────────────────────
-  let after:        string | null = null
+  // ── One page per invocation — sustainable within timeout ─────────────────
+  // Reads the stored `after` cursor to continue where the last run left off.
+  const pageSize    = Math.min(parseInt(req.nextUrl.searchParams.get('page_size') ?? '100'), 100)
+
+  // Per-page pagination cursor (separate from time cursor)
+  const { data: afterRow } = await coreDb
+    .from('sync_state').select('value').eq('key', 'last_delta_sync_after').maybeSingle()
+  const afterCursor: string | null = sinceOverride ? null : (afterRow?.value ?? null)
+
   let totalSeen     = 0
   let totalSynced   = 0
   let totalErrored  = 0
   let deltaTotal:   number | null = null
   const allErrors:  string[] = []
   let runStatus:    'success' | 'partial' | 'error' = 'success'
+  let hasMore       = false
 
   try {
-    do {
-      const { deals, nextAfter, total } = await fetchDeltaDeals(modifiedSince, after, 100)
-      if (deltaTotal === null) deltaTotal = total
-      after      = nextAfter
-      totalSeen += deals.length
+    const { deals, nextAfter, total } = await fetchDeltaDeals(modifiedSince, afterCursor, pageSize)
+    deltaTotal = total
+    hasMore    = nextAfter !== null
+    totalSeen  = deals.length
 
-      for (const deal of deals) {
-        const dealId = String((deal as { id: string }).id)
-        try {
-          const contact = await fetchHsContact(dealId)
-
-          const result = await upsertCase(client, deal, contact, {
-            emitEvents: true,
-            source:     EVENT_SOURCES.HUBSPOT_CRON,
-          })
-
-          if (result.error) {
-            allErrors.push(`[${dealId}] ${result.error}`)
-            totalErrored++
-          } else {
-            totalSynced++
-          }
-        } catch (err) {
-          allErrors.push(`[${dealId}] ${(err as Error).message}`)
-          totalErrored++
-        }
+    for (const deal of deals) {
+      const dealId = String((deal as { id: string }).id)
+      try {
+        const contact = await fetchHsContact(dealId)
+        const result  = await upsertCase(client, deal, contact, {
+          emitEvents: true,
+          source:     EVENT_SOURCES.HUBSPOT_CRON,
+        })
+        if (result.error) { allErrors.push(`[${dealId}] ${result.error}`); totalErrored++ }
+        else                 totalSynced++
+      } catch (err) {
+        allErrors.push(`[${dealId}] ${(err as Error).message}`)
+        totalErrored++
       }
-    } while (after !== null)
+    }
 
     if      (totalErrored > 0 && totalSynced === 0) runStatus = 'error'
     else if (totalErrored > 0)                       runStatus = 'partial'
 
-    // Advance cursor on success / partial — skip when using manual since override
-    if (runStatus !== 'error' && !sinceOverride) {
-      await coreDb.from('sync_state').upsert({
-        key:        'last_delta_sync_at',
-        value:      startedAt.toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+    if (runStatus !== 'error') {
+      if (hasMore) {
+        // Save page cursor so next run continues from here
+        await coreDb.from('sync_state').upsert({
+          key: 'last_delta_sync_after', value: nextAfter!, updated_at: new Date().toISOString(),
+        })
+      } else {
+        // Finished all pages — advance time cursor, clear page cursor
+        await coreDb.from('sync_state').upsert([
+          { key: 'last_delta_sync_at',    value: startedAt.toISOString(), updated_at: new Date().toISOString() },
+          { key: 'last_delta_sync_after', value: null,                     updated_at: new Date().toISOString() },
+        ])
+      }
     }
   } catch (err) {
     runStatus = 'error'
@@ -130,6 +141,7 @@ export async function GET(req: NextRequest) {
     deals_seen:     totalSeen,
     deals_synced:   totalSynced,
     deals_errored:  totalErrored,
+    has_more:       hasMore,
     duration_ms:    durationMs,
     errors:         allErrors.slice(0, 20),
   })

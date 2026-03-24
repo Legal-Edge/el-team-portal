@@ -117,6 +117,14 @@ export async function POST(req: NextRequest) {
         results[`deal:${dealId}`] = 'deleted_on_404'
         continue
       }
+      // Validate deal ID was preserved before upserting
+      const resolvedId = (deal as { id?: string }).id
+      if (!resolvedId || resolvedId === 'undefined') {
+        results[`deal:${dealId}`] = 'error: fetchHsDeal returned no id'
+        console.error(`[webhook] fetchHsDeal returned no id for deal ${dealId}`)
+        continue
+      }
+
       const contact = await fetchHsContact(dealId)
       const result  = await upsertCase(client, deal, contact, {
         emitEvents: true,
