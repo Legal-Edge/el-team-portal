@@ -428,6 +428,19 @@ export async function syncEngagements(
     }
   }
 
+  // 5. Delete stale rows — engagements that exist in DB but are no longer in HubSpot
+  // (handles HubSpot deletions that weren't caught by the webhook)
+  const currentEngIds = rows.map(r => r.engagement_id)
+  if (currentEngIds.length > 0) {
+    const { error: delErr } = await supabase
+      .schema('core')
+      .from('hubspot_engagements')
+      .delete()
+      .eq('case_id', caseId)
+      .not('engagement_id', 'in', `(${currentEngIds.join(',')})`)
+    if (delErr) result.errors.push(`stale_delete: ${delErr.message}`)
+  }
+
   return result
 }
 
