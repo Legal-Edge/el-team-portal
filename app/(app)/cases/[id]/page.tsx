@@ -2868,7 +2868,7 @@ export default function CaseDetailPage() {
   const [seenIds,           setSeenIds]            = useState<Set<string>>(new Set())
   const [newItemIds,        setNewItemIds]          = useState<Set<string>>(new Set())
   const searchParams = useSearchParams()
-  const initialTab = (searchParams.get('tab') as 'overview' | 'comms' | 'documents' | 'ai' | 'hubspot') ?? 'overview'
+  const initialTab = (searchParams.get('tab') as 'overview' | 'guidance' | 'comms' | 'documents' | 'ai' | 'hubspot') ?? 'overview'
   const backHref   = searchParams.get('from') ?? '/cases'
 
   // Queue state for prev/next navigation
@@ -2880,10 +2880,10 @@ export default function CaseDetailPage() {
       if (raw) setQueueState(JSON.parse(raw) as QueueState)
     } catch { /* ignore */ }
   }, [])
-  const [activeTab, setActiveTab]     = useState<'overview' | 'comms' | 'documents' | 'ai' | 'hubspot'>(initialTab)
+  const [activeTab, setActiveTab]     = useState<'overview' | 'guidance' | 'comms' | 'documents' | 'ai' | 'hubspot'>(initialTab)
   const [analysisVersion, setAnalysisVersion] = useState(0)
 
-  const switchTab = (tab: 'overview' | 'comms' | 'documents' | 'ai' | 'hubspot') => {
+  const switchTab = (tab: 'overview' | 'guidance' | 'comms' | 'documents' | 'ai' | 'hubspot') => {
     setActiveTab(tab)
     const url = new URL(window.location.href)
     if (tab === 'overview') {
@@ -3082,8 +3082,9 @@ export default function CaseDetailPage() {
   useEffect(() => {
     if (!caseData) return
     const name    = [caseData.client_first_name, caseData.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
-    const tabLabel = activeTab === 'ai' ? 'AI Analysis'
-      : activeTab === 'hubspot' ? 'HubSpot Data'
+    const tabLabel = activeTab === 'ai'       ? 'AI Analysis'
+      : activeTab === 'hubspot'   ? 'HubSpot Data'
+      : activeTab === 'guidance'  ? 'Guidance'
       : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)
     document.title = `${name} | ${tabLabel}`
     return () => { document.title = 'Team Portal' }
@@ -3340,6 +3341,7 @@ export default function CaseDetailPage() {
 
   const TABS = [
     { id: 'overview',   label: 'Overview'   },
+    { id: 'guidance',   label: '🎯 Guidance' },
     { id: 'comms',      label: `Comms${commTotal > 0 ? ` (${commTotal})` : ''}` },
     { id: 'documents',  label: 'Documents'  },
     { id: 'ai',         label: '✦ AI Analysis' },
@@ -4001,18 +4003,18 @@ export default function CaseDetailPage() {
             />
           )}
 
-        </div>
-
-        {/* ── Right: sticky sidebar ── */}
-        <div className="w-full lg:w-64 lg:shrink-0 lg:overflow-y-auto lg:pr-1 space-y-4">
-
-          {/* ── Nurture Action Panel — shown on Overview tab for nurture stage ── */}
-          {activeTab === 'overview' && (c.case_status === 'nurture' || c.case_status === 'intake' || c.case_status === 'unknown') && (
+          {/* ── Guidance tab ── */}
+          {activeTab === 'guidance' && (
             <NurtureActionPanel
               dealId={params.id as string}
               caseUUID={caseUUID}
             />
           )}
+
+        </div>
+
+        {/* ── Right: sticky sidebar ── */}
+        <div className="w-full lg:w-64 lg:shrink-0 lg:overflow-y-auto lg:pr-1 space-y-4">
 
           {/* Case Info card — dates + type/priority/value */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5 space-y-4">
