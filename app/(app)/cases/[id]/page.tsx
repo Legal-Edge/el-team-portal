@@ -4113,12 +4113,7 @@ export default function CaseDetailPage() {
                       className="text-gray-400 hover:text-gray-600 transition-colors text-sm"
                       title="Refresh timeline"
                     >↻</button>
-                    <button
-                      onClick={() => { setShowNoteForm(v => !v); setNoteError(null) }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-lemon-400 hover:bg-lemon-500 text-gray-900 transition-all active:scale-95"
-                    >
-                      {showNoteForm ? '✕ Cancel' : '+ Add Note'}
-                    </button>
+
                   </div>
                 </div>
 
