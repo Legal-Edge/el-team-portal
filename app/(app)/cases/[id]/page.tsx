@@ -3386,6 +3386,16 @@ export default function CaseDetailPage() {
           .catch(() => { /* non-fatal */ })
       })
 
+      // ── HubSpot engagement deletions ──
+      .on('postgres_changes', {
+        event: 'DELETE', schema: 'core', table: 'hubspot_engagements',
+        filter: `case_id=eq.${caseUUID}`,
+      }, (payload: { old: Record<string, unknown> }) => {
+        const engId = `hs_${payload.old.engagement_id as string}`
+        setTimelineItems(prev => prev.filter(i => i.id !== engId))
+        setSeenIds(prev => { const n = new Set(prev); n.delete(engId); return n })
+      })
+
       // ── HubSpot engagements (live from webhook) ──
       .on('postgres_changes', {
         event: 'INSERT', schema: 'core', table: 'hubspot_engagements',

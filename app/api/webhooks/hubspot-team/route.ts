@@ -52,11 +52,12 @@ export async function POST(req: NextRequest) {
   const client = createClient(SUPABASE_URL, SUPABASE_KEY)
 
   // ── Route events by type ──────────────────────────────────────────────────
-  const dealDeletions  = new Set<string>()
-  const dealUpserts    = new Set<string>()
-  const creationIds    = new Set<string>()
+  const dealDeletions        = new Set<string>()
+  const dealUpserts          = new Set<string>()
+  const creationIds          = new Set<string>()
   const engagements: { objectId: string; objectType: string }[] = []
-  const contactIds     = new Set<string>()
+  const engagementDeletions  = new Set<string>()
+  const contactIds           = new Set<string>()
 
   for (const e of events) {
     const id   = String(e.objectId)
@@ -71,13 +72,17 @@ export async function POST(req: NextRequest) {
         if (type === 'deal.creation') creationIds.add(id)
       }
     } else if (type.startsWith('note.')) {
-      engagements.push({ objectId: id, objectType: 'notes' })
+      if (type === 'note.deletion') engagementDeletions.add(id)
+      else engagements.push({ objectId: id, objectType: 'notes' })
     } else if (type.startsWith('call.')) {
-      engagements.push({ objectId: id, objectType: 'calls' })
+      if (type === 'call.deletion') engagementDeletions.add(id)
+      else engagements.push({ objectId: id, objectType: 'calls' })
     } else if (type.startsWith('email.')) {
-      engagements.push({ objectId: id, objectType: 'emails' })
+      if (type === 'email.deletion') engagementDeletions.add(id)
+      else engagements.push({ objectId: id, objectType: 'emails' })
     } else if (type.startsWith('communication.')) {
-      engagements.push({ objectId: id, objectType: 'communications' })
+      if (type === 'communication.deletion') engagementDeletions.add(id)
+      else engagements.push({ objectId: id, objectType: 'communications' })
     } else if (type.startsWith('contact.')) {
       contactIds.add(id)
     }
@@ -119,6 +124,17 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       results[`deal:${dealId}`] = `error: ${(err as Error).message}`
     }
+  }
+
+  // ── Engagement deletions ─────────────────────────────────────────────────
+  for (const engId of engagementDeletions) {
+    const { error } = await client
+      .schema('core')
+      .from('hubspot_engagements')
+      .delete()
+      .eq('engagement_id', engId)
+    results[`del:${engId}`] = error ? `delete_err: ${error.message}` : 'deleted'
+    console.log(`[webhook] DELETE engagement ${engId}: ${results[`del:${engId}`]}`)
   }
 
   // ── Engagement upserts (call / note / email / communication) ─────────────
