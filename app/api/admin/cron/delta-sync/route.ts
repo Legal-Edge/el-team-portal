@@ -58,7 +58,8 @@ export async function GET(req: NextRequest) {
 
   // ── One page per invocation — sustainable within timeout ─────────────────
   // Reads the stored `after` cursor to continue where the last run left off.
-  const pageSize    = Math.min(parseInt(req.nextUrl.searchParams.get('page_size') ?? '100'), 100)
+  const pageSize      = Math.min(parseInt(req.nextUrl.searchParams.get('page_size') ?? '100'), 100)
+  const skipContacts  = req.nextUrl.searchParams.get('skip_contacts') === 'true'
 
   // Per-page pagination cursor (separate from time cursor)
   const { data: afterRow } = await coreDb
@@ -82,7 +83,7 @@ export async function GET(req: NextRequest) {
     for (const deal of deals) {
       const dealId = String((deal as { id: string }).id)
       try {
-        const contact = await fetchHsContact(dealId)
+        const contact = skipContacts ? null : await fetchHsContact(dealId)
         const result  = await upsertCase(client, deal, contact, {
           emitEvents: true,
           source:     EVENT_SOURCES.HUBSPOT_CRON,
