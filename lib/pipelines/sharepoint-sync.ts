@@ -118,7 +118,7 @@ export async function syncCaseFiles(
           continue
         }
 
-        // File changed — update metadata, reset classification, re-extract
+        // File changed (or re-uploaded after deletion) — update metadata + restore if deleted
         const { error: updateErr } = await db.from('document_files').update({
           file_name:          file.name,           // DB column is file_name
           file_extension:     file.file_extension,
@@ -129,6 +129,7 @@ export async function syncCaseFiles(
           modified_at_source: file.modified_at_source,
           created_by_name:    file.created_by,
           modified_by_name:   file.modified_by,
+          is_deleted:         false,               // restore if previously soft-deleted
           synced_at:          now,
           updated_at:         now,
           // Reset classification only if not manually classified
