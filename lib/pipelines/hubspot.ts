@@ -229,9 +229,36 @@ const ALL_CONTACT_PROPS = [
   'how_did_you_hear_about_us_','createdate','lastmodifieddate',
 ]
 
+// Cache of all discovered deal property names (populated once per process lifetime)
+let _allDealPropNames: string[] | null = null
+
+/** Fetch ALL deal property names from HubSpot Properties API */
+async function fetchAllDealPropNames(): Promise<string[]> {
+  if (_allDealPropNames) return _allDealPropNames
+  try {
+    const res = await hsFetch('/crm/v3/properties/deals?limit=1000')
+    const results = (res?.results as Array<{ name: string }>) ?? []
+    _allDealPropNames = results.map(p => p.name).filter(Boolean)
+    return _allDealPropNames
+  } catch {
+    // Fall back to hardcoded list if discovery fails
+    return ALL_DEAL_PROPS
+  }
+}
+
 export async function fetchHsDeal(dealId: string): Promise<Record<string, unknown> | null> {
-  const propsQ = ALL_DEAL_PROPS.join(',')
-  return hsFetch(`/crm/v3/objects/deals/${dealId}?properties=${propsQ}`)
+  // Discover all property names dynamically so we never miss a field
+  const allProps = await fetchAllDealPropNames()
+  // HubSpot GET query strings can hit URL limits; batch into 500-prop chunks and merge
+  const CHUNK = 500
+  const merged: Record<string, unknown> = {}
+  for (let i = 0; i < allProps.length; i += CHUNK) {
+    const chunk = allProps.slice(i, i + CHUNK)
+    const data = await hsFetch(`/crm/v3/objects/deals/${dealId}?properties=${chunk.join(',')}`)
+    if (data?.properties) Object.assign(merged, data.properties as Record<string, unknown>)
+    else if (i === 0) return data   // passthrough if unexpected shape
+  }
+  return { properties: merged }
 }
 
 export async function fetchHsContact(dealId: string): Promise<Record<string, unknown> | null> {
