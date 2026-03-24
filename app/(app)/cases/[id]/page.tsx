@@ -3782,16 +3782,16 @@ export default function CaseDetailPage() {
               if (i.source === 'note' && i.is_pinned) return false  // shown in pinned section
               if (i.item_type === 'task' || i.item_type === 'meeting') return false
               if (contactFilter && i.contact_id && i.contact_id !== contactFilter) return false
-              if (timelineFilter === 'calls')    return i.item_type === 'call'
-              if (timelineFilter === 'messages') return i.item_type === 'sms' || i.item_type === 'email'
+              if (timelineFilter === 'calls')    return i.item_type === 'call' || i.item_type === 'call_missed'
+              if (timelineFilter === 'messages') return ['sms', 'email', 'voicemail'].includes(i.item_type)
               if (timelineFilter === 'notes')    return i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')
               if (timelineFilter === 'docs')     return i.item_type.startsWith('document.') || i.item_type === 'document'
               if (timelineFilter === 'events')   return i.source === 'event' && !i.item_type.startsWith('document.')
               return true
             })
             const itemCounts = {
-              calls:    timelineItems.filter(i => i.item_type === 'call').length,
-              messages: timelineItems.filter(i => i.item_type === 'sms' || i.item_type === 'email').length,
+              calls:    timelineItems.filter(i => i.item_type === 'call' || i.item_type === 'call_missed').length,
+              messages: timelineItems.filter(i => ['sms', 'email', 'voicemail'].includes(i.item_type)).length,
               notes:    timelineItems.filter(i => i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')).length,
               docs:     timelineItems.filter(i => i.item_type.startsWith('document.') || i.item_type === 'document').length,
               events:   timelineItems.filter(i => i.source === 'event' && !i.item_type.startsWith('document.')).length,
@@ -3805,8 +3805,9 @@ export default function CaseDetailPage() {
               'intake.submitted': '📋', 'intake.step_completed': '✔️',
               'sms.received': '💬', 'sms.sent': '💬', 'call.completed': '📞', 'call.missed': '📵',
               'voicemail.received': '📨', 'email.received': '✉️', 'email.sent': '✉️',
-              // Comms
+              // Comms + Aloware reclassified types
               sms: '💬', call: '📞', email: '✉️',
+              voicemail: '📨', call_missed: '📵',
               // Note types
               general: '📝', call_summary: '📞', verbal_update: '💬',
               attorney_note: '⚖️', case_manager_note: '📋', milestone: '🏁',
@@ -3867,11 +3868,17 @@ export default function CaseDetailPage() {
                   : (item.author_ref ?? '')
 
               // Type label
+              const HUBSPOT_TYPE_LABELS: Record<string, string> = {
+                sms: 'SMS', call: 'Call', email: 'Email', note: 'Note',
+                voicemail: 'Voicemail', call_missed: 'Missed Call',
+              }
               const typeLabel = item.source === 'event'
                 ? (EVENT_LABEL[item.item_type] ?? item.item_type)
-                : item.source === 'comm'
-                  ? item.item_type.toUpperCase()
-                  : (NOTE_TYPE_LABELS[item.item_type] ?? item.item_type)
+                : item.source === 'hubspot'
+                  ? (HUBSPOT_TYPE_LABELS[item.item_type] ?? item.item_type)
+                  : item.source === 'comm'
+                    ? item.item_type.toUpperCase()
+                    : (NOTE_TYPE_LABELS[item.item_type] ?? item.item_type)
 
               // Comm source color: inbound=blue, outbound=gray, note=blue, event=amber
               const srcColor = item.source === 'comm'

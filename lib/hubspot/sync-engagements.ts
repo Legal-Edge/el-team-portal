@@ -169,6 +169,45 @@ async function fetchEngagement(engId: string, token: string) {
   }>
 }
 
+// ── Aloware note classifier ───────────────────────────────────────────────────
+// Aloware logs SMS, voicemails, and missed calls as HubSpot NOTE engagements.
+// We detect the pattern from the body and reclassify + extract clean content.
+
+interface AlowareNote {
+  type:      'sms' | 'voicemail' | 'call_missed' | 'note'
+  direction: 'inbound' | 'outbound' | null
+  body:      string   // cleaned — just the message content, not the metadata header
+  phone:     string | null
+}
+
+function classifyAlowareNote(raw: string): AlowareNote {
+  const text    = raw ?? ''
+  const lower   = text.toLowerCase()
+
+  // Extract phone number
+  const phoneMatch = text.match(/\+?1?\s*[\(\-]?(\d{3})[\)\-\s]?(\d{3})[\-\s]?(\d{4})/)
+  const phone = phoneMatch ? phoneMatch[0].replace(/\s+/g, '') : null
+
+  // Extract message body (after "Message:\n")
+  const msgMatch = text.match(/message:\s*\n?([\s\S]+)/i)
+  const cleanBody = msgMatch ? msgMatch[1].trim() : text.replace(/^[\s\S]*?\n\n/, '').trim()
+
+  if (/has sent an sms to/i.test(text) || /sent.*sms/i.test(lower)) {
+    return { type: 'sms', direction: 'outbound', body: cleanBody || text, phone }
+  }
+  if (/has received an sms/i.test(text) || /received.*sms/i.test(lower) || /incoming.*sms/i.test(lower)) {
+    return { type: 'sms', direction: 'inbound', body: cleanBody || text, phone }
+  }
+  if (/left a voicemail|voicemail left|voicemail received/i.test(text)) {
+    return { type: 'voicemail', direction: 'inbound', body: cleanBody || text, phone }
+  }
+  if (/missed a call|missed call|no answer/i.test(text)) {
+    return { type: 'call_missed', direction: 'outbound', body: cleanBody || text, phone }
+  }
+
+  return { type: 'note', direction: null, body: text, phone: null }
+}
+
 // ── Main sync function ────────────────────────────────────────────────────────
 
 export interface SyncResult {
@@ -233,7 +272,22 @@ export async function syncEngagements(
       // Skip tasks and meetings — not useful in the timeline
       if (rawType === 'TASK' || rawType === 'MEETING') { result.skipped++; continue }
 
-      const engType = rawType === 'CALL' ? 'CALL' : rawType === 'EMAIL' ? 'EMAIL' : 'NOTE'
+      const bodyText    = m.body        ? stripHtml(m.body).slice(0, 5000)  : null
+      const summaryText = m.callSummary ? stripHtml(m.callSummary).slice(0, 4000) : null
+
+      // Classify NOTE engagements — Aloware logs SMS/voicemail/missed calls as NOTEs
+      let engType  = rawType === 'CALL' ? 'CALL' : rawType === 'EMAIL' ? 'EMAIL' : 'NOTE'
+      let alowareDirection: 'inbound' | 'outbound' | null = null
+      let cleanBody: string | null = bodyText
+
+      if (engType === 'NOTE' && bodyText) {
+        const classified = classifyAlowareNote(bodyText)
+        if (classified.type !== 'note') {
+          engType          = classified.type.toUpperCase()   // SMS | VOICEMAIL | CALL_MISSED
+          alowareDirection = classified.direction
+          cleanBody        = classified.body
+        }
+      }
 
       // Resolve which contact this belongs to
       // If we have a contactId from the source, use it
@@ -248,9 +302,6 @@ export async function syncEngagements(
       const direction = m.direction?.toLowerCase() === 'outbound' ? 'outbound'
         : m.direction?.toLowerCase() === 'inbound' ? 'inbound' : null
 
-      const bodyText    = m.body        ? stripHtml(m.body).slice(0, 5000)  : null
-      const summaryText = m.callSummary ? stripHtml(m.callSummary).slice(0, 4000) : null
-
       rows.push({
         engagement_id:    engId,
         case_id:          caseId,
@@ -261,9 +312,9 @@ export async function syncEngagements(
         contact_color:    contact?.color    ?? null,
         contact_role:     contact?.role     ?? null,
         engagement_type:  engType,
-        direction,
+        direction:        alowareDirection ?? direction,
         occurred_at:      e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString(),
-        body:             bodyText,
+        body:             cleanBody,
         call_summary:     summaryText,
         duration_ms:      m.durationMilliseconds ?? null,
         author_email:     null,   // owner lookup skipped for perf
