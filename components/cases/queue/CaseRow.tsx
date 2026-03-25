@@ -107,9 +107,11 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 
   switch (colId) {
     case 'case_number':
-      return raw
-        ? <span className="font-mono text-xs text-gray-600">{String(raw)}</span>
-        : <span className="text-gray-300">—</span>
+      return (
+        <span className="font-mono text-xs text-gray-600 tabular-nums">
+          {c.hubspot_deal_id ?? <span className="text-gray-300">—</span>}
+        </span>
+      )
 
     case 'client':
       return (
@@ -148,14 +150,17 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
         </span>
       )
 
-    case 'case_manager':
-      return raw ? <span className="text-gray-700 truncate max-w-[130px] block">{String(raw)}</span> : <span className="text-gray-300">—</span>
+    case 'case_manager': {
+      // Try resolved name first (injected by API), fall back to raw value
+      const cmName = getHpValue(c, 'case_manager_name') ?? raw
+      return cmName ? <span className="text-gray-700 truncate max-w-[130px] block">{String(cmName)}</span> : <span className="text-gray-300">—</span>
+    }
 
     case 'days_in_stage': {
       if (!raw) return <span className="text-gray-300">—</span>
-      // HP stores ms, convert to days
-      const ms = parseFloat(String(raw))
-      const days = isNaN(ms) ? null : Math.floor(ms / (1000 * 60 * 60 * 24))
+      // hs_v2_time_in_current_stage is the ISO timestamp when the deal entered current stage
+      const enteredAt = new Date(String(raw)).getTime()
+      const days = isNaN(enteredAt) ? null : Math.floor((Date.now() - enteredAt) / (1000 * 60 * 60 * 24))
       return days !== null
         ? <span className={`tabular-nums ${days > 30 ? 'text-red-500 font-medium' : days > 14 ? 'text-amber-500' : 'text-gray-600'}`}>{days}d</span>
         : <span className="text-gray-300">—</span>

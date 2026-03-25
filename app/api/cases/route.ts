@@ -282,11 +282,39 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const enrichedCases = rows.map((c) => ({
-    ...c,
-    comms_state: commsMap[c.id] ?? null,
-    doc_state:   docMap[c.id]   ?? null,
-  }))
+  // Resolve HubSpot owner IDs → names (case_manager field stores owner ID)
+  const ownerMap = new Map<string, string>()
+  try {
+    const token = process.env.HUBSPOT_ACCESS_TOKEN
+    if (token) {
+      const res = await fetch('https://api.hubapi.com/crm/v3/owners?limit=200', {
+        headers: { Authorization: `Bearer ${token}` },
+        next: { revalidate: 3600 }, // cache 1h
+      })
+      if (res.ok) {
+        const json = await res.json() as { results?: { id: string; firstName?: string; lastName?: string; email?: string }[] }
+        for (const o of json.results ?? []) {
+          const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || o.id
+          ownerMap.set(o.id, name)
+        }
+      }
+    }
+  } catch { /* non-fatal — owner map just won't resolve */ }
+
+  const enrichedCases = rows.map((c) => {
+    const hp = (c.hubspot_properties ?? {}) as Record<string, unknown>
+    const rawCm = hp['case_manager'] ? String(hp['case_manager']) : null
+    const resolvedName = rawCm ? (ownerMap.get(rawCm) ?? null) : null
+    return {
+      ...c,
+      comms_state: commsMap[c.id] ?? null,
+      doc_state:   docMap[c.id]   ?? null,
+      // Inject resolved case manager name into hubspot_properties for CaseRow to consume
+      hubspot_properties: resolvedName
+        ? { ...hp, case_manager_name: resolvedName }
+        : hp,
+    }
+  })
 
   return NextResponse.json({
     cases: enrichedCases,

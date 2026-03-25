@@ -9,7 +9,7 @@ export interface ColumnDef {
 }
 
 export const ALL_COLUMNS: ColumnDef[] = [
-  { id: 'case_number',        label: 'Case #',          field: 'case_number',                         width: 90,  sortable: true,  type: 'text'   },
+  { id: 'case_number',        label: 'Deal ID',         field: 'hubspot_deal_id',                     width: 120, sortable: false, type: 'text'   },
   { id: 'client',             label: 'Client',           field: 'client_first_name',                   width: 160, sortable: true,  type: 'text'   },
   { id: 'vehicle',            label: 'Vehicle',          field: 'vehicle_year',                        width: 160, sortable: false, type: 'text'   },
   { id: 'state',              label: 'State',            field: 'state_jurisdiction',                  width: 60,  sortable: true,  type: 'text'   },
