@@ -108,7 +108,20 @@ function CasesContent() {
         const res = await fetch('/api/cases/views')
         if (res.ok) {
           const json = await res.json()
-          setSavedViews(json.views ?? [])
+          const views: CaseView[] = json.views ?? []
+          setSavedViews(views)
+
+          // Auto-apply the saved view that matches the current stage (or first view if no stage)
+          const currentStage = searchParams.get('status') ?? ''
+          const match = views.find(v => v.stage_tab === (currentStage || null))
+            ?? (currentStage ? null : views[0] ?? null)
+          if (match) {
+            setActiveViewId(match.id)
+            if (match.columns?.length)  setActiveColumns(match.columns)
+            if (match.filters?.length)  setFilterGroups(match.filters)
+            if (match.sort_by)          setSortCol(match.sort_by)
+            if (match.sort_dir)         setSortDir(match.sort_dir as 'asc' | 'desc')
+          }
         }
         // Check if admin via session
         const sr = await fetch('/api/session')
