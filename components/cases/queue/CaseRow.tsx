@@ -115,21 +115,10 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 
     case 'client':
       return (
-        <div>
-          <div className="font-medium text-gray-900 leading-tight truncate max-w-[150px]">
-            {[c.client_first_name, c.client_last_name].filter(Boolean).join(' ')
-              || <span className="text-gray-300 italic text-xs">Unknown</span>}
-          </div>
-          {c.client_phone && (
-            <a
-              href={`tel:${c.client_phone}`}
-              onClick={e => e.stopPropagation()}
-              className="text-xs text-gray-400 hover:text-lemon-500 transition-colors block truncate max-w-[150px]"
-            >
-              {c.client_phone}
-            </a>
-          )}
-        </div>
+        <span className="font-medium text-gray-900 truncate max-w-[150px] block">
+          {[c.client_first_name, c.client_last_name].filter(Boolean).join(' ')
+            || <span className="text-gray-400 italic font-normal text-xs">Unknown</span>}
+        </span>
       )
 
     case 'vehicle':
@@ -228,13 +217,13 @@ export function CaseRow({ c, columns, isFlashed, isLastViewed, queueIds, queueId
     <tr
       ref={onRef}
       onClick={handleClick}
-      className={`cursor-pointer transition-all duration-500 border-l-4 h-11 ${rowClass}`}
+      className={`cursor-pointer transition-all duration-500 border-l-4 h-9 ${rowClass}`}
     >
       <td className="w-0 p-0" />
       {columns.map(colId => (
         <td
           key={colId}
-          className="px-3 py-2.5 text-sm first:pl-5 last:pr-5 align-middle"
+          className="px-3 py-1.5 text-sm first:pl-5 last:pr-5 align-middle"
           style={{ width: ALL_COLUMNS.find(c => c.id === colId)?.width }}
         >
           {getCellValue(c, colId)}
