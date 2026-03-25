@@ -5,8 +5,12 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/admin/cron/sharepoint-delta",
+      "schedule": "*/1 * * * *"
+    },
+    {
       "path": "/api/admin/cron/sharepoint-sync",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/admin/cron/sharepoint-renew",

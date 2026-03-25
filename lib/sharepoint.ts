@@ -215,6 +215,33 @@ export interface GraphSubscription {
   resource:           string
   expirationDateTime: string
   clientState:        string
+  /** Graph sets this to 'warning' or 'disabled' when delivery fails repeatedly */
+  status?:            'enabled' | 'warning' | 'disabled'
+}
+
+// ── Delta query types ─────────────────────────────────────────────────────────
+
+export interface DriveItemDelta {
+  id:                    string
+  name?:                 string
+  /** Present if the item was deleted */
+  deleted?:              { reason?: string }
+  file?:                 { mimeType?: string }
+  folder?:               object
+  parentReference?: {
+    id?:      string
+    driveId?: string
+    path?:    string
+  }
+  lastModifiedDateTime?: string
+}
+
+/** Thrown when a stored deltaLink returns 410 Gone (expired after ~30 days unused) */
+export class DeltaLinkExpiredError extends Error {
+  constructor(msg: string) {
+    super(msg)
+    this.name = 'DeltaLinkExpiredError'
+  }
 }
 
 const WEBHOOK_ENDPOINT    = 'https://team.easylemon.com/api/webhooks/sharepoint'
@@ -222,6 +249,21 @@ const LIFECYCLE_ENDPOINT  = 'https://team.easylemon.com/api/webhooks/sharepoint/
 const CLIENT_STATE        = 'el-team-portal'
 // Drive subscriptions max expiry: 4,230 min — cron renews every 12h before expiry
 const EXPIRY_MINUTES      = 4200
+
+const SITE_HOSTNAME = 'rockpointgrowth.sharepoint.com'
+const SITE_PATH     = '/sites/Legal'
+
+// ── Site ID resolution (cached) ───────────────────────────────────────────────
+let _siteId: string | null = null
+
+export async function getSiteId(): Promise<string> {
+  if (_siteId) return _siteId
+  const data = await graphGet<{ id: string }>(
+    `/sites/${SITE_HOSTNAME}:${SITE_PATH}`
+  )
+  _siteId = data.id
+  return _siteId
+}
 
 /**
  * Subscribe to the root of a drive — fires for ALL file changes at any depth.
@@ -261,6 +303,114 @@ export async function createDriveSubscription(
 // Kept for API compatibility — alias to createDriveSubscription
 export const createItemSubscription = createDriveSubscription
 
+/**
+ * PREFERRED alternative: subscribe using the SharePoint site-based resource path.
+ * `sites/{siteId}/drive/root` is more reliable for SharePoint document libraries
+ * than `/drives/{driveId}/root` (which was designed primarily for OneDrive Personal).
+ *
+ * Use this when the drive-based subscription silently delivers zero notifications.
+ */
+export async function createSiteSubscription(): Promise<GraphSubscription> {
+  const siteId = await getSiteId()
+  const token  = await getGraphToken()
+  const expiry = new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000).toISOString()
+
+  const res = await fetch(`${GRAPH_BASE}/subscriptions`, {
+    method: 'POST',
+    headers: {
+      Authorization:  `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      changeType:               'updated',
+      notificationUrl:          WEBHOOK_ENDPOINT,
+      lifecycleNotificationUrl: LIFECYCLE_ENDPOINT,
+      resource:                 `sites/${siteId}/drive/root`,
+      expirationDateTime:       expiry,
+      clientState:              CLIENT_STATE,
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`createSiteSubscription: ${res.status} ${err.slice(0, 300)}`)
+  }
+
+  return res.json()
+}
+
+// ── Drive delta query ─────────────────────────────────────────────────────────
+
+/**
+ * Fetch drive item changes since the last stored deltaLink.
+ *
+ * - First call (no deltaLink): uses `?token=latest` to get a deltaLink from "now"
+ *   without enumerating all existing items. Returns empty `items` array.
+ * - Subsequent calls: follows the stored deltaLink to get only changed items.
+ *   Drains pagination (follows @odata.nextLink) in one call.
+ *
+ * Throws `DeltaLinkExpiredError` (410) when the stored link is expired.
+ * Caller should clear the stored link and reinitialize.
+ */
+export async function getDriveDelta(
+  deltaLink?: string | null,
+  driveId = DOCUMENTS_DRIVE_ID,
+): Promise<{ items: DriveItemDelta[]; deltaLink: string | null; initialized: boolean }> {
+  const token = await getGraphToken()
+
+  // ── Initialization: get a fresh deltaLink anchored to "now" ──────────────
+  if (!deltaLink) {
+    const res = await fetch(
+      `${GRAPH_BASE}/drives/${driveId}/root/delta?token=latest`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`getDriveDelta init: ${res.status} ${err.slice(0, 200)}`)
+    }
+    const data = await res.json()
+    return {
+      items:       [],
+      deltaLink:   data['@odata.deltaLink'] ?? null,
+      initialized: true,
+    }
+  }
+
+  // ── Incremental: drain changed items across all pages ────────────────────
+  const items: DriveItemDelta[] = []
+  let url: string | null = deltaLink
+  let finalDeltaLink: string | null = null
+
+  while (url) {
+    const pageRes = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+
+    if (pageRes.status === 410) {
+      throw new DeltaLinkExpiredError('Delta link expired (410 Gone) — reset and reinitialize')
+    }
+    if (!pageRes.ok) {
+      const err = await pageRes.text()
+      throw new Error(`getDriveDelta: ${pageRes.status} ${err.slice(0, 200)}`)
+    }
+
+    const pageData = await pageRes.json() as {
+      value?:              DriveItemDelta[]
+      '@odata.deltaLink'?: string
+      '@odata.nextLink'?:  string
+    }
+    items.push(...(pageData.value ?? []))
+
+    if (pageData['@odata.deltaLink']) {
+      finalDeltaLink = pageData['@odata.deltaLink']
+      break
+    }
+    url = pageData['@odata.nextLink'] ?? null
+  }
+
+  return { items, deltaLink: finalDeltaLink, initialized: false }
+}
+
 export async function renewSubscription(
   subscriptionId: string,
 ): Promise<GraphSubscription> {
@@ -297,4 +447,4 @@ export async function listSubscriptions(): Promise<GraphSubscription[]> {
   return data.value ?? []
 }
 
-export { DOCUMENTS_DRIVE_ID, CLIENT_STATE, EXPIRY_MINUTES }
+export { DOCUMENTS_DRIVE_ID, CLIENT_STATE, EXPIRY_MINUTES, SITE_HOSTNAME, SITE_PATH }

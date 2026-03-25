@@ -6,7 +6,12 @@
 
 import { NextRequest, NextResponse }                      from 'next/server'
 import { createClient }                                   from '@supabase/supabase-js'
-import { createDriveSubscription, renewSubscription, DOCUMENTS_DRIVE_ID } from '@/lib/sharepoint'
+import {
+  createSiteSubscription,
+  createDriveSubscription,
+  renewSubscription,
+  DOCUMENTS_DRIVE_ID,
+} from '@/lib/sharepoint'
 
 const TOKEN     = process.env.BACKFILL_IMPORT_TOKEN!
 const STATE_KEY = 'sharepoint_subscription_id'
@@ -78,9 +83,21 @@ export async function POST(req: NextRequest) {
       )
     }
   } else {
-    // No subscription yet — create one
+    // No subscription yet — create one.
+    // Try site-based resource path first (`sites/{siteId}/drive/root`) — it's more
+    // reliable for SharePoint document libraries. Fall back to drive-based if it fails.
     try {
-      const newSub   = await createDriveSubscription()
+      let newSub
+      let subResourcePath = 'sites/{siteId}/drive/root'
+      try {
+        newSub = await createSiteSubscription()
+        console.log('[subscribe-case] created site-based subscription:', newSub.id, 'resource:', newSub.resource)
+      } catch (siteErr) {
+        console.warn('[subscribe-case] site subscription failed, falling back to drive-based:', siteErr)
+        newSub = await createDriveSubscription()
+        subResourcePath = `/drives/{driveId}/root`
+        console.log('[subscribe-case] created drive-based subscription:', newSub.id)
+      }
       subscriptionId = newSub.id
       subAction      = 'created'
       const { error: upsertErr } = await db.from('sync_state').upsert(
@@ -88,8 +105,9 @@ export async function POST(req: NextRequest) {
         { onConflict: 'key' }
       )
       if (upsertErr) console.error('[subscribe-case] sync_state upsert error:', upsertErr)
+      console.log('[subscribe-case] subscription resource path:', subResourcePath)
     } catch (err) {
-      console.error('[subscribe-case] createDriveSubscription error:', err)
+      console.error('[subscribe-case] createSubscription error:', err)
       return NextResponse.json({ error: String(err) }, { status: 500 })
     }
   }
@@ -117,6 +135,8 @@ export async function POST(req: NextRequest) {
     drive_item_id:   caseRow.sharepoint_drive_item_id,
     subscription_id: subscriptionId,
     sub_action:      subAction,
-    note:            'Root drive subscription — fires for all file changes in any case folder',
+    note:            'Root drive subscription — fires for all file changes in any case folder. ' +
+                     'Delta cron (/api/admin/cron/sharepoint-delta) provides reliable ≤60s fallback ' +
+                     'regardless of webhook delivery.',
   })
 }
