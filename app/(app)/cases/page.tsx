@@ -262,6 +262,32 @@ function CasesContent() {
     if (activeViewId === view.id) setActiveViewId(null)
   }
 
+  // Update existing view in-place (no modal needed)
+  async function updateView() {
+    if (!activeViewId) return
+    setSavingView(true)
+    try {
+      const res = await fetch(`/api/cases/views?id=${activeViewId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stage_tab: activeStage || null,
+          columns:   activeColumns,
+          filters:   filterGroups,
+          sort_by:   sortCol,
+          sort_dir:  sortDir,
+        }),
+      })
+      if (res.ok) {
+        const json = await res.json()
+        setSavedViews(prev => prev.map(v => v.id === activeViewId ? { ...v, ...json.view } : v))
+      }
+    } finally {
+      setSavingView(false)
+    }
+  }
+
+  // Create new named view (uses modal)
   async function saveView() {
     if (!newViewName.trim()) return
     setSavingView(true)
@@ -409,18 +435,17 @@ function CasesContent() {
           )}
         </div>
 
-        {/* Save view shortcut (when view is modified) */}
-        {(hasActiveFilters || activeColumns !== DEFAULT_COLUMNS) && !activeViewId && (
-          <button
-            onClick={() => setShowSaveModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg transition-all duration-150"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h8l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5z" />
-            </svg>
-            Save view
-          </button>
-        )}
+        {/* Save view — update existing or create new */}
+        <button
+          onClick={() => activeViewId ? updateView() : setShowSaveModal(true)}
+          disabled={savingView}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg transition-all duration-150 disabled:opacity-40"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h8l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5z" />
+          </svg>
+          {savingView ? 'Saving…' : activeViewId ? 'Save view' : 'Save view'}
+        </button>
       </div>
 
       {/* ── Table ── */}
