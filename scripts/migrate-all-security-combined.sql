@@ -174,7 +174,6 @@ ALTER TABLE core.document_types                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core.case_document_checklist         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core.tasks                           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core.case_contacts                   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE core.case_documents                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core.case_state                      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core.comms_review_state              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core.comms_state                     ENABLE ROW LEVEL SECURITY;
@@ -208,7 +207,6 @@ CREATE POLICY "staff_read_document_types"            ON core.document_types     
 CREATE POLICY "staff_read_case_document_checklist"   ON core.case_document_checklist   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "staff_read_tasks"                     ON core.tasks                     FOR SELECT TO authenticated USING (true);
 CREATE POLICY "staff_read_case_contacts"             ON core.case_contacts             FOR SELECT TO authenticated USING (true);
-CREATE POLICY "staff_read_case_documents"            ON core.case_documents            FOR SELECT TO authenticated USING (true);
 CREATE POLICY "staff_read_case_state"                ON core.case_state                FOR SELECT TO authenticated USING (true);
 CREATE POLICY "staff_read_comms_review_state"        ON core.comms_review_state        FOR SELECT TO authenticated USING (true);
 CREATE POLICY "staff_read_comms_state"               ON core.comms_state               FOR SELECT TO authenticated USING (true);
