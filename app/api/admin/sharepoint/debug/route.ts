@@ -30,15 +30,22 @@ export async function GET(req: NextRequest) {
     )
     const folderContents = folderRes.ok ? await folderRes.json() : { error: folderRes.status }
 
-    // Try to fetch the last-created subscription directly by ID
-    const LAST_SUB_ID = '326283b9-991c-4ed7-83a1-b879352b6c69'
-    const directRes = await fetch(
-      `https://graph.microsoft.com/v1.0/subscriptions/${LAST_SUB_ID}`,
-      { headers: { Authorization: `Bearer ${graphToken}` } }
-    )
-    const directSub = directRes.ok
-      ? await directRes.json()
-      : { status: directRes.status, error: await directRes.text() }
+    // Fetch current subscription ID from sync_state
+    const { data: stateRow } = await createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    ).schema('core').from('sync_state').select('value').eq('key', 'sharepoint_subscription_id').maybeSingle()
+    const LAST_SUB_ID = (stateRow?.value as string) ?? 'none'
+
+    const directRes = LAST_SUB_ID !== 'none'
+      ? await fetch(
+          `https://graph.microsoft.com/v1.0/subscriptions/${LAST_SUB_ID}`,
+          { headers: { Authorization: `Bearer ${graphToken}` } }
+        )
+      : null
+    const directSub = directRes
+      ? (directRes.ok ? await directRes.json() : { status: directRes.status, error: await directRes.text() })
+      : { error: 'no subscription ID stored' }
 
     // Recent SharePoint webhook calls from sync_log
     const db2 = createClient(
@@ -69,7 +76,7 @@ export async function GET(req: NextRequest) {
         })),
         direct_lookup: {
           id:        LAST_SUB_ID,
-          found:     directRes.ok,
+          found:     directRes?.ok ?? false,
           expiresAt: directSub.expirationDateTime ?? null,
           status:    directSub.status ?? 'ok',
           error:     directSub.error ?? null,

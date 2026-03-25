@@ -76,9 +76,11 @@ export async function POST(req: NextRequest) {
   }
 
   const notifications = body.value ?? []
-  void logToDb(notifications.length, rawText)
 
-  // Respond 202 immediately — Graph requires <30s response
+  // Log synchronously BEFORE responding — fire-and-forget gets killed in Vercel serverless
+  await logToDb(notifications.length, rawText)
+
+  // Process async (safe — response is already committed, Vercel keeps function alive briefly)
   void processNotifications(notifications)
 
   return NextResponse.json({ ok: true, received: notifications.length }, { status: 202 })
