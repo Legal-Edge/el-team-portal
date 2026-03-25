@@ -20,19 +20,17 @@ function getDb() {
   )
 }
 
-async function logToDb(count: number, rawBody: string) {
-  try {
-    await getDb().schema('core').from('sync_log').insert({
-      sync_type:     'webhook',
-      deals_seen:    count,
-      deals_synced:  0,
-      deals_errored: 0,
-      status:        'success',
-      notes:         `sharepoint_notification: ${rawBody.slice(0, 1000)}`,
-    })
-  } catch (err) {
-    console.error('[sharepoint-webhook] log error:', err)
-  }
+async function logToDb(count: number, rawBody: string): Promise<string | null> {
+  const { error } = await getDb().schema('core').from('sync_log').insert({
+    sync_type:     'webhook',
+    deals_seen:    count,
+    deals_synced:  0,
+    deals_errored: 0,
+    status:        'success',
+    notes:         `sharepoint_notification: ${rawBody.slice(0, 1000)}`,
+  })
+  if (error) console.error('[sharepoint-webhook] log error:', error)
+  return error?.message ?? null
 }
 
 // GET — Graph API subscription validation
@@ -78,12 +76,12 @@ export async function POST(req: NextRequest) {
   const notifications = body.value ?? []
 
   // Log synchronously BEFORE responding — fire-and-forget gets killed in Vercel serverless
-  await logToDb(notifications.length, rawText)
+  const logErr = await logToDb(notifications.length, rawText)
 
   // Process async (safe — response is already committed, Vercel keeps function alive briefly)
   void processNotifications(notifications)
 
-  return NextResponse.json({ ok: true, received: notifications.length }, { status: 202 })
+  return NextResponse.json({ ok: true, received: notifications.length, log_err: logErr }, { status: 202 })
 }
 
 async function processNotifications(
