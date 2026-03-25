@@ -228,6 +228,10 @@ function CasesContent() {
     setActiveStage(s)
     setActiveViewId(null)
     setPage(1)
+    // Persist tab in URL so refresh restores it
+    const params = new URLSearchParams(searchParams.toString())
+    if (s) { params.set('status', s) } else { params.delete('status') }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }
 
   function toggleSort(col: string) {
