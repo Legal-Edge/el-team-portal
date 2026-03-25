@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getTeamSession }            from '@/lib/session'
 import { supabaseAdmin }             from '@/lib/supabase'
+import { STATE_LAWS, FEDERAL_LAW }   from '@/lib/lemon-law/states'
 
 // ── HubSpot engagements fetcher ───────────────────────────────────────────────
 
@@ -161,6 +162,7 @@ export interface IntelligenceReport {
     situation:   string
     checklist:   GuidanceChecklistItem[]
     next_steps:  string[]
+    faqs:        { q: string; a: string }[]
     // Internal flags used during generation (helps with debugging)
     _context: {
       repair_status:             'no_visits' | 'visits_no_repairs' | 'repairs_completed'
@@ -437,6 +439,7 @@ function generateGuidance(
 
     return {
       stage_goal, situation, checklist, next_steps,
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'intake', last_call_key_points: [], attorney_has_instructions: false },
     }
   }
@@ -511,6 +514,7 @@ function generateGuidance(
 
     return {
       stage_goal, situation, checklist, next_steps,
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'document_collection', last_call_key_points: [], attorney_has_instructions: false },
     }
   }
@@ -629,6 +633,7 @@ function generateGuidance(
 
     return {
       stage_goal, situation, checklist, next_steps,
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'attorney_review', last_call_key_points: [], attorney_has_instructions: hasInstructions },
     }
   }
@@ -667,6 +672,7 @@ function generateGuidance(
 
     return {
       stage_goal, situation, checklist, next_steps,
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'info_needed', last_call_key_points: [], attorney_has_instructions: true },
     }
   }
@@ -708,6 +714,7 @@ function generateGuidance(
 
     return {
       stage_goal, situation, checklist, next_steps,
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'sign_up', last_call_key_points: [], attorney_has_instructions: false },
     }
   }
@@ -749,6 +756,7 @@ function generateGuidance(
 
     return {
       stage_goal, situation, checklist, next_steps,
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'retained', last_call_key_points: [], attorney_has_instructions: false },
     }
   }
@@ -785,6 +793,7 @@ function generateGuidance(
 
     return {
       stage_goal, situation, checklist, next_steps,
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'settled', last_call_key_points: [], attorney_has_instructions: false },
     }
   }
@@ -796,6 +805,7 @@ function generateGuidance(
       situation,
       checklist:   [],
       next_steps:  [],
+      faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
       _context: { repair_status: cs.repair_status, nurture_scenario: 'dropped', last_call_key_points: [], attorney_has_instructions: false },
     }
   }
@@ -937,6 +947,7 @@ function generateGuidance(
     situation,
     checklist,
     next_steps,
+    faqs: generateFAQs(stage, cs.state, vehicle, firstName, cs),
     _context: {
       repair_status:             cs.repair_status,
       nurture_scenario,
@@ -946,6 +957,218 @@ function generateGuidance(
   }
 }
 
+
+// ── Stage-aware FAQ generator ─────────────────────────────────────────────────
+// FAQs are written for the CASE MANAGER reading the guidance tab — they answer
+// the questions clients most commonly ask at each stage so staff can respond
+// accurately and confidently. State law data is injected where relevant.
+
+function generateFAQs(
+  stage:     string,
+  stateCode: string,
+  vehicle:   string,
+  firstName: string,
+  cs:        CaseState,
+): { q: string; a: string }[] {
+
+  const law      = STATE_LAWS[stateCode.toUpperCase()] ?? null
+  const stateName = law?.name ?? 'your state'
+  const attempts  = law?.repairAttempts  ?? FEDERAL_LAW.repairAttempts
+  const safetyAtt = law?.safetyAttempts  ?? FEDERAL_LAW.safetyAttempts
+  const daysOOS   = law?.daysOOS         ?? FEDERAL_LAW.daysOOS
+  const windowMo  = law?.windowMonths    ?? 24
+  const windowMi  = law?.windowMiles     ?? 24000
+  const remedies  = law?.remedies        ?? FEDERAL_LAW.remedies
+  const nuances   = law?.keyNuances      ?? ''
+  const statute   = law?.statute         ?? FEDERAL_LAW.statute
+
+  // ── INTAKE ───────────────────────────────────────────────────────────────
+  if (stage === 'intake') return [
+    {
+      q: `Does ${firstName}'s car qualify for lemon law?`,
+      a: `Under ${stateName} law (${statute}), a vehicle qualifies if it has a substantial defect covered by warranty that the manufacturer failed to fix after ${attempts} repair attempt${attempts !== 1 ? 's' : ''} (${safetyAtt} for safety defects), or if the vehicle was out of service for ${daysOOS}+ cumulative days — all within ${windowMo} months or ${windowMi.toLocaleString()} miles of purchase. Federal law (Magnuson-Moss) may also apply and covers the entire warranty period. We evaluate both automatically.`,
+    },
+    {
+      q: 'What if they only had one or two visits?',
+      a: `${attempts > 2 ? `${stateName} typically requires ${attempts} attempts for the same defect` : `${stateName} may qualify with fewer attempts`}, but federal law applies a "reasonable number" standard — sometimes 1–2 visits are enough for serious safety defects. The severity of the issue matters. Even visits where the dealer found nothing count toward the record. Get all service records and let the attorneys evaluate.`,
+    },
+    {
+      q: "Is this actually free?",
+      a: "Yes. Easy Lemon and RockPoint Law work on contingency — no fees unless we win. Under lemon law statutes, the manufacturer pays attorney fees if the client prevails. The client pays nothing out of pocket at any point.",
+    },
+    {
+      q: "How long does the process take?",
+      a: "Once we have service records, attorney review takes 24–48 hours. If we have a strong case, demand letters typically get a manufacturer response within 30–60 days. Many cases settle in 60–90 days total. Complex cases or litigation can take longer.",
+    },
+    {
+      q: `What if ${firstName} is still making car payments?`,
+      a: "They should continue making payments while the case is active — stopping payments can harm their credit and create complications. A successful lemon law case can result in a full buyback that pays off their loan balance, so continued payments protect both their credit and their legal position.",
+    },
+  ]
+
+  // ── NURTURE ───────────────────────────────────────────────────────────────
+  if (stage === 'nurture') return [
+    {
+      q: `How many repair visits does ${firstName} need in ${stateName}?`,
+      a: `${stateName} law (${statute}) requires ${attempts} repair attempt${attempts !== 1 ? 's' : ''} for the same defect, or ${safetyAtt} attempt${safetyAtt !== 1 ? 's' : ''} for a safety defect, within ${windowMo} months or ${windowMi.toLocaleString()} miles of purchase. Federal law also applies simultaneously and uses a "reasonable number" standard — courts typically agree ${attempts >= 4 ? '3–4' : '2–3'} is sufficient.${nuances ? ` Note: ${nuances}` : ''}`,
+    },
+    {
+      q: "What if the dealer said they couldn't find anything wrong?",
+      a: `That's actually helpful for the case. Every visit — including "no fault found" visits — counts as a documented repair attempt. The key is the written record showing ${firstName} brought the vehicle in and reported the defect. "Couldn't diagnose" or "unable to reproduce" entries are legitimate documentation.`,
+    },
+    {
+      q: `Does ${vehicle} need to be in the shop right now?`,
+      a: "No. The vehicle can be in their possession while the case is being built. What matters is the historical repair record. However, if the issue is still happening, we do encourage them to continue taking it to the dealer — each additional documented visit strengthens the case.",
+    },
+    {
+      q: "What happens after we get the service records?",
+      a: "Our attorneys review the records and evaluate the pattern of defects, repair attempts, and time in the shop against both state and federal lemon law thresholds. They'll determine the strength of the case and what remedy to pursue — repurchase, replacement, or cash settlement.",
+    },
+    {
+      q: `What remedies is ${firstName} entitled to?`,
+      a: `Under ${stateName} law: ${remedies}. In a repurchase, the manufacturer refunds the full purchase price minus a "reasonable use" deduction for miles driven before the first repair visit. Most clients choose the repurchase. Attorney fees are also recovered from the manufacturer.`,
+    },
+  ]
+
+  // ── DOCUMENT COLLECTION ───────────────────────────────────────────────────
+  if (stage === 'document_collection') return [
+    {
+      q: `What documents does ${firstName} actually need to provide?`,
+      a: `The two most important documents are: (1) Repair orders from every dealership visit — even visits where the dealer said they couldn't find anything. (2) The purchase or lease agreement from when ${firstName} bought the ${vehicle}. These two documents are the foundation of the case.`,
+    },
+    {
+      q: `What if ${firstName} doesn't have their service records?`,
+      a: `They don't need to have them at home. The dealership's service department is required to maintain records of every visit. ${firstName} can call the service department and ask for copies of all service records for their vehicle — they must provide them. It usually takes 1–2 business days.`,
+    },
+    {
+      q: "What if some repair visits were at different dealerships?",
+      a: "Records from every authorized dealership count — visits don't have to be at the same location. They should collect records from each dealership they visited. All visits for the same defect are counted together regardless of which dealer performed the work.",
+    },
+    {
+      q: "Can they just take a photo of the documents?",
+      a: "Yes — a clear photo of each page is perfect. They can text photos directly to us. The documents just need to be legible and show the date, vehicle information, and what was done (or attempted). PDFs from the dealership also work.",
+    },
+    {
+      q: "What if the purchase agreement can't be found?",
+      a: "The dealership's finance department keeps a copy of every purchase agreement on file. If they contact the finance department and reference the date of purchase and vehicle VIN, they can get a copy within a few days. Their lender (if they financed) may also have a copy.",
+    },
+  ]
+
+  // ── ATTORNEY REVIEW ───────────────────────────────────────────────────────
+  if (stage === 'attorney_review') return [
+    {
+      q: `What are the attorneys actually reviewing?`,
+      a: `They're evaluating: (1) whether the defect qualifies under ${stateName} law or federal law, (2) the number and pattern of repair attempts vs. the statutory threshold (${attempts} attempts or ${daysOOS}+ days out of service), (3) whether the defect is still within the warranty window (${windowMo} months/${windowMi.toLocaleString()} miles), and (4) the strength of the documentation. They also calculate the potential buyback value.`,
+    },
+    {
+      q: "How long does attorney review take?",
+      a: "Typically 24–48 hours for straightforward cases. If the attorney needs additional information or has questions about the repair history, it may take slightly longer. We'll reach out as soon as there's an update.",
+    },
+    {
+      q: "Will the attorney contact the client directly?",
+      a: "Not at this stage. Our case managers handle all client communication during the review. Once the attorney completes their assessment, we'll relay the findings and next steps to the client.",
+    },
+    {
+      q: `What are ${firstName}'s chances?`,
+      a: `We only submit cases to attorney review when we believe there's a viable claim — so the fact that we're here is a positive signal. Qualification depends on the specific repair history vs. the legal threshold. Once the attorney finishes, we'll have a clear picture of the path forward.`,
+    },
+    {
+      q: "What if the attorney needs more information?",
+      a: "If the attorney needs clarification or additional documents, the case will move to 'Info Needed' status and we'll reach out to the client with specific requests. This is normal and doesn't mean the case is weak — it just means we need one more piece to complete the evaluation.",
+    },
+  ]
+
+  // ── INFO NEEDED ───────────────────────────────────────────────────────────
+  if (stage === 'info_needed') return [
+    {
+      q: "Does 'Info Needed' mean there's a problem with the case?",
+      a: `Not at all. It means our attorney is actively engaged and identified a specific question or document they need before completing the review. This is a normal part of the process — it usually means the attorney sees something worth clarifying before making a determination.`,
+    },
+    {
+      q: `How quickly does ${firstName} need to respond?`,
+      a: "The faster we can get the requested information, the faster the attorney can complete their review. We'd encourage a response within 1–2 business days to keep the case moving. If there's a delay, just let us know — cases don't expire.",
+    },
+    {
+      q: "What typically gets requested at this stage?",
+      a: "Most common requests: (1) clarification about a specific repair visit, (2) a missing service record from one visit, (3) the purchase or lease agreement, or (4) details about the nature of the defect. It's usually one specific item, not a large document request.",
+    },
+    {
+      q: "What happens after the information is provided?",
+      a: "The case goes back to attorney review with the new information. The attorney typically completes their assessment within 24–48 hours of receiving what they requested.",
+    },
+  ]
+
+  // ── SIGN UP ───────────────────────────────────────────────────────────────
+  if (stage === 'sign_up') return [
+    {
+      q: "Is there anything to pay upfront?",
+      a: "Absolutely not. RockPoint Law works on contingency — there are no upfront fees, no hourly charges, and no costs to the client at any point. If we win, attorney fees are paid by the manufacturer under lemon law statutes. If for any reason the case doesn't succeed, the client owes nothing.",
+    },
+    {
+      q: "What exactly is the retainer agreement?",
+      a: `It's an agreement authorizing RockPoint Law to represent ${firstName} in their lemon law claim. It confirms the contingency fee arrangement (no win, no fee), gives the firm authority to contact the manufacturer and dealership on the client's behalf, and outlines how the case will be handled. It's standard for lemon law representation.`,
+    },
+    {
+      q: "What if they change their mind after signing?",
+      a: "The retainer can be canceled — clients can withdraw from representation at any time before a settlement is reached. However, once a demand letter has been sent or formal legal action started, there may be case costs to consider. In practice, very few clients withdraw once the case is underway.",
+    },
+    {
+      q: "What happens after they sign?",
+      a: `Once the retainer is signed, RockPoint Law becomes the client's legal representative. The next step is preparing and sending a formal demand letter to the manufacturer. Manufacturers typically respond within 30–60 days. Most cases resolve in 60–90 days total — often without going to court.`,
+    },
+    {
+      q: `What will ${firstName} actually get out of this?`,
+      a: `Under ${stateName} law, the likely outcome is a vehicle repurchase — the manufacturer buys back the ${vehicle} at the full purchase price minus a mileage deduction for use before the first repair visit. Or they may offer a cash settlement or replacement vehicle. Attorney fees are also recovered. Most clients walk away debt-free on the vehicle.`,
+    },
+  ]
+
+  // ── RETAINED ─────────────────────────────────────────────────────────────
+  if (stage === 'retained') return [
+    {
+      q: "How long will the case take from here?",
+      a: "Once a demand letter is sent, manufacturers typically respond within 30–60 days. Settlement negotiations can take another 2–8 weeks. Total timeline from demand to settlement: typically 60–120 days. Cases that go to arbitration or litigation take longer — 6–18 months — but most settle before that.",
+    },
+    {
+      q: "What's happening with the case right now?",
+      a: "RockPoint Law is either preparing or has sent a formal demand letter to the manufacturer. The letter outlines the legal violations, the evidence, and the remedy requested. Once sent, we're in a negotiation phase — the manufacturer has the opportunity to respond with a settlement offer.",
+    },
+    {
+      q: `Should ${firstName} keep driving the ${vehicle}?`,
+      a: "Yes — they should continue using the vehicle normally unless there's a safety concern. Continuing to drive it doesn't affect the legal claim. They should document any new issues or dealer visits, but they don't need to stop driving or return the vehicle until a settlement is reached.",
+    },
+    {
+      q: "What if the manufacturer makes a low offer?",
+      a: "Our attorneys will negotiate. A first offer is rarely the best offer. RockPoint Law will counter with the appropriate legal remedy — which under lemon law is typically a full repurchase. The firm won't recommend a settlement that isn't in the client's best interest.",
+    },
+    {
+      q: "Does the client need to do anything right now?",
+      a: "Just stay reachable. If the manufacturer or our attorneys need information during negotiations, we'll reach out. The client shouldn't communicate directly with the manufacturer or dealership about the legal claim — all contact should go through RockPoint Law.",
+    },
+  ]
+
+  // ── SETTLED ──────────────────────────────────────────────────────────────
+  if (stage === 'settled') return [
+    {
+      q: "When will the settlement funds be received?",
+      a: "After the settlement agreement is signed, disbursement typically takes 2–4 weeks. The manufacturer processes the buyback or settlement payment, the lender (if any) is paid off, and the remaining funds go to the client. The firm will coordinate the logistics.",
+    },
+    {
+      q: "Is there anything the client needs to do?",
+      a: "For a vehicle repurchase: they'll need to sign the settlement agreement (if not done), return the vehicle at the agreed date/location, and provide the title and keys. RockPoint Law will walk them through each step. For a cash settlement, it's simpler — just sign and wait for the check.",
+    },
+    {
+      q: "What about their existing car loan?",
+      a: "In a repurchase, the manufacturer pays the lender directly to satisfy the outstanding loan balance. Any remaining amount (equity) goes to the client. If the loan balance exceeds the settlement amount, the gap is usually negotiated as part of the settlement terms.",
+    },
+    {
+      q: "Could they have gotten more?",
+      a: "RockPoint Law negotiates to the maximum legally recoverable amount under applicable law. The settlement reflects the full statutory remedy available. Any additional amount would require litigation with uncertain outcome — the firm won't recommend holdout that isn't in the client's interest.",
+    },
+  ]
+
+  // ── DROPPED / DEFAULT ─────────────────────────────────────────────────────
+  return []
+}
 
 // ── Timeline builder ──────────────────────────────────────────────────────────
 

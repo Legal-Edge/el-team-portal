@@ -181,10 +181,11 @@ function CommTimeline({ entries }: { entries: TimelineEntry[] }) {
 
 // ── FAQ section ────────────────────────────────────────────────────────────────
 
-function FAQSection({ state }: { state: string | null }) {
+function FAQSection({ faqs }: { faqs: { q: string; a: string }[] }) {
   const [open, setOpen]       = useState(false)
   const [openIdx, setOpenIdx] = useState<Set<number>>(new Set())
-  const data = (state && STATE_FAQ[state.toUpperCase()]) || DEFAULT_FAQ
+
+  if (!faqs.length) return null
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -193,7 +194,7 @@ function FAQSection({ state }: { state: string | null }) {
         <div className="flex items-center gap-2.5">
           <span className="text-base">❓</span>
           <span className="text-sm font-semibold text-gray-800">Client FAQs</span>
-          <span className="text-xs text-gray-400">{data.state}</span>
+          <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{faqs.length}</span>
         </div>
         <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -202,7 +203,7 @@ function FAQSection({ state }: { state: string | null }) {
       </button>
       {open && (
         <div className="border-t border-gray-50 divide-y divide-gray-50">
-          {data.faqs.map((faq, i) => (
+          {faqs.map((faq, i) => (
             <div key={i}>
               <button onClick={() => setOpenIdx(p => { const n = new Set(p); n.has(i) ? n.delete(i) : n.add(i); return n })}
                 className="w-full flex items-start justify-between gap-3 px-5 py-3.5 text-left hover:bg-gray-50/30 transition-colors">
@@ -342,7 +343,7 @@ export function GuidanceTab({ dealId }: Props) {
         </div>
 
         {/* FAQs */}
-        <FAQSection state={report.tier1_intake.state} />
+        <FAQSection faqs={report.guidance.faqs ?? []} />
 
       </div>
     </>
