@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse }              from 'next/server'
 import { createClient }                           from '@supabase/supabase-js'
-import { renewSubscription, createItemSubscription, DOCUMENTS_DRIVE_ID } from '@/lib/sharepoint'
+import { renewSubscription, createDriveSubscription } from '@/lib/sharepoint'
 
 const CRON_SECRET = process.env.CRON_SECRET!
 
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
         results.renewed++
       } catch {
         // Subscription gone — recreate it
-        newSub = await createItemSubscription(DOCUMENTS_DRIVE_ID, row.drive_item_id)
+        newSub = await createDriveSubscription()
         results.recreated++
         console.log(`[sharepoint-renew] recreated subscription for case ${row.case_id}`)
       }

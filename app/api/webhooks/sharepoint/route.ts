@@ -120,10 +120,12 @@ async function processNotifications(
       }
     }
 
-    // ── Fallback: resolve via changed item's parent folder ───────────────────
+    // ── Fallback: walk up parent chain to find case folder ───────────────────
+    // Files can be: /Case Folder/file.pdf (1 level) or /Case Folder/Sub/file.pdf (2 levels)
     if (!caseId && n.resourceData?.id) {
       const itemId = n.resourceData.id
-      // Check direct match
+
+      // Check if item itself is a known case folder (rare but possible)
       const { data: directCase } = await db
         .from('cases')
         .select('id, sharepoint_drive_item_id')
@@ -135,31 +137,38 @@ async function processNotifications(
         caseId      = directCase.id
         driveItemId = directCase.sharepoint_drive_item_id ?? null
       } else {
-        // Try parent
+        // Walk up to 2 parent levels to handle subfolders
         try {
-          const token = await getGraphToken()
-          const res   = await fetch(
-            `https://graph.microsoft.com/v1.0/drives/${DOCUMENTS_DRIVE_ID}/items/${itemId}?$select=id,parentReference`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          )
-          if (res.ok) {
+          const token  = await getGraphToken()
+          let currentId = itemId
+
+          for (let level = 0; level < 2 && !caseId; level++) {
+            const res = await fetch(
+              `https://graph.microsoft.com/v1.0/drives/${DOCUMENTS_DRIVE_ID}/items/${currentId}?$select=id,parentReference`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            )
+            if (!res.ok) break
+
             const item     = await res.json()
-            const parentId = item.parentReference?.id
-            if (parentId) {
-              const { data: parentCase } = await db
-                .from('cases')
-                .select('id, sharepoint_drive_item_id')
-                .eq('sharepoint_drive_item_id', parentId)
-                .eq('is_deleted', false)
-                .maybeSingle()
-              if (parentCase) {
-                caseId      = parentCase.id
-                driveItemId = parentCase.sharepoint_drive_item_id ?? null
-              }
+            const parentId = item.parentReference?.id as string | undefined
+            if (!parentId) break
+
+            const { data: parentCase } = await db
+              .from('cases')
+              .select('id, sharepoint_drive_item_id')
+              .eq('sharepoint_drive_item_id', parentId)
+              .eq('is_deleted', false)
+              .maybeSingle()
+
+            if (parentCase) {
+              caseId      = parentCase.id
+              driveItemId = parentCase.sharepoint_drive_item_id ?? null
+            } else {
+              currentId = parentId // go one level higher
             }
           }
         } catch (err) {
-          console.error('[sharepoint-webhook] parent lookup error:', err)
+          console.error('[sharepoint-webhook] parent walk error:', err)
         }
       }
     }

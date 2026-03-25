@@ -1,13 +1,15 @@
 // POST /api/admin/sharepoint/subscribe-case
-// Creates a Graph subscription for a specific case's SharePoint folder.
-// Used for manual subscription creation and testing before full backfill.
+// Ensures the global drive subscription is active and records the case's
+// drive_item_id in case_sp_subscriptions for fast webhook case lookup.
+// Microsoft Graph only supports root-level drive subscriptions (not per-item).
 // Token-protected.
 
-import { NextRequest, NextResponse }              from 'next/server'
-import { createClient }                           from '@supabase/supabase-js'
-import { createItemSubscription, DOCUMENTS_DRIVE_ID } from '@/lib/sharepoint'
+import { NextRequest, NextResponse }                      from 'next/server'
+import { createClient }                                   from '@supabase/supabase-js'
+import { createDriveSubscription, renewSubscription, DOCUMENTS_DRIVE_ID } from '@/lib/sharepoint'
 
-const TOKEN = process.env.BACKFILL_IMPORT_TOKEN!
+const TOKEN     = process.env.BACKFILL_IMPORT_TOKEN!
+const STATE_KEY = 'sharepoint_subscription_id'
 
 function getDb() {
   return createClient(
@@ -32,56 +34,89 @@ export async function POST(req: NextRequest) {
     .eq('id', case_id)
     .maybeSingle()
 
-  if (!caseRow) return NextResponse.json({ error: 'Case not found' }, { status: 404 })
+  if (!caseRow)
+    return NextResponse.json({ error: 'Case not found' }, { status: 404 })
   if (!caseRow.sharepoint_drive_item_id)
     return NextResponse.json({ error: 'Case has no sharepoint_drive_item_id — resolve folder first' }, { status: 400 })
 
-  // Check if already subscribed
-  const { data: existing } = await db
+  // ── Ensure global drive subscription exists ───────────────────────────────
+  const { data: stateRow } = await db
+    .from('sync_state')
+    .select('value')
+    .eq('key', STATE_KEY)
+    .maybeSingle()
+
+  let subscriptionId = stateRow?.value as string | null
+  let subAction: 'existing' | 'renewed' | 'created' = 'existing'
+
+  if (subscriptionId) {
+    // Verify it still exists
+    try {
+      const { getGraphToken } = await import('@/lib/sharepoint')
+      const token = await getGraphToken()
+      const check = await fetch(
+        `https://graph.microsoft.com/v1.0/subscriptions/${subscriptionId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!check.ok) {
+        // Gone — create fresh
+        const newSub   = await createDriveSubscription()
+        subscriptionId = newSub.id
+        subAction      = 'created'
+        await db.from('sync_state').upsert(
+          { key: STATE_KEY, value: subscriptionId, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+      }
+    } catch {
+      const newSub   = await createDriveSubscription()
+      subscriptionId = newSub.id
+      subAction      = 'created'
+      await db.from('sync_state').upsert(
+        { key: STATE_KEY, value: subscriptionId, updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      )
+    }
+  } else {
+    // No subscription yet — create one
+    try {
+      const newSub   = await createDriveSubscription()
+      subscriptionId = newSub.id
+      subAction      = 'created'
+      const { error: upsertErr } = await db.from('sync_state').upsert(
+        { key: STATE_KEY, value: subscriptionId, updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      )
+      if (upsertErr) console.error('[subscribe-case] sync_state upsert error:', upsertErr)
+    } catch (err) {
+      console.error('[subscribe-case] createDriveSubscription error:', err)
+      return NextResponse.json({ error: String(err) }, { status: 500 })
+    }
+  }
+
+  // ── Register case folder in case_sp_subscriptions for fast webhook lookup ─
+  const { data: existingCaseSub } = await db
     .from('case_sp_subscriptions')
-    .select('subscription_id, expires_at')
+    .select('id')
     .eq('case_id', case_id)
     .maybeSingle()
 
-  if (existing) {
-    return NextResponse.json({
-      ok:              true,
-      action:          'already_subscribed',
-      subscription_id: existing.subscription_id,
-      expires_at:      existing.expires_at,
+  if (!existingCaseSub) {
+    const { error: insertErr } = await db.from('case_sp_subscriptions').insert({
+      case_id:         case_id,
+      subscription_id: subscriptionId!,
+      drive_item_id:   caseRow.sharepoint_drive_item_id,
+      expires_at:      new Date(Date.now() + 4200 * 60 * 1000).toISOString(),
     })
+    if (insertErr) console.error('[subscribe-case] case_sp_subscriptions insert error:', insertErr)
   }
-
-  // Create subscription
-  let sub
-  try {
-    sub = await createItemSubscription(DOCUMENTS_DRIVE_ID, caseRow.sharepoint_drive_item_id)
-  } catch (err) {
-    console.error('[subscribe-case] createItemSubscription error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
-
-  // Persist to case_sp_subscriptions
-  const { error: insertErr } = await db.from('case_sp_subscriptions').insert({
-    case_id:         case_id,
-    subscription_id: sub.id,
-    drive_item_id:   caseRow.sharepoint_drive_item_id,
-    expires_at:      sub.expirationDateTime,
-  })
-
-  if (insertErr) {
-    console.error('[subscribe-case] insert error:', insertErr)
-    return NextResponse.json({ error: insertErr.message }, { status: 500 })
-  }
-
-  console.log(`[subscribe-case] subscribed case ${case_id} → sub ${sub.id}`)
 
   return NextResponse.json({
     ok:              true,
-    action:          'created',
     case_id,
-    subscription_id: sub.id,
     drive_item_id:   caseRow.sharepoint_drive_item_id,
-    expires_at:      sub.expirationDateTime,
+    subscription_id: subscriptionId,
+    sub_action:      subAction,
+    note:            'Root drive subscription — fires for all file changes in any case folder',
   })
 }

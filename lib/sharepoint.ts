@@ -224,12 +224,12 @@ const CLIENT_STATE        = 'el-team-portal'
 const EXPIRY_MINUTES      = 4200
 
 /**
- * Subscribe to a specific folder item (and all its children recursively).
- * This is the correct approach — subscribing to root does NOT fire for subfolder changes.
+ * Subscribe to the root of a drive — fires for ALL file changes at any depth.
+ * This is the only resource type Microsoft supports for SharePoint drive subscriptions.
+ * Per-item subscriptions (/drives/{id}/items/{id}) are NOT supported by Microsoft Graph.
  */
-export async function createItemSubscription(
-  driveId:    string,
-  itemId:     string,
+export async function createDriveSubscription(
+  driveId = DOCUMENTS_DRIVE_ID,
 ): Promise<GraphSubscription> {
   const token  = await getGraphToken()
   const expiry = new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000).toISOString()
@@ -241,22 +241,25 @@ export async function createItemSubscription(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      changeType:                'updated',
-      notificationUrl:           WEBHOOK_ENDPOINT,
-      lifecycleNotificationUrl:  LIFECYCLE_ENDPOINT,
-      resource:                  `/drives/${driveId}/items/${itemId}`,
-      expirationDateTime:        expiry,
-      clientState:               CLIENT_STATE,
+      changeType:               'updated',
+      notificationUrl:          WEBHOOK_ENDPOINT,
+      lifecycleNotificationUrl: LIFECYCLE_ENDPOINT,
+      resource:                 `/drives/${driveId}/root`,
+      expirationDateTime:       expiry,
+      clientState:              CLIENT_STATE,
     }),
   })
 
   if (!res.ok) {
     const err = await res.text()
-    throw new Error(`createItemSubscription: ${res.status} ${err.slice(0, 300)}`)
+    throw new Error(`createDriveSubscription: ${res.status} ${err.slice(0, 300)}`)
   }
 
   return res.json()
 }
+
+// Kept for API compatibility — alias to createDriveSubscription
+export const createItemSubscription = createDriveSubscription
 
 export async function renewSubscription(
   subscriptionId: string,
