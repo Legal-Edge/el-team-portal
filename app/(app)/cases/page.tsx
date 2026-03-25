@@ -63,6 +63,7 @@ function CasesContent() {
   const [isAdmin,        setIsAdmin]        = useState(false)
   const [showSaveModal,  setShowSaveModal]  = useState(false)
   const [saveError,      setSaveError]      = useState<string | null>(null)
+  const [saveConfirm,    setSaveConfirm]    = useState<string | null>(null)
   const [newViewName,    setNewViewName]    = useState('')
   const [saveAsTeam,     setSaveAsTeam]     = useState(false)
   const [savingView,     setSavingView]     = useState(false)
@@ -444,13 +445,39 @@ function CasesContent() {
 
         {/* Save view — update existing or create new */}
         <button
-          onClick={() => {
-            if (activeViewId) { updateView(); return }
-            // Pre-select update mode if there are existing views
-            const existing = savedViews.filter(v => !v.is_team_preset || isAdmin)
-            setSaveMode(existing.length > 0 ? 'update' : 'new')
-            setUpdateTargetId(existing.find(v => v.stage_tab === activeStage)?.id ?? existing[0]?.id ?? '')
-            setShowSaveModal(true)
+          onClick={async () => {
+            if (activeViewId) { await updateView(); return }
+            // Auto-save with stage name — no modal needed
+            const stageLabels: Record<string,string> = {
+              intake:'Intake', nurture:'Nurture', document_collection:'Doc Collection',
+              attorney_review:'Attorney Review', info_needed:'Info Needed', sign_up:'Sign Up',
+              retained:'Retained', settled:'Settled', dropped:'Dropped',
+            }
+            const name = stageLabels[activeStage] ?? 'My View'
+            setSavingView(true)
+            setSaveError(null)
+            try {
+              const res = await fetch('/api/cases/views', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name, is_team_preset: isAdmin,
+                  stage_tab: activeStage || null,
+                  columns: activeColumns, filters: filterGroups,
+                  sort_by: sortCol, sort_dir: sortDir,
+                }),
+              })
+              if (res.ok) {
+                const json = await res.json()
+                setSavedViews(prev => [...prev, json.view])
+                setActiveViewId(json.view.id)
+                setSaveConfirm(`Saved as "${name}"`)
+                setTimeout(() => setSaveConfirm(null), 3000)
+              } else {
+                const err = await res.json().catch(() => ({}))
+                setSaveError(err.error ?? `Save failed (${res.status})`)
+              }
+            } finally { setSavingView(false) }
           }}
           disabled={savingView}
           className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg transition-all duration-150 disabled:opacity-40"
@@ -458,8 +485,10 @@ function CasesContent() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h8l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5z" />
           </svg>
-          {savingView ? 'Saving…' : activeViewId ? 'Save view' : 'Save view'}
+          {savingView ? 'Saving…' : 'Save view'}
         </button>
+        {saveConfirm && <span className="text-xs text-emerald-600 font-medium">{saveConfirm}</span>}
+        {saveError   && <span className="text-xs text-red-500 font-medium">{saveError}</span>}
       </div>
 
       {/* ── Table ── */}
