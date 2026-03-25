@@ -22,6 +22,7 @@ export interface CaseRecord {
   case_priority:       string | null
   estimated_value:     number | null
   notes_last_updated:  string | null
+  last_engagement_at:  string | null
   created_at:          string
   updated_at:          string
   hubspot_properties:  Record<string, string | null> | null
@@ -82,7 +83,7 @@ function daysSince(d: string | null): number | null {
 
 function urgencyClass(c: CaseRecord): string {
   if (c.case_status === 'dropped' || c.case_status === 'settled') return 'border-l-gray-100'
-  const days = daysSince(c.notes_last_updated ?? c.updated_at)
+  const days = daysSince(c.last_engagement_at ?? c.notes_last_updated ?? c.updated_at)
   if (days === null) return 'border-l-gray-100'
   if (days > 30) return 'border-l-red-400'
   if (days > 14) return 'border-l-amber-400'
@@ -158,7 +159,7 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
     }
 
     case 'last_activity': {
-      const activity = c.notes_last_updated ?? c.updated_at
+      const activity = c.last_engagement_at ?? c.notes_last_updated ?? null
       const days = daysSince(activity)
       return (
         <span className={`text-xs tabular-nums ${

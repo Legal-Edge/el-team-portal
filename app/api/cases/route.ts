@@ -312,6 +312,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Last engagement per case (actual human activity — calls, emails, SMS, notes)
+  const lastEngMap: Record<string, string> = {}
+  if (caseIds.length > 0) {
+    const { data: engRows } = await db
+      .from('hubspot_engagements')
+      .select('case_id, occurred_at')
+      .in('case_id', caseIds)
+      .order('occurred_at', { ascending: false })
+    // Take the most recent per case (rows already desc by occurred_at)
+    for (const r of engRows ?? []) {
+      if (r.case_id && r.occurred_at && !lastEngMap[r.case_id]) {
+        lastEngMap[r.case_id] = r.occurred_at
+      }
+    }
+  }
+
   // Resolve HubSpot owner IDs → names (case_manager field stores owner ID)
   // Module-level cache so repeated requests within the same process reuse the map
   const ownerMap = await getOwnerMap()
@@ -322,6 +338,7 @@ export async function GET(req: NextRequest) {
     const resolvedName = rawCm ? (ownerMap.get(rawCm) ?? null) : null
     return {
       ...c,
+      last_engagement_at: lastEngMap[c.id] ?? null,
       comms_state: commsMap[c.id] ?? null,
       doc_state:   docMap[c.id]   ?? null,
       // Inject resolved case manager name into hubspot_properties for CaseRow to consume
