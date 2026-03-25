@@ -1842,7 +1842,17 @@ function DocumentsSection({
 
   useEffect(() => { load() }, [load])
 
-  // Reload when parent SSE receives a 'docs' event (document_files changed)
+  // Reload when hubspot_synced_at changes — syncCaseFiles() touches this after every SharePoint sync.
+  // This piggybacks on the core.cases Realtime → SSE 'case' event chain, which is confirmed working.
+  const prevSyncedAt = useRef<string | null>(null)
+  useEffect(() => {
+    if (syncedAt && syncedAt !== prevSyncedAt.current) {
+      prevSyncedAt.current = syncedAt
+      load()
+    }
+  }, [syncedAt, load])
+
+  // Also reload on 'docs' SSE event (direct document_files Realtime — backup path)
   useEffect(() => { if (refreshTrigger) load() }, [refreshTrigger, load])
 
   async function triggerSync() {
