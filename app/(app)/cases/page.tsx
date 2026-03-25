@@ -375,8 +375,8 @@ function CasesContent() {
         onSelect={selectStage}
       />
 
-      {/* ── Saved view tabs ── */}
-      {savedViews.length > 0 && (
+      {/* ── Saved view tabs — hidden for now (per-stage configs save/restore silently) ── */}
+      {false && savedViews.length > 0 && (
         <ViewTabs
           views={savedViews}
           activeViewId={activeViewId}
