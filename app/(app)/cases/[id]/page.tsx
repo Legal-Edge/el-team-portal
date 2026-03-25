@@ -3765,37 +3765,7 @@ export default function CaseDetailPage() {
           {/* Verified Facts from documents */}
           <VerifiedDataCard caseId={c.hubspot_deal_id} refreshTrigger={analysisVersion} />
 
-          {/* Intake Status */}
-          {intakeStatus && (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Intake Status</p>
-              <span className={`inline-flex px-2.5 py-1 text-xs font-medium rounded-full ${intakeBadgeColor(intakeStatus)}`}>
-                {INTAKE_STATUS_LABELS[intakeStatus] ?? intakeStatus}
-              </span>
 
-              {canUpdateIntake && allowedTransitions.length > 0 && (
-                <div className="mt-3">
-                  <select
-                    value=""
-                    disabled={intakeSaving}
-                    onChange={e => { if (e.target.value) handleIntakeStatusChange(e.target.value) }}
-                    className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400 disabled:opacity-50"
-                  >
-                    <option value="">
-                      {intakeSaving ? 'Saving…' : 'Move to…'}
-                    </option>
-                    {allowedTransitions.map(s => (
-                      <option key={s} value={s}>{INTAKE_STATUS_LABELS[s] ?? s}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {intakeError && (
-                <p className="mt-2 text-xs text-red-500">{intakeError}</p>
-              )}
-            </div>
-          )}
 
           {/* Quick actions */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-card p-5">
