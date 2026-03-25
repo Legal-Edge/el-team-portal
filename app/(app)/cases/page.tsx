@@ -300,7 +300,7 @@ function CasesContent() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-screen-2xl mx-auto">
+    <div className="p-4 md:p-6 space-y-4">
 
       {/* ── Title row ── */}
       <div className="flex items-center justify-between">
@@ -432,7 +432,7 @@ function CasesContent() {
               <table className="w-full text-sm" style={{ minWidth: activeColumns.length * 80 }}>
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50 group">
-                    <th className="w-1 px-0" />
+                    
                     {activeColumns.map(colId => {
                       const colDef  = ALL_COLUMNS.find(c => c.id === colId)
                       const sortKey = SORTABLE_COLS[colId]
@@ -441,7 +441,7 @@ function CasesContent() {
                         <th
                           key={colId}
                           onClick={() => sortable && toggleSort(sortKey)}
-                          className={`relative text-left px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide select-none first:pl-5 ${
+                          className={`relative text-left px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide select-none ${
                             sortable ? 'cursor-pointer hover:text-gray-700 transition-colors' : ''
                           }`}
                           style={{ width: colWidths[colId] ?? colDef?.width, minWidth: 50 }}
