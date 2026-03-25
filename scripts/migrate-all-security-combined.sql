@@ -78,6 +78,11 @@ GRANT USAGE ON SCHEMA staff TO authenticated;
 GRANT SELECT (id, display_name, email) ON staff.staff_users TO authenticated;
 
 -- ── 3. Fix SECURITY DEFINER views → SECURITY INVOKER ─────────
+-- DROP first to allow column reordering (CREATE OR REPLACE cannot reorder columns)
+DROP VIEW IF EXISTS core.documents_queue CASCADE;
+DROP VIEW IF EXISTS core.case_doc_summary CASCADE;
+DROP VIEW IF EXISTS core.comms_inbox CASCADE;
+DROP VIEW IF EXISTS core.my_work_queue CASCADE;
 
 CREATE OR REPLACE VIEW core.documents_queue WITH (security_invoker = true) AS
 SELECT df.id AS doc_id, df.case_id, ca.case_number, ca.case_status, ca.hubspot_deal_id, ca.assigned_attorney,
