@@ -89,6 +89,29 @@ export async function GET(req: NextRequest) {
           }
         })
 
+      // Subscribe to core.document_files — send 'docs' event when files change.
+      // Service role bypasses RLS so this works regardless of anon permissions.
+      // Resolves case UUID from hubspot_deal_id to filter by case_id.
+      if (caseId) {
+        supabase.schema('core').from('cases').select('id')
+          .eq('hubspot_deal_id', caseId).maybeSingle()
+          .then(({ data }) => {
+            if (!data?.id) return
+            const caseUUID = data.id
+            supabase
+              .channel(`docs-sse-${session.staffId}-${caseUUID}`)
+              .on('postgres_changes', {
+                event:  '*',
+                schema: 'core',
+                table:  'document_files',
+                filter: `case_id=eq.${caseUUID}`,
+              }, (payload) => {
+                send('docs', { type: payload.eventType, caseId })
+              })
+              .subscribe()
+          })
+      }
+
       // Keepalive — prevents Vercel / load-balancer from closing idle connections
       heartbeatTimer = setInterval(heartbeat, 20_000)
     },

@@ -1840,31 +1840,13 @@ function DocumentsSection({
 
   useEffect(() => { load() }, [load])
 
-  // Direct Supabase Realtime on document_files — fires immediately when any file
-  // is inserted, updated, or deleted for this case. No SSE chain dependency.
+  // Listen to SSE 'docs' events — server proxies document_files Realtime with service role.
+  // This avoids anon key RLS issues that silently drop Realtime events.
   useEffect(() => {
     if (!caseId) return
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-    let sb: any = null
-    try {
-      const { createClient: sbCreate2 } = require('@supabase/supabase-js')
-      sb = sbCreate2(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-    } catch { return }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let channel: any = null
-    sb.schema('core').from('cases').select('id')
-      .eq('hubspot_deal_id', caseId).maybeSingle()
-      .then(({ data }: { data: { id: string } | null }) => {
-        if (!data?.id) return
-        channel = sb
-          .channel(`doc-files-${data.id}`)
-          .on('postgres_changes', {
-            event: '*', schema: 'core', table: 'document_files',
-            filter: `case_id=eq.${data.id}`,
-          }, () => load())
-          .subscribe()
-      })
-    return () => { channel?.unsubscribe() }
+    const es = new EventSource(`/api/cases/stream?id=${caseId}`)
+    es.addEventListener('docs', () => { load() })
+    return () => { es.close() }
   }, [caseId, load])
 
   async function triggerSync() {
