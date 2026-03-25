@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/admin/cron/sharepoint-sync",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/admin/cron/sharepoint-renew",

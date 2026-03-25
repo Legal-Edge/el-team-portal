@@ -563,6 +563,7 @@ interface CaseFile {
   modified_by_name: string | null
   ai_extraction:      Record<string, unknown> | null
   ai_extracted_at:    string | null
+  is_deleted?:        boolean
 }
 
 interface DocumentStats {
@@ -1842,8 +1843,8 @@ function DocumentsSection({
 
   useEffect(() => { load() }, [load])
 
-  // Reload when hubspot_synced_at changes — syncCaseFiles() touches this after every SharePoint sync.
-  // This piggybacks on the core.cases Realtime → SSE 'case' event chain, which is confirmed working.
+  // ── Layer 1: SSE 'case' event (hubspot_synced_at touched after every SharePoint sync) ──
+  // Same chain that makes HubSpot live updates work — confirmed reliable.
   const prevSyncedAt = useRef<string | null>(null)
   useEffect(() => {
     if (syncedAt && syncedAt !== prevSyncedAt.current) {
@@ -1852,8 +1853,42 @@ function DocumentsSection({
     }
   }, [syncedAt, load])
 
-  // Also reload on 'docs' SSE event (direct document_files Realtime — backup path)
+  // ── Layer 2: SSE 'docs' event (direct document_files Realtime via service role) ──
   useEffect(() => { if (refreshTrigger) load() }, [refreshTrigger, load])
+
+  // ── Layer 3: Client-side polling every 25s ──
+  // Polls /api/cases/{id}/documents/poll?since={lastPollTime}
+  // Returns only files changed since last poll; merges by id → no duplicates.
+  // Ensures ~25s max latency even if SSE/Realtime is slow or disconnected.
+  const lastPollTime = useRef<string>(new Date().toISOString())
+  useEffect(() => {
+    // Update lastPollTime when a full load completes so poll window stays current
+    lastPollTime.current = new Date().toISOString()
+  }, [files])
+
+  useEffect(() => {
+    if (!caseId) return
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/cases/${caseId}/documents/poll?since=${lastPollTime.current}`)
+        if (!res.ok) return
+        const { files: changed, serverTime } = await res.json() as { files: CaseFile[]; serverTime: string }
+        lastPollTime.current = serverTime
+        if (!changed?.length) return
+        // Upsert into current state by id — no duplicates, handles updates and new files
+        setFiles(prev => {
+          const map = new Map(prev.map((f: CaseFile) => [f.id, f]))
+          for (const f of changed) {
+            if (f.is_deleted) map.delete(f.id)
+            else map.set(f.id, f)
+          }
+          return Array.from(map.values())
+        })
+      } catch { /* silent — polling is best-effort */ }
+    }
+    const timer = setInterval(poll, 25_000)
+    return () => clearInterval(timer)
+  }, [caseId])
 
   async function triggerSync() {
     setSyncing(true)
