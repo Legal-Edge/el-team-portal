@@ -11,15 +11,7 @@ export async function GET() {
   const session = await getTeamSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Resolve staff user ID from email
-  const { data: staffRow } = await supabaseAdmin
-    .schema('staff')
-    .from('staff_users')
-    .select('id')
-    .eq('email', session.email)
-    .single()
-
-  const staffId = staffRow?.id as string | undefined
+  const staffId = session.staffId || null
 
   // Fetch team presets + this user's personal views
   let query = supabaseAdmin
@@ -29,7 +21,6 @@ export async function GET() {
     .order('position', { ascending: true })
 
   if (staffId) {
-    // Using or filter: team presets OR owned by this staff member
     query = query.or(`is_team_preset.eq.true,owner_id.eq.${staffId}`)
   } else {
     query = query.eq('is_team_preset', true)
@@ -54,20 +45,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Only admins can create team presets' }, { status: 403 })
   }
 
-  // Resolve staff user ID
-  const { data: staffRow } = await supabaseAdmin
-    .schema('staff')
-    .from('staff_users')
-    .select('id')
-    .eq('email', session.email)
-    .single()
-
   const { data, error } = await supabaseAdmin
     .schema('staff')
     .from('case_views')
     .insert({
       name:           body.name           ?? 'My View',
-      owner_id:       staffRow?.id        ?? null,
+      owner_id:       session.staffId     || null,
       is_team_preset: body.is_team_preset ?? false,
       stage_tab:      body.stage_tab      ?? null,
       columns:        body.columns        ?? [],
@@ -104,14 +87,7 @@ export async function PUT(req: NextRequest) {
 
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { data: staffRow } = await supabaseAdmin
-    .schema('staff')
-    .from('staff_users')
-    .select('id')
-    .eq('email', session.email)
-    .single()
-
-  if (!isAdmin && existing.owner_id !== staffRow?.id) {
+  if (!isAdmin && existing.owner_id !== session.staffId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -160,14 +136,7 @@ export async function DELETE(req: NextRequest) {
 
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { data: staffRow } = await supabaseAdmin
-    .schema('staff')
-    .from('staff_users')
-    .select('id')
-    .eq('email', session.email)
-    .single()
-
-  if (!isAdmin && existing.owner_id !== staffRow?.id) {
+  if (!isAdmin && existing.owner_id !== session.staffId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

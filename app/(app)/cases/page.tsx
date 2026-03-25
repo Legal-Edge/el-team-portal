@@ -62,6 +62,7 @@ function CasesContent() {
   const [activeViewId,   setActiveViewId]   = useState<string | null>(null)
   const [isAdmin,        setIsAdmin]        = useState(false)
   const [showSaveModal,  setShowSaveModal]  = useState(false)
+  const [saveError,      setSaveError]      = useState<string | null>(null)
   const [newViewName,    setNewViewName]    = useState('')
   const [saveAsTeam,     setSaveAsTeam]     = useState(false)
   const [savingView,     setSavingView]     = useState(false)
@@ -315,6 +316,10 @@ function CasesContent() {
         setNewViewName('')
         setSaveAsTeam(false)
         setShowFilter(false)
+        setSaveError(null)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setSaveError(err.error ?? `Error ${res.status}`)
       }
     } finally {
       setSavingView(false)
@@ -552,6 +557,9 @@ function CasesContent() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
             <h2 className="font-semibold text-gray-900 text-lg">Save View</h2>
+            {saveError && (
+              <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{saveError}</p>
+            )}
 
             {/* Mode toggle */}
             {savedViews.filter(v => !v.is_team_preset || isAdmin).length > 0 && (
