@@ -141,8 +141,8 @@ export async function syncCaseFiles(
         }).eq('id', existing.id)
         if (updateErr) throw new Error(updateErr.message)
 
-        // Re-extract text for changed file
-        void runExtraction(db, existing.id, file)
+        // Re-extract text for changed file (await — Vercel kills void/fire-and-forget on response)
+        await runExtraction(db, existing.id, file)
 
         result.updated++
         continue
@@ -215,7 +215,7 @@ export async function syncCaseFiles(
         .eq('case_id', caseId)
         .eq('sharepoint_item_id', file.sharepoint_item_id)
         .maybeSingle()
-      if (newRow?.id) void runExtraction(db, newRow.id, file)
+      if (newRow?.id) await runExtraction(db, newRow.id, file)
 
       result.inserted++
     } catch (err) {

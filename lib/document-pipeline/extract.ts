@@ -66,16 +66,30 @@ export async function extractDocument(
     return null
   }
 
-  // Need a download URL
-  if (!file.download_url) {
-    console.warn(`[extract] skipping ${file.name} — no download_url`)
-    return null
+  // Resolve download URL — prefer pre-auth annotation, fall back to Graph content endpoint
+  // (app-only credentials sometimes don't get @microsoft.graph.downloadUrl annotation)
+  let downloadUrl = file.download_url
+  if (!downloadUrl) {
+    if (file.sharepoint_drive_id && file.sharepoint_item_id) {
+      // Graph content endpoint returns 302 → actual download URL
+      // We fetch with redirect:follow so the buffer lands directly
+      downloadUrl = `https://graph.microsoft.com/v1.0/drives/${file.sharepoint_drive_id}/items/${file.sharepoint_item_id}/content`
+    } else {
+      console.warn(`[extract] skipping ${file.name} — no download_url and no drive/item IDs`)
+      return null
+    }
   }
 
   // Download file bytes
   let buffer: Buffer
   try {
-    const res = await fetch(file.download_url)
+    // For Graph content endpoint we need the bearer token
+    const headers: Record<string, string> = {}
+    if (downloadUrl.startsWith('https://graph.microsoft.com')) {
+      const { getGraphToken } = await import('@/lib/sharepoint')
+      headers['Authorization'] = `Bearer ${await getGraphToken()}`
+    }
+    const res = await fetch(downloadUrl, { headers })
     if (!res.ok) {
       console.error(`[extract] download failed for ${file.name}: ${res.status}`)
       return null
