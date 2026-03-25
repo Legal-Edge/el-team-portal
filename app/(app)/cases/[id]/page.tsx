@@ -1809,9 +1809,11 @@ function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments, onAnalysisComple
 function DocumentsSection({
   caseId,
   syncedAt,
+  refreshTrigger,
 }: {
-  caseId:   string
-  syncedAt: string | null
+  caseId:          string
+  syncedAt:        string | null
+  refreshTrigger?: number
 }) {
   const router = useRouter()
   const [files,       setFiles]       = useState<CaseFile[]>([])
@@ -1840,14 +1842,8 @@ function DocumentsSection({
 
   useEffect(() => { load() }, [load])
 
-  // Listen to SSE 'docs' events — server proxies document_files Realtime with service role.
-  // This avoids anon key RLS issues that silently drop Realtime events.
-  useEffect(() => {
-    if (!caseId) return
-    const es = new EventSource(`/api/cases/stream?id=${caseId}`)
-    es.addEventListener('docs', () => { load() })
-    return () => { es.close() }
-  }, [caseId, load])
+  // Reload when parent SSE receives a 'docs' event (document_files changed)
+  useEffect(() => { if (refreshTrigger) load() }, [refreshTrigger, load])
 
   async function triggerSync() {
     setSyncing(true)
@@ -2970,6 +2966,7 @@ export default function CaseDetailPage() {
   }, [])
   const [activeTab, setActiveTab]     = useState<'overview' | 'guidance' | 'timeline' | 'documents' | 'ai' | 'hubspot'>(initialTab)
   const [analysisVersion, setAnalysisVersion] = useState(0)
+  const [docsVersion,     setDocsVersion]     = useState(0)
 
   const switchTab = (tab: 'overview' | 'guidance' | 'timeline' | 'documents' | 'ai' | 'hubspot') => {
     setActiveTab(tab)
@@ -3240,6 +3237,9 @@ export default function CaseDetailPage() {
 
     es.addEventListener('connected', () => setIsLive(true))
     es.onerror = () => setIsLive(false)
+
+    // Document files changed — reload DocumentsSection
+    es.addEventListener('docs', () => setDocsVersion(v => v + 1))
 
     es.addEventListener('case', (e: MessageEvent) => {
       const payload = JSON.parse(e.data) as { type: string; new: CaseDetail | null }
@@ -4276,6 +4276,7 @@ export default function CaseDetailPage() {
             <DocumentsSection
               caseId={params.id as string}
               syncedAt={syncedAt}
+              refreshTrigger={docsVersion}
             />
           )}
 
