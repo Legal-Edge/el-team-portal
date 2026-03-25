@@ -4,6 +4,32 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { FilterGroup, FilterCondition } from '@/lib/cases/column-defs'
 
 // Stage → group mapping
+// ── Module-level owner map cache (refreshes every 60 min) ────────────────────
+let _ownerCache: Map<string, string> | null = null
+let _ownerCacheAt = 0
+async function getOwnerMap(): Promise<Map<string, string>> {
+  if (_ownerCache && Date.now() - _ownerCacheAt < 3_600_000) return _ownerCache
+  const map = new Map<string, string>()
+  try {
+    const token = process.env.HUBSPOT_ACCESS_TOKEN
+    if (token) {
+      const res = await fetch('https://api.hubapi.com/crm/v3/owners?limit=500', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const json = await res.json() as { results?: { id: string; firstName?: string; lastName?: string; email?: string }[] }
+        for (const o of json.results ?? []) {
+          const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || o.id
+          map.set(o.id, name)
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+  _ownerCache = map
+  _ownerCacheAt = Date.now()
+  return map
+}
+
 const STAGE_GROUPS: Record<string, string> = {
   intake:              'active',
   nurture:             'active',
@@ -283,23 +309,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Resolve HubSpot owner IDs → names (case_manager field stores owner ID)
-  const ownerMap = new Map<string, string>()
-  try {
-    const token = process.env.HUBSPOT_ACCESS_TOKEN
-    if (token) {
-      const res = await fetch('https://api.hubapi.com/crm/v3/owners?limit=200', {
-        headers: { Authorization: `Bearer ${token}` },
-        next: { revalidate: 3600 }, // cache 1h
-      })
-      if (res.ok) {
-        const json = await res.json() as { results?: { id: string; firstName?: string; lastName?: string; email?: string }[] }
-        for (const o of json.results ?? []) {
-          const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || o.id
-          ownerMap.set(o.id, name)
-        }
-      }
-    }
-  } catch { /* non-fatal — owner map just won't resolve */ }
+  // Module-level cache so repeated requests within the same process reuse the map
+  const ownerMap = await getOwnerMap()
 
   const enrichedCases = rows.map((c) => {
     const hp = (c.hubspot_properties ?? {}) as Record<string, unknown>
