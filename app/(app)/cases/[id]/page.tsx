@@ -1808,8 +1808,10 @@ function AIAnalysisTab({ caseId, caseUUID, onSwitchToDocuments, onAnalysisComple
 
 function DocumentsSection({
   caseId,
+  syncedAt,
 }: {
-  caseId: string
+  caseId:   string
+  syncedAt: string | null
 }) {
   const router = useRouter()
   const [files,       setFiles]       = useState<CaseFile[]>([])
@@ -1837,6 +1839,15 @@ function DocumentsSection({
   }, [caseId])
 
   useEffect(() => { load() }, [load])
+
+  // Reload when server touches hubspot_synced_at (SharePoint sync or HubSpot webhook)
+  const prevSyncedAt = useRef(syncedAt)
+  useEffect(() => {
+    if (syncedAt && syncedAt !== prevSyncedAt.current) {
+      prevSyncedAt.current = syncedAt
+      load()
+    }
+  }, [syncedAt, load])
 
   async function triggerSync() {
     setSyncing(true)
@@ -3466,7 +3477,8 @@ export default function CaseDetailPage() {
     )
   }
 
-  const c = caseData
+  const c          = caseData
+  const syncedAt   = (c.hubspot_synced_at as string | null) ?? null
   const clientName = [c.client_first_name, c.client_last_name].filter(Boolean).join(' ') || 'Unknown Client'
   const vehicle    = [c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ') || 'Unknown Vehicle'
 
@@ -4263,6 +4275,7 @@ export default function CaseDetailPage() {
           {activeTab === 'documents' && (
             <DocumentsSection
               caseId={params.id as string}
+              syncedAt={syncedAt}
             />
           )}
 

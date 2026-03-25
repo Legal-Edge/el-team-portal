@@ -247,10 +247,14 @@ export async function syncCaseFiles(
     console.log(`[sharepoint-sync] soft-deleted ${staleIds.length} stale file(s) for case ${caseId}`)
   }
 
-  // Update sharepoint_synced_at on the case
+  // Touch hubspot_synced_at to trigger SSE stream → live UI refresh in Documents tab
+  // Also update sharepoint_synced_at for tracking
   await client.schema('core')
     .from('cases')
-    .update({ sharepoint_synced_at: now })
+    .update({
+      sharepoint_synced_at: now,
+      hubspot_synced_at:    now,   // fires Supabase Realtime → SSE → DocumentsSection reload
+    })
     .eq('id', caseId)
 
   return result
