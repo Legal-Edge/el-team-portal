@@ -460,6 +460,26 @@ function CasesContent() {
         <button
           onClick={async () => {
             if (activeViewId) { await updateView(); return }
+            // If a view already exists for this stage, update it instead of creating duplicate
+            const existingForStage = savedViews.find(v => v.stage_tab === (activeStage || null))
+            if (existingForStage) {
+              setActiveViewId(existingForStage.id)
+              // Inline update (can't call updateView() yet since state hasn't flushed)
+              setSavingView(true); setSaveError(null)
+              try {
+                const r = await fetch(`/api/cases/views?id=${existingForStage.id}`, {
+                  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ stage_tab: activeStage||null, columns: activeColumns, filters: filterGroups, sort_by: sortCol, sort_dir: sortDir }),
+                })
+                if (r.ok) {
+                  const j = await r.json()
+                  setSavedViews(prev => prev.map(v => v.id === existingForStage.id ? { ...v, ...j.view } : v))
+                  setSaveConfirm(`Saved "${existingForStage.name}"`)
+                  setTimeout(() => setSaveConfirm(null), 3000)
+                } else { const e = await r.json().catch(()=>({})); setSaveError(e.error ?? 'Save failed') }
+              } finally { setSavingView(false) }
+              return
+            }
             // Auto-save with stage name — no modal needed
             const stageLabels: Record<string,string> = {
               intake:'Intake', nurture:'Nurture', document_collection:'Doc Collection',
