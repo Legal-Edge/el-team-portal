@@ -222,11 +222,10 @@ export function CaseRow({ c, columns, isFlashed, isLastViewed, queueIds, queueId
       onClick={handleClick}
       className={`cursor-pointer transition-all duration-500 border-l-4 h-9 ${rowClass}`}
     >
-      <td className="w-0 p-0" />
       {columns.map(colId => (
         <td
           key={colId}
-          className="px-3 py-1.5 text-sm first:pl-5 last:pr-5 align-middle"
+          className="px-3 py-1.5 text-sm align-middle"
           style={{ width: ALL_COLUMNS.find(c => c.id === colId)?.width }}
         >
           {getCellValue(c, colId)}
