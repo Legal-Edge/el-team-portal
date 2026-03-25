@@ -346,7 +346,18 @@ function resolveCaseState(
 // ── Guidance generator ────────────────────────────────────────────────────────
 // Takes resolved case state → produces fully accurate, context-specific guidance
 
-function generateGuidance(cs: CaseState): IntelligenceReport['guidance'] {
+function generateGuidance(
+  cs:    CaseState,
+  stage: string,
+  atty: {
+    clarification_needed: string | null
+    nurture_decision:     string | null
+    repairs_needed_note:  string | null
+    ai_instructions:      string | null
+    review_decision:      string | null
+  },
+  hp: Record<string, unknown>,
+): IntelligenceReport['guidance'] {
 
   const { vehicle, firstName } = cs
   const checklist: GuidanceChecklistItem[] = []
@@ -354,69 +365,466 @@ function generateGuidance(cs: CaseState): IntelligenceReport['guidance'] {
 
   // ── Situation paragraph ───────────────────────────────────────────────────
   const situationParts: string[] = []
-
   let opening = `${firstName} has a ${vehicle}`
   if (cs.issues.length > 0) opening += ` with ${cs.issues.slice(0, 2).join(' and ')}`
   opening += '.'
   situationParts.push(opening)
 
-  // Repair status — be precise
-  if (cs.repair_status === 'visits_no_repairs') {
-    situationParts.push(
-      `${firstName} has been to the dealership ${cs.visit_count > 0 ? `${cs.visit_count} time${cs.visit_count !== 1 ? 's' : ''}` : 'multiple times'}, but no formal repairs have been completed — the dealership has not been able to diagnose or fix the problem.`
-    )
-  } else if (cs.repair_status === 'repairs_completed') {
-    situationParts.push(
-      `${firstName} has had ${cs.repair_count} documented repair${cs.repair_count !== 1 ? 's' : ''} completed at the dealership.`
-    )
-  } else {
-    situationParts.push(`No dealer visits have been documented yet.`)
+  // Vehicle repair status detail
+  if (cs.repair_status === 'repairs_completed' && cs.repair_count > 0) {
+    situationParts.push(`${cs.repair_count} repair attempt${cs.repair_count !== 1 ? 's' : ''} completed at the dealership.`)
+  } else if (cs.repair_status === 'visits_no_repairs') {
+    situationParts.push('Vehicle has been to the dealership but no repairs have been completed.')
+  } else if (cs.repair_status === 'no_visits') {
+    situationParts.push('No documented dealer visits yet.')
   }
 
-  // Nurture context
-  if (cs.nurture_reason) {
-    situationParts.push(`Nurture reason: ${cs.nurture_reason}.`)
+  const situation = situationParts.filter(Boolean).join(' ')
+
+  // ── STAGE: INTAKE ─────────────────────────────────────────────────────────
+  if (stage === 'intake') {
+    const elAppStatus  = hp['el_app_status'] ? String(hp['el_app_status']) : null
+    const batchNeeded  = elAppStatus?.startsWith('intake_batch_') && elAppStatus?.endsWith('_needed')
+    const underReview  = elAppStatus === 'intake_under_review'
+    const batchNum     = batchNeeded ? elAppStatus?.match(/batch_(\d+)/)?.[1] : null
+
+    const stage_goal = underReview
+      ? 'Intake form is under review. Verify all submitted information before routing.'
+      : batchNeeded
+        ? `Client needs to complete intake form — currently on Batch ${batchNum ?? '?'}.`
+        : 'Confirm intake questionnaire is complete and route to appropriate stage.'
+
+    if (!underReview) {
+      checklist.push({
+        id:   'complete_intake',
+        icon: '📋',
+        what: batchNeeded
+          ? `Follow up — client hasn\'t finished intake (Batch ${batchNum ?? '?'} needed)`
+          : 'Confirm intake questionnaire is complete',
+        how: [
+          `Check the client portal to see where ${firstName} is in the intake form.`,
+          `If they\'re stuck, send the follow-up SMS below or call (855) 435-3666 and walk them through it.`,
+          'All 7 steps must be complete before routing to the next stage.',
+        ],
+        then: 'Once intake is complete, route to Nurture or disqualify.',
+        template: {
+          type:  'sms',
+          label: 'Send intake follow-up',
+          body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nWe noticed you started your case evaluation but haven\'t finished yet — it only takes a few minutes to complete.\n\nFinish here: https://app.easylemon.com\n\nOnce it\'s done, our team will review everything and reach out with next steps. Any questions? Call or text (855) 435-3666 anytime!`,
+        },
+      })
+    }
+
+    if (underReview) {
+      checklist.push({
+        id:   'review_intake',
+        icon: '🔍',
+        what: 'Review submitted intake information',
+        how: [
+          'Open the client portal and review all submitted intake data.',
+          'Verify vehicle year, make, model, mileage, and reported issues.',
+          'Check repair history and state for eligibility.',
+          `If information is complete, route ${firstName} to Nurture.`,
+          'If information is missing or unclear, contact the client before routing.',
+        ],
+        then: `Route to Nurture if complete. Contact ${firstName} if clarification is needed.`,
+      })
+    }
+
+    next_steps.push(underReview
+      ? 'Review intake data and route to Nurture if complete.'
+      : `Follow up with ${firstName} to complete the intake form.`)
+
+    return {
+      stage_goal, situation, checklist, next_steps,
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'intake', last_call_key_points: [], attorney_has_instructions: false },
+    }
   }
 
-  // Attorney context
-  if (cs.attorney_requests.length > 0) {
-    situationParts.push(`Attorney has specifically requested: ${cs.attorney_requests.join(', ')}.`)
+  // ── STAGE: DOCUMENT COLLECTION ────────────────────────────────────────────
+  if (stage === 'document_collection') {
+    const hasROs        = cs.has_repair_orders
+    const hasPA         = cs.has_purchase_agmt
+    const missingDocs: string[] = []
+    if (!hasROs) missingDocs.push('Repair orders')
+    if (!hasPA)  missingDocs.push('Purchase or lease agreement')
+
+    const stage_goal = missingDocs.length === 0
+      ? 'All required documents appear to be on file. Confirm with the attorney team before routing to Attorney Review.'
+      : `Collect missing documents: ${missingDocs.join(', ')}.`
+
+    if (!hasROs) {
+      checklist.push({
+        id:   'collect_repair_orders',
+        icon: '📄',
+        what: 'Repair orders from all completed dealer visits',
+        how: [
+          `Ask ${firstName} to pull the paperwork from each time the ${vehicle} was serviced.`,
+          'These should show the date, complaint, diagnosis, and work performed.',
+          'If they don\'t have copies, the dealership\'s service department can provide them.',
+          'A clear photo replied to your text message works perfectly.',
+        ],
+        then: 'Once repair orders are received, our attorneys can begin their review.',
+        template: {
+          type:  'sms',
+          label: 'Request repair orders',
+          body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo move your case forward, we need copies of the repair paperwork from your dealership visits — the paperwork from each time your ${vehicle} was in for service.\n\nIf you have them at home, just take a photo and reply to this text! If not, call the dealership\'s service department and ask for copies of all service records.\n\nOnce we have these, our attorneys will review everything and reach out with next steps. 🍋\n\n(855) 435-3666`,
+        },
+      })
+    }
+
+    if (!hasPA) {
+      checklist.push({
+        id:   'collect_purchase_agreement',
+        icon: '🤝',
+        what: 'Purchase or lease agreement',
+        how: [
+          `Ask ${firstName} for the contract they signed when they got the ${vehicle}.`,
+          'This is usually a multi-page document from the finance department.',
+          'If they don\'t have it, the dealership\'s finance department can provide a copy.',
+        ],
+        then: 'Required for attorney review and for calculating the buyback value.',
+        template: {
+          type:  'sms',
+          label: 'Request purchase agreement',
+          body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nOur team needs a copy of your vehicle\'s purchase or lease agreement — the contract you signed when you got your ${vehicle}.\n\n1. If you have it at home, take a photo and reply to this text\n2. If not, contact the dealership\'s finance department — they can provide a copy\n\nOnce we have it, your attorney can finalize their review. Thanks! (855) 435-3666`,
+        },
+      })
+    }
+
+    if (missingDocs.length === 0) {
+      checklist.push({
+        id:   'confirm_docs_complete',
+        icon: '✅',
+        what: 'Confirm document set is complete and route to Attorney Review',
+        how: [
+          'Verify all repair orders and purchase agreement are on file in SharePoint.',
+          'Confirm documents are legible and cover all reported repair visits.',
+          'Route to Attorney Review in HubSpot.',
+        ],
+        then: 'Attorney will be assigned and begin their review within 24–48 hours.',
+      })
+      next_steps.push('Documents appear complete — route to Attorney Review.')
+    } else {
+      next_steps.push(`Outstanding: ${missingDocs.join(', ')}. Follow up with ${firstName} to collect.`)
+    }
+
+    return {
+      stage_goal, situation, checklist, next_steps,
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'document_collection', last_call_key_points: [], attorney_has_instructions: false },
+    }
   }
 
-  // Document status
-  if (cs.has_service_records) {
-    situationParts.push('Service records are on file.')
-  } else {
-    situationParts.push('No service records have been provided yet.')
+  // ── STAGE: ATTORNEY REVIEW ────────────────────────────────────────────────
+  if (stage === 'attorney_review') {
+    const hasInstructions = !!(atty.clarification_needed || atty.repairs_needed_note || atty.ai_instructions || atty.nurture_decision)
+    const stage_goal = hasInstructions
+      ? 'Attorney has flagged action items. Complete the requests below before the case can move forward.'
+      : atty.review_decision
+        ? `Attorney decision: ${atty.review_decision}. Follow up with the client on next steps.`
+        : 'Case is with the attorney. Monitor for instructions and maintain client communication.'
+
+    if (atty.ai_instructions) {
+      checklist.push({
+        id:   'attorney_instructions',
+        icon: '⚖️',
+        what: 'Attorney instructions',
+        how:  [atty.ai_instructions],
+        then: 'Complete attorney\'s instructions and update HubSpot notes.',
+        note: atty.ai_instructions,
+      })
+    }
+
+    if (atty.clarification_needed) {
+      checklist.push({
+        id:   'attorney_clarification',
+        icon: '❓',
+        what: 'Attorney needs clarification',
+        how: [
+          `Attorney note: "${atty.clarification_needed}"`,
+          `Contact ${firstName} to get this information, then log the response in HubSpot notes.`,
+        ],
+        then: 'Relay the clarification back to the attorney team.',
+        note: atty.clarification_needed,
+        template: {
+          type:  'sms',
+          label: 'Request clarification from client',
+          body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nOur attorney reviewing your case has a quick question about your ${vehicle}. Could you give us a call at (855) 435-3666 when you get a chance? It\'ll only take a moment and will help us move your case forward. Thanks! 🍋`,
+        },
+      })
+    }
+
+    if (atty.repairs_needed_note) {
+      checklist.push({
+        id:   'attorney_repairs_needed',
+        icon: '🔧',
+        what: 'Attorney: additional repair visits needed',
+        how: [
+          `Attorney note: "${atty.repairs_needed_note}"`,
+          `Let ${firstName} know they need to continue taking the vehicle to the dealer for documented repair visits.`,
+          'Encourage them to request written service records from every visit.',
+        ],
+        then: 'Once the additional visits are documented, the case can re-enter attorney review.',
+        template: {
+          type:  'sms',
+          label: 'Inform client — more visits needed',
+          body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nOur attorney has reviewed your case and wants to see a few more documented visits to the dealership before we can proceed. Each time you bring in the ${vehicle}, make sure to get the paperwork.\n\nOnce you\'ve had another visit or two, reach out and we\'ll continue building your case. Any questions? Call (855) 435-3666 anytime! 🍋`,
+        },
+      })
+    }
+
+    if (atty.nurture_decision) {
+      checklist.push({
+        id:   'attorney_nurture_decision',
+        icon: '📋',
+        what: 'Attorney nurture decision to action',
+        how: [
+          `Attorney decision: "${atty.nurture_decision}"`,
+          'Review the decision and take the appropriate follow-up action.',
+          'Update HubSpot stage if required.',
+        ],
+        then: 'Document the action taken in HubSpot notes.',
+        note: atty.nurture_decision,
+      })
+    }
+
+    if (!hasInstructions && atty.review_decision) {
+      checklist.push({
+        id:   'communicate_decision',
+        icon: '📞',
+        what: `Communicate attorney decision to ${firstName}`,
+        how: [
+          `Attorney decision: ${atty.review_decision}`,
+          `Call or text ${firstName} to explain next steps based on this decision.`,
+          'Log the conversation in HubSpot.',
+        ],
+        then: 'Update case stage based on the decision and client response.',
+      })
+    }
+
+    if (!hasInstructions && !atty.review_decision) {
+      checklist.push({
+        id:   'client_checkin',
+        icon: '💬',
+        what: 'Maintain client communication while under review',
+        how: [
+          `Check in with ${firstName} to let them know their case is being reviewed.`,
+          'Attorney review typically takes 24–48 hours.',
+          `If ${cs.days_since_contact !== null && cs.days_since_contact > 3 ? `it\'s been ${cs.days_since_contact} days since last contact — ` : ''}a quick check-in is appropriate.`,
+        ],
+        then: 'Attorney will provide instructions or a decision. Monitor HubSpot for updates.',
+        template: {
+          type:  'sms',
+          label: 'Attorney review check-in',
+          body:  `Hi ${firstName}! Just a quick update — your case documents are currently under review by our attorneys. We\'ll reach out as soon as they have their assessment ready. In the meantime, if you have any questions don\'t hesitate to call us at (855) 435-3666. Thanks for your patience! 🍋`,
+        },
+      })
+    }
+
+    next_steps.push(hasInstructions
+      ? 'Complete attorney\'s action items and update HubSpot notes.'
+      : atty.review_decision
+        ? `Follow up with ${firstName} on attorney decision: ${atty.review_decision}`
+        : 'Monitor for attorney instructions. Check in with client if >3 days since last contact.')
+
+    return {
+      stage_goal, situation, checklist, next_steps,
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'attorney_review', last_call_key_points: [], attorney_has_instructions: hasInstructions },
+    }
   }
 
-  const situation = situationParts.join(' ')
+  // ── STAGE: INFO NEEDED ────────────────────────────────────────────────────
+  if (stage === 'info_needed') {
+    const infoNeeded = atty.clarification_needed || atty.ai_instructions
+    const stage_goal = infoNeeded
+      ? `Attorney needs specific information before the review can continue: ${infoNeeded.slice(0, 120)}...`
+      : `Get missing information from ${firstName} so the attorney review can continue.`
 
-  // ── Determine nurture scenario and stage goal ─────────────────────────────
+    checklist.push({
+      id:   'get_missing_info',
+      icon: '❓',
+      what: infoNeeded ? 'Get attorney-requested information from client' : 'Identify and collect missing information',
+      how: infoNeeded
+        ? [
+            `Attorney has requested: "${infoNeeded}"`,
+            `Contact ${firstName} directly — call is faster than SMS for specific questions.`,
+            'Log the response in HubSpot notes immediately after the call.',
+          ]
+        : [
+            `Review the case notes for what information is outstanding.`,
+            `Contact ${firstName} and ask directly.`,
+            'Document the answer in HubSpot.',
+          ],
+      then: 'Once the information is received and logged, route back to Attorney Review.',
+      template: {
+        type:  'sms',
+        label: 'Request missing information',
+        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nOur attorney has a quick question about your case that we need your help with. Could you give us a call at (855) 435-3666 when you get a chance? It\'s a quick question and will help us move forward. Thanks! 🍋`,
+      },
+    })
+
+    next_steps.push(`Get missing information from ${firstName}, log in HubSpot, and route back to Attorney Review.`)
+
+    return {
+      stage_goal, situation, checklist, next_steps,
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'info_needed', last_call_key_points: [], attorney_has_instructions: true },
+    }
+  }
+
+  // ── STAGE: SIGN UP (closedwon — client approved, needs retainer) ──────────
+  if (stage === 'sign_up') {
+    const stage_goal = `${firstName} has been approved. Get the retainer agreement signed so the case can move to active litigation.`
+
+    checklist.push({
+      id:   'send_retainer',
+      icon: '✍️',
+      what: 'Send retainer agreement via PandaDoc',
+      how: [
+        'Go to PandaDoc and send the retainer agreement to the client\'s email address.',
+        `Confirm ${firstName}'s email address is correct in HubSpot before sending.`,
+        'Set a follow-up reminder for 24 hours if not signed.',
+      ],
+      then: 'Once signed, the case moves to active litigation and a demand letter can be prepared.',
+    })
+
+    checklist.push({
+      id:   'retainer_followup',
+      icon: '📬',
+      what: `Follow up if retainer hasn\'t been signed`,
+      how: [
+        `If PandaDoc shows the retainer is still unsigned after 24 hours, contact ${firstName}.`,
+        'Send the SMS template below or call to walk them through signing.',
+        'PandaDoc link is included in their original email — they can sign from any device.',
+      ],
+      then: 'Once retainer is signed, update HubSpot to Retained.',
+      template: {
+        type:  'sms',
+        label: 'Retainer follow-up',
+        body:  `Hi ${firstName}! Great news — your lemon law case has been approved by our attorneys! 🍋\n\nThe last step is signing your retainer agreement, which we sent to your email. It only takes a minute to sign on any device.\n\nIf you have any questions or can\'t find the email, give us a call at (855) 435-3666 and we\'ll help right away. We\'re excited to get your case moving!`,
+      },
+    })
+
+    next_steps.push(`Send retainer via PandaDoc. Follow up with ${firstName} within 24 hours if not signed.`)
+
+    return {
+      stage_goal, situation, checklist, next_steps,
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'sign_up', last_call_key_points: [], attorney_has_instructions: false },
+    }
+  }
+
+  // ── STAGE: RETAINED (active case) ─────────────────────────────────────────
+  if (stage === 'retained') {
+    const stage_goal = `${firstName}\'s case is active. Monitor demand letter progress and maintain regular client communication.`
+
+    checklist.push({
+      id:   'case_status_check',
+      icon: '⚖️',
+      what: 'Check current case status',
+      how: [
+        'Review Filevine for the current demand/litigation status.',
+        'Check if a demand letter has been sent and if the manufacturer has responded.',
+        `If ${cs.days_since_contact !== null && cs.days_since_contact > 7 ? `it\'s been ${cs.days_since_contact} days since last contact — a check-in is overdue` : 'last contact was recent'}.`,
+      ],
+      then: 'Log any updates in HubSpot and keep the client informed.',
+    })
+
+    checklist.push({
+      id:   'client_update',
+      icon: '💬',
+      what: 'Provide client status update',
+      how: [
+        `${firstName} should be updated on case progress at least every 2 weeks.`,
+        'Call is preferred — gives the client a chance to ask questions.',
+        'Log the conversation in HubSpot after the call.',
+      ],
+      then: 'Client should always know the current status and expected next steps.',
+      template: {
+        type:  'sms',
+        label: 'Active case check-in',
+        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nJust checking in on your case — we\'re actively working on it and wanted to give you an update. Give us a call at (855) 435-3666 when you have a moment and we\'ll walk you through where things stand. Thanks! 🍋`,
+      },
+    })
+
+    next_steps.push('Review case status in Filevine. Provide client update if >7 days since last contact.')
+
+    return {
+      stage_goal, situation, checklist, next_steps,
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'retained', last_call_key_points: [], attorney_has_instructions: false },
+    }
+  }
+
+  // ── STAGE: SETTLED ────────────────────────────────────────────────────────
+  if (stage === 'settled') {
+    const stage_goal = `${firstName}\'s case has been resolved. Complete settlement documentation and close the file.`
+
+    checklist.push({
+      id:   'settlement_docs',
+      icon: '📑',
+      what: 'Confirm settlement documentation is complete',
+      how: [
+        'Verify settlement agreement is signed and on file.',
+        'Confirm disbursement has been processed.',
+        'Upload all final documents to SharePoint.',
+      ],
+      then: 'Case can be fully closed once documentation is complete.',
+    })
+
+    checklist.push({
+      id:   'client_closeout',
+      icon: '🎉',
+      what: 'Complete client closeout',
+      how: [
+        `Call ${firstName} to confirm they\'ve received their settlement.`,
+        'Request a review or referral if the client is satisfied.',
+        'Log final notes in HubSpot and mark case closed.',
+      ],
+      then: 'Case is fully resolved.',
+    })
+
+    next_steps.push('Complete settlement documentation and close the file in HubSpot.')
+
+    return {
+      stage_goal, situation, checklist, next_steps,
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'settled', last_call_key_points: [], attorney_has_instructions: false },
+    }
+  }
+
+  // ── STAGE: DROPPED ────────────────────────────────────────────────────────
+  if (stage === 'dropped') {
+    return {
+      stage_goal:  'Case is closed.',
+      situation,
+      checklist:   [],
+      next_steps:  [],
+      _context: { repair_status: cs.repair_status, nurture_scenario: 'dropped', last_call_key_points: [], attorney_has_instructions: false },
+    }
+  }
+
+  // ── STAGE: NURTURE (default — most complex scenario logic) ────────────────
+  const nurture_scenario_var = (() => {
+    if (cs.waiting_manufacturer)                                         return 'waiting_manufacturer'
+    if (cs.waiting_threshold)                                            return 'waiting_threshold'
+    if (cs.waiting_more_repairs && cs.repair_status !== 'repairs_completed') return 'waiting_more_repairs'
+    if (cs.has_service_records && cs.attorney_requests.length === 0)     return 'docs_received'
+    return 'standard'
+  })()
 
   let stage_goal = ''
-  let nurture_scenario = 'standard'
+  const nurture_scenario = nurture_scenario_var
 
   if (cs.waiting_manufacturer) {
-    nurture_scenario = 'waiting_manufacturer'
     stage_goal = 'Follow up to check whether the client has heard from the manufacturer, and confirm the status of any recent dealer visits.'
   } else if (cs.waiting_threshold) {
-    nurture_scenario = 'waiting_threshold'
-    stage_goal = "Monitor the client's dealer visits and time in the shop to determine when the Lemon Law threshold has been reached."
+    stage_goal = "Monitor the client\'s dealer visits and time in the shop to determine when the Lemon Law threshold has been reached."
   } else if (cs.waiting_more_repairs && cs.repair_status !== 'repairs_completed') {
-    nurture_scenario = 'waiting_more_repairs'
     stage_goal = 'Stay in contact while the client continues to document dealer visits. Collect service records from each visit.'
   } else if (cs.has_service_records && cs.attorney_requests.length === 0) {
-    nurture_scenario = 'docs_received'
     stage_goal = 'Service records are on file. This case is ready for attorney review.'
   } else {
-    nurture_scenario = 'standard'
     stage_goal = 'Collect service records from all dealer visits so our attorneys can evaluate the case.'
   }
 
-  // ── Build checklist based on nurture scenario ─────────────────────────────
-
-  // 1. MANUFACTURER FOLLOW-UP (if waiting on manufacturer)
+  // 1. MANUFACTURER FOLLOW-UP
   if (cs.waiting_manufacturer) {
     checklist.push({
       id:   'manufacturer_followup',
@@ -428,23 +836,23 @@ function generateGuidance(cs: CaseState): IntelligenceReport['guidance'] {
         'If no — encourage them to contact the manufacturer directly, and let them know we will continue monitoring the case.',
         'Log the outcome in HubSpot notes.',
       ],
-      then: `Once we know the manufacturer's position, our attorneys will factor that into the case assessment.`,
+      then: `Once we know the manufacturer\'s position, our attorneys will factor that into the case assessment.`,
       template: {
         type:  'sms',
         label: 'Send manufacturer check-in',
-        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nWe wanted to check in on your ${vehicle}. Have you heard anything back from the manufacturer yet? If so, we'd love to know what they said.\n\nAlso — has your car been back to the dealership since we last spoke? Any new visits are important for us to track.\n\nReply anytime or call us at (855) 435-3666 — we're here!`,
+        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nWe wanted to check in on your ${vehicle}. Have you heard anything back from the manufacturer yet? If so, we\'d love to know what they said.\n\nAlso — has your car been back to the dealership since we last spoke? Any new visits are important for us to track.\n\nReply anytime or call us at (855) 435-3666 — we\'re here!`,
       },
     })
   }
 
-  // 2. SERVICE RECORDS (for visits_no_repairs — ask for service records, NOT repair orders)
+  // 2. SERVICE RECORDS (visits, no repairs)
   if (!cs.has_service_records && cs.repair_status === 'visits_no_repairs') {
     checklist.push({
       id:   'service_records',
       icon: '🔧',
       what: 'Service records from each dealer visit',
       how: [
-        `Ask ${firstName} to request copies of all service records from the dealership's service department — this includes every visit, even the ones where the dealership said they couldn't find anything.`,
+        `Ask ${firstName} to request copies of all service records from the dealership\'s service department — this includes every visit, even the ones where the dealership said they couldn\'t find anything.`,
         'These records document the dates the vehicle was brought in, what the dealership inspected, and whether or not a diagnosis was made.',
         `${firstName} can call the service department and ask: "Can I get copies of all service records for my vehicle?" Dealers are required to provide these.`,
         'They can take a photo of each record and reply to your text.',
@@ -453,12 +861,12 @@ function generateGuidance(cs: CaseState): IntelligenceReport['guidance'] {
       template: {
         type:  'sms',
         label: 'Send service records request',
-        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo continue building your case, we need copies of the paperwork from your dealership visits — even the ones where they said they couldn't find the issue. These service records document every time you brought your ${vehicle} in, which is exactly what we need.\n\nHere's how to get them:\n1. Call the dealership's service department and ask for copies of all service records for your vehicle\n2. Or if you have any paperwork from your visits at home, take a photo and reply to this text\n\nEvery visit counts — even when the dealership couldn't diagnose the problem. Once we have these, our attorneys will take a look and let you know next steps. Reply here or call us at (855) 435-3666 anytime! 🍋`,
+        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo continue building your case, we need copies of the paperwork from your dealership visits — even the ones where they said they couldn\'t find the issue. These service records document every time you brought your ${vehicle} in, which is exactly what we need.\n\nHere\'s how to get them:\n1. Call the dealership\'s service department and ask for copies of all service records for your vehicle\n2. Or if you have any paperwork from your visits at home, take a photo and reply to this text\n\nEvery visit counts — even when the dealership couldn\'t diagnose the problem. Once we have these, our attorneys will take a look and let you know next steps. Reply here or call us at (855) 435-3666 anytime! 🍋`,
       },
     })
   }
 
-  // 3. SERVICE RECORDS (for no_visits — encourage first visit)
+  // 3. FIRST VISIT (no visits yet)
   if (!cs.has_service_records && cs.repair_status === 'no_visits') {
     checklist.push({
       id:   'first_visit',
@@ -474,12 +882,12 @@ function generateGuidance(cs: CaseState): IntelligenceReport['guidance'] {
       template: {
         type:  'sms',
         label: 'Send first visit encouragement',
-        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nJust checking in — is your ${vehicle} still having issues? If so, we'd encourage you to bring it to the dealership as soon as you can and ask them to document the visit in writing.\n\nEven if they say they can't find anything, that paperwork matters for your case. After each visit, save the documents and feel free to send us a photo by replying to this text.\n\nWe're here to help! Call us at (855) 435-3666 with any questions.`,
+        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nJust checking in — is your ${vehicle} still having issues? If so, we\'d encourage you to bring it to the dealership as soon as you can and ask them to document the visit in writing.\n\nEven if they say they can\'t find anything, that paperwork matters for your case. After each visit, save the documents and feel free to send us a photo by replying to this text.\n\nWe\'re here to help! Call us at (855) 435-3666 with any questions.`,
       },
     })
   }
 
-  // 4. REPAIR ORDERS (for repairs_completed only)
+  // 4. REPAIR ORDERS (repairs completed)
   if (cs.repair_status === 'repairs_completed' && !cs.has_repair_orders) {
     checklist.push({
       id:   'repair_orders',
@@ -494,57 +902,34 @@ function generateGuidance(cs: CaseState): IntelligenceReport['guidance'] {
       template: {
         type:  'sms',
         label: 'Send repair order request',
-        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo move your case forward, we need copies of the repair paperwork from your dealership visits — the service records from each time your ${vehicle} was in for repairs.\n\nIf you have them at home, just take a photo and reply to this text! If not, you can call the dealership's service department and request copies. Once we have these, our attorneys will review everything and reach out with next steps. 🍋\n\n(855) 435-3666`,
+        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo move your case forward, we need copies of the repair paperwork from your dealership visits — the service records from each time your ${vehicle} was in for repairs.\n\nIf you have them at home, just take a photo and reply to this text! If not, you can call the dealership\'s service department and request copies. Once we have these, our attorneys will review everything and reach out with next steps. 🍋\n\n(855) 435-3666`,
       },
     })
   }
 
-  // 5. ATTORNEY-REQUESTED DOCUMENTS (only if attorney specifically asked)
-  for (const req of cs.attorney_requests) {
-    const isPurchaseAgmt = /purchase|lease/i.test(req)
+  // 5. PURCHASE AGREEMENT (attorney requested)
+  if (cs.attorney_requests.includes('purchase_agreement') && !cs.has_purchase_agmt) {
     checklist.push({
-      id:   `atty_req_${req.replace(/\s+/g, '_').toLowerCase()}`,
-      icon: '⚖️',
-      what: req,
-      note: 'Specifically requested by the reviewing attorney.',
-      how: isPurchaseAgmt
-        ? [
-            `Ask ${firstName} to locate the purchase or lease agreement they signed at the dealership.`,
-            'If they can\'t find it, they can contact the dealership\'s finance department or check their email for a digital copy.',
-            'Take a photo of all pages and reply to your text.',
-          ]
-        : [
-            `Contact ${firstName} directly and explain what's needed.`,
-            'Ask them to take a photo and reply to your text.',
-          ],
-      then: 'Once received, the attorney will be able to complete their review.',
-      template: isPurchaseAgmt ? {
+      id:   'purchase_agreement',
+      icon: '🤝',
+      what: 'Purchase or lease agreement',
+      how: [
+        `Ask ${firstName} for the contract signed when purchasing the ${vehicle}.`,
+        'This is a multi-page document from the dealership\'s finance department.',
+        'If they don\'t have it, the finance department can provide a copy.',
+      ],
+      then: 'Once the purchase agreement is on file, the attorney review can continue.',
+      template: {
         type:  'sms',
-        label: `Request ${req}`,
-        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nOur attorney reviewing your case has requested a copy of your vehicle's purchase or lease agreement — the contract you signed at the dealership when you got your ${vehicle}.\n\n1. If you have it at home, take a photo and reply to this text\n2. If not, contact the dealership's finance department — they can provide a copy\n\nOnce we have this, your attorney can finalize their review. Thanks so much! Reply or call (855) 435-3666 anytime.`,
-      } : undefined,
+        label: 'Send purchase agreement request',
+        body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nOur attorney reviewing your case has requested a copy of your vehicle\'s purchase or lease agreement — the contract you signed at the dealership when you got your ${vehicle}.\n\n1. If you have it at home, take a photo and reply to this text\n2. If not, contact the dealership\'s finance department — they can provide a copy\n\nOnce we have this, your attorney can finalize their review. Thanks so much! Reply or call (855) 435-3666 anytime.`,
+      },
     })
   }
 
-  // ── Next steps ────────────────────────────────────────────────────────────
-  if (cs.waiting_manufacturer) {
-    next_steps.push(`Send the check-in message and ask ${firstName} whether they've heard from the manufacturer.`)
-    next_steps.push("Log the manufacturer's response (or lack of one) in HubSpot after you hear back.")
-  }
-  if (!cs.has_service_records) {
-    next_steps.push(`Request service records from all dealer visits — even visits where no repairs were made.`)
-  }
-  if (cs.attorney_requests.length > 0) {
-    next_steps.push(`Collect attorney-requested documents: ${cs.attorney_requests.join(', ')}.`)
-  }
-
-  next_steps.push('Once service records are received, our attorneys will review the documents and determine the recommended next steps.')
-  next_steps.push(`Keep ${firstName} informed — let them know when their documents have been received and that their case is being reviewed.`)
-
+  // 6. DOCS RECEIVED — ready for review
   if (cs.has_service_records && cs.attorney_requests.length === 0) {
-    next_steps.length = 0
     next_steps.push('Service records are on file. Confirm the case is flagged for attorney review.')
-    next_steps.push(`Let ${firstName} know their documents have been received and an attorney is reviewing their case.`)
   }
 
   return {
@@ -560,6 +945,7 @@ function generateGuidance(cs: CaseState): IntelligenceReport['guidance'] {
     },
   }
 }
+
 
 // ── Timeline builder ──────────────────────────────────────────────────────────
 
@@ -675,7 +1061,18 @@ export async function GET(
 
   // ── Resolve case state and generate guidance ──────────────────────────────
   const caseState = resolveCaseState(hp, engagements, docTypes, clientName)
-  const guidance  = generateGuidance(caseState)
+  const guidance  = generateGuidance(
+    caseState,
+    String(caseRow.case_status),
+    {
+      clarification_needed: attyClariNeeded,
+      nurture_decision:     attyNurtureDecis,
+      repairs_needed_note:  attyRepairsNote,
+      ai_instructions:      attyAiInstruct,
+      review_decision:      attyDecision,
+    },
+    hp,
+  )
 
   const missingCritical: string[] = []
   if (!caseState.has_service_records && !caseState.has_repair_orders) {
