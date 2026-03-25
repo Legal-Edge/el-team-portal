@@ -48,6 +48,7 @@ function CasesContent() {
 
   // Columns
   const [activeColumns, setActiveColumns]   = useState<string[]>(DEFAULT_COLUMNS)
+  const [colWidths,     setColWidths]       = useState<Record<string, number>>({})
   const [showColMgr,    setShowColMgr]      = useState(false)
 
   // Filters
@@ -63,7 +64,26 @@ function CasesContent() {
   const [saveAsTeam,     setSaveAsTeam]     = useState(false)
   const [savingView,     setSavingView]     = useState(false)
 
-  const esRef  = useRef<EventSource | null>(null)
+  const esRef      = useRef<EventSource | null>(null)
+  const resizeRef  = useRef<{ colId: string; startX: number; startW: number } | null>(null)
+
+  const startResize = (e: React.MouseEvent, colId: string, currentWidth: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    resizeRef.current = { colId, startX: e.clientX, startW: currentWidth }
+    const onMove = (ev: MouseEvent) => {
+      if (!resizeRef.current) return
+      const newW = Math.max(50, resizeRef.current.startW + (ev.clientX - resizeRef.current.startX))
+      setColWidths(prev => ({ ...prev, [resizeRef.current!.colId]: newW }))
+    }
+    const onUp = () => {
+      resizeRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   const colBtnRef = useRef<HTMLDivElement>(null)
   const filterBtnRef = useRef<HTMLDivElement>(null)
 
@@ -411,7 +431,7 @@ function CasesContent() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm" style={{ minWidth: activeColumns.length * 80 }}>
                 <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
+                  <tr className="border-b border-gray-100 bg-gray-50 group">
                     <th className="w-1 px-0" />
                     {activeColumns.map(colId => {
                       const colDef  = ALL_COLUMNS.find(c => c.id === colId)
@@ -421,16 +441,25 @@ function CasesContent() {
                         <th
                           key={colId}
                           onClick={() => sortable && toggleSort(sortKey)}
-                          className={`text-left px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide select-none first:pl-5 ${
+                          className={`relative text-left px-3 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide select-none first:pl-5 ${
                             sortable ? 'cursor-pointer hover:text-gray-700 transition-colors' : ''
                           }`}
-                          style={{ width: colDef?.width }}
+                          style={{ width: colWidths[colId] ?? colDef?.width, minWidth: 50 }}
                         >
                           <span className="inline-flex items-center gap-0.5">
                             {colDef?.label ?? colId}
                             {sortable && (
                               <SortIcon col={sortKey} active={sortCol === sortKey} asc={sortDir === 'asc'} />
                             )}
+                          </span>
+                          {/* Resize handle */}
+                          <span
+                            onMouseDown={e => startResize(e, colId, colWidths[colId] ?? colDef?.width ?? 120)}
+                            onClick={e => e.stopPropagation()}
+                            className="absolute right-0 top-0 h-full w-3 flex items-center justify-center cursor-col-resize opacity-0 hover:opacity-100 group-hover:opacity-60 z-10"
+                            style={{ userSelect: 'none' }}
+                          >
+                            <span className="w-px h-4 bg-gray-300 rounded" />
                           </span>
                         </th>
                       )
