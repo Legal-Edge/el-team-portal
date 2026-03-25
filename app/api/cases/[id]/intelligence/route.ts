@@ -12,10 +12,17 @@
  * Key principle: nurture_reason drives the primary action. Everything else is context.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { getTeamSession }            from '@/lib/session'
-import { supabaseAdmin }             from '@/lib/supabase'
-import { STATE_LAWS, FEDERAL_LAW }   from '@/lib/lemon-law/states'
+import { NextRequest, NextResponse }                     from 'next/server'
+import { getTeamSession }                                from '@/lib/session'
+import { supabaseAdmin }                                 from '@/lib/supabase'
+import { STATE_LAWS, FEDERAL_LAW }                       from '@/lib/lemon-law/states'
+import { buildSynthesisInput, synthesizeGuidance }       from '@/lib/intelligence/synthesize'
+
+function buildStateLawSummary(stateCode: string): string {
+  const law = STATE_LAWS[stateCode?.toUpperCase()] ?? null
+  if (!law) return FEDERAL_LAW.keyNuances ?? 'Federal Magnuson-Moss applies — reasonable repair attempts standard.'
+  return `${law.name} (${law.statute}): ${law.repairAttempts} repair attempts for same defect (${law.safetyAttempts} for safety), OR ${law.daysOOS}+ days out of service — within ${law.windowMonths} months/${law.windowMiles.toLocaleString()} miles. Remedies: ${law.remedies}.${law.keyNuances ? ' ' + law.keyNuances : ''}`
+}
 
 // ── HubSpot engagements fetcher ───────────────────────────────────────────────
 
@@ -1263,7 +1270,7 @@ export async function GET(
   // ── Tier 3: Documents ─────────────────────────────────────────────────────
   const { data: docs } = await supabaseAdmin
     .schema('core').from('document_files')
-    .select('document_type_code, file_name')
+    .select('document_type_code, file_name, extracted_text')
     .eq('case_id', caseUUID).eq('is_deleted', false)
 
   const docTypes  = [...new Set((docs ?? []).map(d => d.document_type_code).filter(Boolean))] as string[]
@@ -1282,11 +1289,42 @@ export async function GET(
   const attyAiInstruct   = hp['attorney_nurture_instructions__ai_']             ? String(hp['attorney_nurture_instructions__ai_'])             : null
   const attyDecision     = hp['attorney_review_decision']                       ? String(hp['attorney_review_decision'])                       : null
 
-  // ── Resolve case state and generate guidance ──────────────────────────────
+  // ── Resolve case state (deterministic) ────────────────────────────────────
   const caseState = resolveCaseState(hp, engagements, docTypes, clientName)
-  const guidance  = generateGuidance(
+
+  // ── AI guidance synthesis (Claude) ────────────────────────────────────────
+  // Build comprehensive context from all available signals and ask Claude to
+  // synthesize actionable, case-specific guidance. Falls back to deterministic.
+  const stage       = String(caseRow.case_status)
+  const stateLawSummary = buildStateLawSummary(caseState.state)
+  let aiGuidance: Awaited<ReturnType<typeof synthesizeGuidance>> | null = null
+
+  try {
+    const synthInput = buildSynthesisInput({
+      stage,
+      caseRow: { client_first_name: caseRow.client_first_name, client_last_name: caseRow.client_last_name },
+      hp,
+      engagements,
+      docFiles: (docs ?? []) as { file_name: string; document_type_code: string | null; extracted_text?: string | null }[],
+      docTypes,
+      daysSinceContact: (() => {
+        const lastContacted = hp['notes_last_contacted'] ? String(hp['notes_last_contacted']) : null
+        const ms = lastContacted
+          ? (/^\d{13}$/.test(lastContacted) ? parseInt(lastContacted) : new Date(lastContacted).getTime())
+          : (engagements[0]?.createdAt ?? null)
+        return ms ? Math.floor((Date.now() - ms) / 86_400_000) : null
+      })(),
+      stateLawSummary,
+    })
+    aiGuidance = await synthesizeGuidance(synthInput)
+  } catch (err) {
+    console.error('[intelligence] AI synthesis failed, falling back to deterministic:', err)
+  }
+
+  // ── Deterministic guidance (fallback) ────────────────────────────────────
+  const deterministicGuidance = generateGuidance(
     caseState,
-    String(caseRow.case_status),
+    stage,
     {
       clarification_needed: attyClariNeeded,
       nurture_decision:     attyNurtureDecis,
@@ -1296,6 +1334,15 @@ export async function GET(
     },
     hp,
   )
+
+  // Merge: AI guidance is primary; deterministic fills in faqs and _context
+  const guidance = aiGuidance
+    ? {
+        ...aiGuidance,
+        faqs:     deterministicGuidance.faqs,
+        _context: deterministicGuidance._context,
+      }
+    : deterministicGuidance
 
   const missingCritical: string[] = []
   if (!caseState.has_service_records && !caseState.has_repair_orders) {
