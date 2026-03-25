@@ -140,9 +140,11 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
       )
 
     case 'case_manager': {
-      // Try resolved name first (injected by API), fall back to raw value
-      const cmName = getHpValue(c, 'case_manager_name') ?? raw
-      return cmName ? <span className="text-gray-700 truncate max-w-[130px] block">{String(cmName)}</span> : <span className="text-gray-300">—</span>
+      // Try resolved name (injected by API after owner map lookup)
+      const cmName = getHpValue(c, 'case_manager_name')
+      // If no resolved name, don't show raw numeric owner ID
+      if (!cmName) return <span className="text-gray-300">—</span>
+      return <span className="text-gray-700 truncate max-w-[130px] block">{String(cmName)}</span>
     }
 
     case 'days_in_stage': {

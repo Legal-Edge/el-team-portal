@@ -17,11 +17,11 @@ async function getOwnerMap(): Promise<Map<string, string>> {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {
-        const json = await res.json() as { results?: { id: string; firstName?: string; lastName?: string; email?: string }[] }
+        const json = await res.json() as { results?: { id: string; userId?: number; firstName?: string; lastName?: string; email?: string }[] }
         for (const o of json.results ?? []) {
           const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || o.id
-          map.set(o.id, name)
-        }
+          map.set(o.id, name)                           // owner ID key
+          if (o.userId) map.set(String(o.userId), name) // user ID key (used by owner-ref properties)
       }
     }
   } catch { /* non-fatal */ }
