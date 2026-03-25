@@ -3680,6 +3680,452 @@ export default function CaseDetailPage() {
             ))}
           </div>
 
+          {activeTab === 'timeline' && (() => {
+            // ── Contacts on this case (for badge + filter) ───────────────────
+            const caseContacts: { id: string; name: string; initials: string; color: string; role: string }[] = []
+            const seenContactIds = new Set<string>()
+            for (const i of timelineItems) {
+              if (i.contact_id && i.contact_name && i.contact_initials && i.contact_color && !seenContactIds.has(i.contact_id)) {
+                seenContactIds.add(i.contact_id)
+                caseContacts.push({ id: i.contact_id, name: i.contact_name, initials: i.contact_initials, color: i.contact_color, role: i.contact_role ?? '' })
+              }
+            }
+            const multiContact = caseContacts.length > 1
+
+            // ── Derived timeline data ────────────────────────────────────────
+            const pinnedItems   = timelineItems.filter(i => i.source === 'note' && i.is_pinned)
+            const filteredItems = timelineItems.filter(i => {
+              if (i.source === 'note' && i.is_pinned) return false  // shown in pinned section
+              if (i.item_type === 'task' || i.item_type === 'meeting') return false
+              if (contactFilter && i.contact_id && i.contact_id !== contactFilter) return false
+              if (timelineFilter === 'calls')    return i.item_type === 'call' || i.item_type === 'call_missed'
+              if (timelineFilter === 'messages') return ['sms', 'voicemail'].includes(i.item_type)
+              if (timelineFilter === 'email')    return i.item_type === 'email'
+              if (timelineFilter === 'notes')    return i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')
+              if (timelineFilter === 'docs')     return i.item_type.startsWith('document.') || i.item_type === 'document'
+              if (timelineFilter === 'events')   return i.source === 'event' && !i.item_type.startsWith('document.')
+              return true
+            })
+            const itemCounts = {
+              calls:    timelineItems.filter(i => i.item_type === 'call' || i.item_type === 'call_missed').length,
+              messages: timelineItems.filter(i => ['sms', 'voicemail'].includes(i.item_type)).length,
+              email:    timelineItems.filter(i => i.item_type === 'email').length,
+              notes:    timelineItems.filter(i => i.source === 'note' || (i.source === 'hubspot' && i.item_type === 'note')).length,
+              docs:     timelineItems.filter(i => i.item_type.startsWith('document.') || i.item_type === 'document').length,
+              events:   timelineItems.filter(i => i.source === 'event' && !i.item_type.startsWith('document.')).length,
+            }
+
+            // ── Item rendering config ────────────────────────────────────────
+            const ITEM_ICON: Record<string, string> = {
+              // Events
+              'case.created': '🎉', 'case.stage_changed': '➡️', 'case.updated': '✏️',
+              'document.uploaded': '📄', 'document.classified': '🏷️', 'document.reviewed': '✅',
+              'intake.submitted': '📋', 'intake.step_completed': '✔️',
+              'sms.received': '💬', 'sms.sent': '💬', 'call.completed': '📞', 'call.missed': '📵',
+              'voicemail.received': '📨', 'email.received': '✉️', 'email.sent': '✉️',
+              // Comms + Aloware reclassified types
+              sms: '💬', call: '📞', email: '✉️',
+              voicemail: '📨', call_missed: '📵',
+              // Note types
+              general: '📝', call_summary: '📞', verbal_update: '💬',
+              attorney_note: '⚖️', case_manager_note: '📋', milestone: '🏁',
+              client_communication: '👤', intake_note: '📝',
+            }
+            const ITEM_COLOR: Record<string, string> = {
+              event: 'bg-amber-50 text-amber-700',
+              comm:  'bg-gray-100 text-gray-600',
+              note:  'bg-blue-50 text-blue-700',
+            }
+            const VIS_CFG: Record<string, { label: string; cls: string }> = {
+              public:     { label: 'Public',     cls: 'bg-green-50 text-green-700'  },
+              internal:   { label: 'Internal',   cls: 'bg-blue-50 text-blue-700'    },
+              restricted: { label: 'Restricted', cls: 'bg-orange-50 text-orange-700'},
+              private:    { label: 'Private',    cls: 'bg-purple-50 text-purple-700'},
+            }
+            const EVENT_LABEL: Record<string, string> = {
+              'case.created': 'Case Created', 'case.stage_changed': 'Stage Changed',
+              'case.updated': 'Case Updated', 'document.uploaded': 'Document Uploaded',
+              'document.classified': 'Doc Classified', 'document.reviewed': 'Doc Reviewed',
+              'intake.submitted': 'Intake Submitted', 'intake.step_completed': 'Step Completed',
+              'sms.received': 'SMS Received', 'sms.sent': 'SMS Sent',
+              'call.completed': 'Call Completed', 'call.missed': 'Missed Call',
+              'voicemail.received': 'Voicemail', 'email.received': 'Email Received', 'email.sent': 'Email Sent',
+            }
+
+            // ── Phone formatter ──────────────────────────────────────────────
+            function formatPhone(raw: string | null): string {
+              if (!raw) return ''
+              const d = raw.replace(/\D/g, '')
+              if (d.length === 11 && d[0] === '1') return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`
+              if (d.length === 10)                  return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`
+              return raw
+            }
+
+            // ── Item renderer ────────────────────────────────────────────────
+            function renderItem(item: TimelineItem) {
+              const isNew    = newItemIds.has(item.id)
+              const icon     = ITEM_ICON[item.item_type] ?? (item.source === 'event' ? '⚡' : item.source === 'comm' ? '💬' : '📝')
+              const vis      = VIS_CFG[item.visibility]
+              const pinCan   = (canManageNotes || staffId === item.author_ref) && item.source === 'note'
+
+              // Direction styling for comms
+              const isInbound  = item.source === 'comm' && item.direction === 'inbound'
+              const isOutbound = item.source === 'comm' && item.direction === 'outbound'
+              const dirBorder  = isInbound  ? 'border-l-2 border-l-blue-300'
+                               : isOutbound ? 'border-l-2 border-l-gray-200'
+                               : item.is_pinned ? 'border-l-2 border-l-yellow-400'
+                               : ''
+
+              // Author display
+              const rawAuthor  = item.source === 'note'
+                ? (item.author_name ?? 'Unknown')
+                : item.source === 'hubspot'
+                  ? (item.author_ref ?? null)   // agent name extracted from Aloware body
+                  : item.source === 'comm'
+                    ? (item.item_type === 'sms' || item.item_type === 'call'
+                        ? formatPhone(item.author_ref)
+                        : (item.author_ref ?? ''))
+                    : (item.author_ref ?? '')
+
+              // Type label
+              const HUBSPOT_TYPE_LABELS: Record<string, string> = {
+                sms: 'SMS', call: 'Call', email: 'Email', note: 'Note',
+                voicemail: 'Voicemail', call_missed: 'Missed Call',
+              }
+              const typeLabel = item.source === 'event'
+                ? (EVENT_LABEL[item.item_type] ?? item.item_type)
+                : item.source === 'hubspot'
+                  ? (HUBSPOT_TYPE_LABELS[item.item_type] ?? item.item_type)
+                  : item.source === 'comm'
+                    ? item.item_type.toUpperCase()
+                    : (NOTE_TYPE_LABELS[item.item_type] ?? item.item_type)
+
+              // Comm source color: inbound=blue, outbound=gray, note=blue, event=amber
+              const srcColor = item.source === 'comm'
+                ? (isInbound ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600')
+                : (ITEM_COLOR[item.source] ?? 'bg-gray-100 text-gray-500')
+
+              return (
+                <div
+                  key={item.id}
+                  className={`px-6 py-4 group transition-colors ${
+                    isNew ? 'bg-lemon-400/10' : 'hover:bg-gray-50'
+                  } ${dirBorder}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Contact avatar — shown when multi-contact case */}
+                    {multiContact && item.contact_id && item.contact_initials ? (
+                      <div
+                        title={`${item.contact_name ?? ''}${item.contact_role ? ` · ${item.contact_role}` : ''}`}
+                        className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold mt-0.5 cursor-default select-none"
+                        style={{ backgroundColor: item.contact_color ?? '#6B7280' }}
+                      >
+                        {item.contact_initials}
+                      </div>
+                    ) : (
+                      /* Icon (non-contact items or single-contact) */
+                      <div className="shrink-0 mt-0.5 text-lg leading-none">{icon}</div>
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      {/* Badge row */}
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        {item.is_pinned && <span className="text-yellow-500 text-xs font-medium">📌</span>}
+                        {isNew && <span className="text-xs font-semibold text-lemon-600 bg-lemon-400/20 px-1.5 py-0.5 rounded">NEW</span>}
+
+                        {/* Direction for comms */}
+                        {item.source === 'comm' && item.direction && (
+                          <span className={`text-xs font-medium ${isInbound ? 'text-blue-500' : 'text-gray-400'}`}>
+                            {isInbound ? '← Inbound' : '→ Outbound'}
+                          </span>
+                        )}
+
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${srcColor}`}>
+                          {typeLabel}
+                        </span>
+
+                        {/* Visibility badge (notes only) */}
+                        {vis && item.source === 'note' && (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${vis.cls}`}>
+                            {vis.label}
+                          </span>
+                        )}
+
+                        {/* Needs review flag */}
+                        {item.needs_review && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                            ⚠ Needs Review
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Body — suppressed for calls (raw HubSpot body is noisy metadata/transcript) */}
+                      {item.body && item.item_type !== 'call' && (() => {
+                        // For emails: direction badge + subject bold + body
+                        if (item.item_type === 'email') {
+                          const lines   = item.body.split('\n\n')
+                          const subject = lines[0]?.startsWith('Subject:') ? lines[0].replace('Subject: ', '') : null
+                          const body    = subject ? lines.slice(1).join('\n\n').trim() : item.body
+                          const meta    = item.metadata as Record<string, unknown> | undefined
+                          const fromObj = meta?.emailFrom as { email?: string; firstName?: string; lastName?: string } | undefined
+                          const toArr   = meta?.emailTo   as { email?: string; firstName?: string; lastName?: string }[] | undefined
+                          const fromName = [fromObj?.firstName, fromObj?.lastName].filter(Boolean).join(' ') || fromObj?.email
+                          const toName   = toArr?.[0] ? ([toArr[0].firstName, toArr[0].lastName].filter(Boolean).join(' ') || toArr[0].email) : null
+                          return (
+                            <div className="space-y-1.5">
+                              {/* Direction + from → to */}
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${item.direction === 'outbound' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
+                                  {item.direction === 'outbound' ? '↑ Outbound' : '↓ Inbound'}
+                                </span>
+                                {fromName && <span>{fromName}</span>}
+                                {toName   && <><span className="text-gray-300">→</span><span>{toName}</span></>}
+                              </div>
+                              <EmailBodyBlock subject={subject} body={body} />
+                            </div>
+                          )
+                        }
+                        return <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{item.body}</p>
+                      })()}
+                      {!item.body && item.source === 'event' && item.payload && (
+                        <p className="text-xs text-gray-400 font-mono truncate">
+                          {JSON.stringify(item.payload).slice(0, 120)}
+                        </p>
+                      )}
+
+                      {/* Call summary — collapsed by default, primary content for calls */}
+                      {item.call_summary && <CallSummaryBlock summary={item.call_summary} durationMs={item.duration_ms ?? null} />}
+
+                      {/* Call with no summary — show brief meta line */}
+                      {item.item_type === 'call' && !item.call_summary && (
+                        <p className="text-xs text-gray-400 italic mt-0.5">No summary available</p>
+                      )}
+
+                      {/* Meta */}
+                      <p className="mt-1.5 text-xs text-gray-400">
+                        {/* Contact name (single-contact or no badge) */}
+                        {(!multiContact || !item.contact_id) && item.contact_name && (
+                          <span className="mr-1.5 font-medium" style={{ color: item.contact_color ?? undefined }}>{item.contact_name} ·</span>
+                        )}
+                        {/* Contact role when multi-contact */}
+                        {multiContact && item.contact_id && item.contact_name && (
+                          <span className="mr-1.5 font-medium text-gray-600">{item.contact_name}{item.contact_role ? <span className="font-normal text-gray-400"> · {item.contact_role}</span> : null} ·</span>
+                        )}
+                        {rawAuthor && <span className="mr-1.5 font-medium text-gray-500">{rawAuthor} ·</span>}
+                        {fmtNoteTime(item.ts)}
+                        {item.duration_ms && !item.call_summary && (
+                          <span className="ml-1.5">· {Math.floor(item.duration_ms / 60000)}m {Math.floor((item.duration_ms % 60000) / 1000)}s</span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Pin toggle */}
+                    {pinCan && (
+                      <button
+                        onClick={() => handleTogglePin(item.id, item.is_pinned)}
+                        title={item.is_pinned ? 'Unpin' : 'Pin'}
+                        className="opacity-0 group-hover:opacity-100 shrink-0 text-gray-300 hover:text-yellow-500 transition-all mt-0.5"
+                      >
+                        {item.is_pinned ? '📌' : '☆'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            }
+
+            return (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden">
+
+                {/* ── Contact filter bar (multi-contact cases only) ── */}
+                {multiContact && (
+                  <div className="px-6 py-3 border-b border-gray-100 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest shrink-0">People</span>
+                    <button
+                      onClick={() => setContactFilter(null)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                        !contactFilter ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}
+                    >All</button>
+                    {caseContacts.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => setContactFilter(contactFilter === c.id ? null : c.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                          contactFilter === c.id ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        style={contactFilter === c.id ? { backgroundColor: c.color } : undefined}
+                      >
+                        <span
+                          className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                          style={{ backgroundColor: c.color }}
+                        >{c.initials}</span>
+                        {c.name}
+                        {c.role && <span className={`${contactFilter === c.id ? 'text-white/70' : 'text-gray-400'}`}>· {c.role}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Timeline header ── */}
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+                  {/* Filter tabs */}
+                  <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 overflow-x-auto">
+                    {([
+                      { id: 'all',      label: `All (${timelineItems.length})` },
+                      { id: 'calls',    label: `Calls${itemCounts.calls    ? ` (${itemCounts.calls})`    : ''}` },
+                      { id: 'messages', label: `SMS${itemCounts.messages   ? ` (${itemCounts.messages})` : ''}` },
+                      { id: 'email',    label: `Email${itemCounts.email    ? ` (${itemCounts.email})`    : ''}` },
+                      { id: 'notes',    label: `Notes${itemCounts.notes    ? ` (${itemCounts.notes})`    : ''}` },
+                    ] as { id: typeof timelineFilter; label: string }[]).map(f => (
+                      <button
+                        key={f.id}
+                        onClick={() => setTimelineFilter(f.id)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all active:scale-95 ${
+                          timelineFilter === f.id
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Add note + refresh */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => loadTimeline()}
+                      className="text-gray-400 hover:text-gray-600 transition-colors text-sm"
+                      title="Refresh timeline"
+                    >↻</button>
+
+                  </div>
+                </div>
+
+                {/* ── Add Note form ── */}
+                {showNoteForm && (
+                  <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 space-y-3">
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Type</label>
+                        <select
+                          value={noteType}
+                          onChange={e => setNoteType(e.target.value)}
+                          className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
+                        >
+                          {Object.entries(NOTE_TYPE_LABELS).map(([k, v]) => (
+                            <option key={k} value={k}>{v}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-400 font-medium block mb-1">Visibility</label>
+                        <select
+                          value={noteVisibility}
+                          onChange={e => setNoteVisibility(e.target.value)}
+                          className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-lemon-400"
+                        >
+                          <option value="internal">Internal (team)</option>
+                          <option value="public">Public</option>
+                          {canManageNotes && <option value="restricted">Restricted</option>}
+                          <option value="private">Private (only me)</option>
+                        </select>
+                      </div>
+                      <div className="flex items-end pb-2">
+                        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                          <input type="checkbox" checked={notePinned} onChange={e => setNotePinned(e.target.checked)} className="w-3.5 h-3.5 accent-yellow-400" />
+                          Pin
+                        </label>
+                      </div>
+                    </div>
+                    <textarea
+                      value={noteBody}
+                      onChange={e => setNoteBody(e.target.value)}
+                      placeholder="Write a note…"
+                      rows={3}
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-lemon-400 resize-none"
+                    />
+                    {noteError && <p className="text-xs text-red-500">{noteError}</p>}
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => { setShowNoteForm(false); setNoteBody(''); setNoteError(null) }} className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-700">Cancel</button>
+                      <button onClick={handleCreateNote} disabled={noteSaving || !noteBody.trim()} className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-40 transition-all active:scale-95">
+                        {noteSaving ? 'Saving…' : 'Save Note'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Pinned notes (always visible at top when filter = all|notes) ── */}
+                {pinnedItems.length > 0 && (timelineFilter === 'all' || timelineFilter === 'notes') && (
+                  <div className="border-b border-yellow-100 bg-yellow-50/40">
+                    <p className="px-6 pt-3 pb-1 text-xs font-semibold text-yellow-600 uppercase tracking-widest">📌 Pinned</p>
+                    <div className="divide-y divide-yellow-100">
+                      {pinnedItems.map(item => renderItem(item))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Main timeline feed ── */}
+                {timelineLoading ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">Loading timeline…</div>
+                ) : filteredItems.length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    {timelineFilter === 'all' ? 'No timeline activity yet'
+                      : timelineFilter === 'email' ? 'No emails found'
+                      : `No ${timelineFilter} found`}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {filteredItems.map(item => renderItem(item))}
+                  </div>
+                )}
+
+                {/* ── Load more ── */}
+                {timelineHasMore && (
+                  <div className="px-6 py-3 border-t border-gray-100">
+                    <button
+                      onClick={() => loadTimeline({ cursor: timelineCursor, append: true })}
+                      disabled={timelineLoading}
+                      className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-40 transition-colors"
+                    >
+                      {timelineLoading ? 'Loading…' : 'Load older items'}
+                    </button>
+                  </div>
+                )}
+
+                {/* ── SMS Compose ── */}
+                {userCanSms && (timelineFilter === 'all' || timelineFilter === 'messages') && (
+                  <SmsCompose caseId={params.id as string} onSent={() => loadTimeline()} />
+                )}
+
+              </div>
+            )
+          })()}
+
+          {/* ── Documents tab ── */}
+          {activeTab === 'documents' && (
+            <DocumentsSection
+              caseId={params.id as string}
+              syncedAt={syncedAt}
+              refreshTrigger={docsVersion}
+            />
+          )}
+
+          {/* ── AI Analysis tab ── */}
+          {activeTab === 'ai' && (
+            <AIAnalysisTab caseId={params.id as string} caseUUID={caseUUID} onSwitchToDocuments={() => switchTab('documents')} onAnalysisComplete={() => setAnalysisVersion(v => v + 1)} />
+          )}
+
+          {/* ── HubSpot Data tab ── */}
+          {activeTab === 'hubspot' && (
+            <HubSpotDataTab
+              caseData={caseData as unknown as Record<string, unknown>}
+              dealId={params.id as string}
+            />
+          )}
+
+
+
           {/* ── Guidance tab ── */}
           {activeTab === 'guidance' && (
             <GuidanceTab
