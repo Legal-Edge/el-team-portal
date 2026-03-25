@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient }                             from '@supabase/supabase-js'
-import { useSearchParams }                          from 'next/navigation'
+import { useSearchParams, useRouter, usePathname }  from 'next/navigation'
 import { Suspense }                                 from 'react'
 
 import { StageTabs }    from '@/components/cases/queue/StageTabs'
@@ -31,6 +31,8 @@ function SortIcon({ col, active, asc }: { col: string; active: boolean; asc: boo
 // ── Main component ────────────────────────────────────────────────────────────
 function CasesContent() {
   const searchParams = useSearchParams()
+  const router      = useRouter()
+  const pathname    = usePathname()
 
   const [cases,        setCases]        = useState<CaseRecord[]>([])
   const [total,        setTotal]        = useState(0)
