@@ -53,7 +53,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Create subscription
-  const sub = await createItemSubscription(DOCUMENTS_DRIVE_ID, caseRow.sharepoint_drive_item_id)
+  let sub
+  try {
+    sub = await createItemSubscription(DOCUMENTS_DRIVE_ID, caseRow.sharepoint_drive_item_id)
+  } catch (err) {
+    console.error('[subscribe-case] createItemSubscription error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
 
   // Persist to case_sp_subscriptions
   const { error: insertErr } = await db.from('case_sp_subscriptions').insert({
