@@ -65,6 +65,8 @@ function CasesContent() {
   const [newViewName,    setNewViewName]    = useState('')
   const [saveAsTeam,     setSaveAsTeam]     = useState(false)
   const [savingView,     setSavingView]     = useState(false)
+  const [saveMode,       setSaveMode]       = useState<'new' | 'update'>('new')
+  const [updateTargetId, setUpdateTargetId] = useState<string>('')
 
   const esRef      = useRef<EventSource | null>(null)
   const resizeRef  = useRef<{ colId: string; startX: number; startW: number } | null>(null)
@@ -437,7 +439,14 @@ function CasesContent() {
 
         {/* Save view — update existing or create new */}
         <button
-          onClick={() => activeViewId ? updateView() : setShowSaveModal(true)}
+          onClick={() => {
+            if (activeViewId) { updateView(); return }
+            // Pre-select update mode if there are existing views
+            const existing = savedViews.filter(v => !v.is_team_preset || isAdmin)
+            setSaveMode(existing.length > 0 ? 'update' : 'new')
+            setUpdateTargetId(existing.find(v => v.stage_tab === activeStage)?.id ?? existing[0]?.id ?? '')
+            setShowSaveModal(true)
+          }}
           disabled={savingView}
           className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg transition-all duration-150 disabled:opacity-40"
         >
@@ -543,29 +552,66 @@ function CasesContent() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
             <h2 className="font-semibold text-gray-900 text-lg">Save View</h2>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">View name</label>
-              <input
-                autoFocus
-                type="text"
-                value={newViewName}
-                onChange={e => setNewViewName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && saveView()}
-                placeholder="e.g. My Retained Cases"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-lemon-400"
-              />
-            </div>
-            {isAdmin && (
-              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={saveAsTeam}
-                  onChange={e => setSaveAsTeam(e.target.checked)}
-                  className="w-4 h-4 accent-lemon-400"
-                />
-                Save as team preset (visible to all staff)
-              </label>
+
+            {/* Mode toggle */}
+            {savedViews.filter(v => !v.is_team_preset || isAdmin).length > 0 && (
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                <button
+                  onClick={() => setSaveMode('update')}
+                  className={`flex-1 py-2 font-medium transition-colors ${saveMode === 'update' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  Update existing
+                </button>
+                <button
+                  onClick={() => setSaveMode('new')}
+                  className={`flex-1 py-2 font-medium transition-colors ${saveMode === 'new' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  Save as new
+                </button>
+              </div>
             )}
+
+            {saveMode === 'update' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Choose view to update</label>
+                <select
+                  value={updateTargetId}
+                  onChange={e => setUpdateTargetId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-lemon-400 bg-white"
+                >
+                  {savedViews.filter(v => !v.is_team_preset || isAdmin).map(v => (
+                    <option key={v.id} value={v.id}>{v.name}{v.is_team_preset ? ' (team)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">View name</label>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newViewName}
+                    onChange={e => setNewViewName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && saveView()}
+                    placeholder="e.g. My Attorney Review"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-lemon-400"
+                  />
+                </div>
+                {isAdmin && (
+                  <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={saveAsTeam}
+                      onChange={e => setSaveAsTeam(e.target.checked)}
+                      className="w-4 h-4 accent-lemon-400"
+                    />
+                    Save as team preset (visible to all staff)
+                  </label>
+                )}
+              </>
+            )}
+
             <div className="flex justify-end gap-3 pt-2">
               <button
                 onClick={() => { setShowSaveModal(false); setNewViewName('') }}
@@ -574,11 +620,32 @@ function CasesContent() {
                 Cancel
               </button>
               <button
-                onClick={saveView}
-                disabled={!newViewName.trim() || savingView}
+                onClick={async () => {
+                  if (saveMode === 'update' && updateTargetId) {
+                    const prevId = activeViewId
+                    // Temporarily set activeViewId so updateView() targets the right one
+                    setActiveViewId(updateTargetId)
+                    setSavingView(true)
+                    try {
+                      const res = await fetch(`/api/cases/views?id=${updateTargetId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ stage_tab: activeStage || null, columns: activeColumns, filters: filterGroups, sort_by: sortCol, sort_dir: sortDir }),
+                      })
+                      if (res.ok) {
+                        const json = await res.json()
+                        setSavedViews(prev => prev.map(v => v.id === updateTargetId ? { ...v, ...json.view } : v))
+                        setShowSaveModal(false)
+                      }
+                    } finally { setSavingView(false) }
+                  } else {
+                    saveView()
+                  }
+                }}
+                disabled={saveMode === 'new' ? (!newViewName.trim() || savingView) : (!updateTargetId || savingView)}
                 className="px-4 py-2 text-sm font-semibold bg-lemon-400 hover:bg-lemon-500 text-gray-900 rounded-lg transition-colors disabled:opacity-40"
               >
-                {savingView ? 'Saving…' : 'Save View'}
+                {savingView ? 'Saving…' : saveMode === 'update' ? 'Update View' : 'Save View'}
               </button>
             </div>
           </div>
