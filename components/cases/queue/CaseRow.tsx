@@ -116,7 +116,7 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 
     case 'client':
       return (
-        <span className="font-medium text-gray-900 truncate max-w-[150px] block">
+        <span className="font-medium text-gray-900 truncate block">
           {[c.client_first_name, c.client_last_name].filter(Boolean).join(' ')
             || <span className="text-gray-400 italic font-normal text-xs">Unknown</span>}
         </span>
@@ -124,7 +124,7 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 
     case 'vehicle':
       return (
-        <div className="truncate max-w-[150px] text-gray-700">
+        <div className="truncate text-gray-700">
           {[c.vehicle_year, c.vehicle_make, c.vehicle_model].filter(Boolean).join(' ')
             || <span className="text-gray-300">—</span>}
         </div>
@@ -145,7 +145,7 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
       const cmName = getHpValue(c, 'case_manager_name')
       // If no resolved name, don't show raw numeric owner ID
       if (!cmName) return <span className="text-gray-300">—</span>
-      return <span className="text-gray-700 truncate max-w-[130px] block">{String(cmName)}</span>
+      return <span className="text-gray-700 truncate block">{String(cmName)}</span>
     }
 
     case 'days_in_stage': {
@@ -184,7 +184,7 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 
     default:
       return raw
-        ? <span className="text-gray-700 truncate block max-w-[130px]">{String(raw)}</span>
+        ? <span className="text-gray-700 truncate block">{String(raw)}</span>
         : <span className="text-gray-300">—</span>
   }
 }
@@ -192,6 +192,7 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 interface Props {
   c: CaseRecord
   columns: string[]
+  colWidths?: Record<string, number>
   isFlashed: boolean
   isLastViewed: boolean
   queueIds: string[]
@@ -200,7 +201,7 @@ interface Props {
   onRef?: (el: HTMLTableRowElement | null) => void
 }
 
-export function CaseRow({ c, columns, isFlashed, isLastViewed, queueIds, queueIdx, activeStage, onRef }: Props) {
+export function CaseRow({ c, columns, colWidths = {}, isFlashed, isLastViewed, queueIds, queueIdx, activeStage, onRef }: Props) {
   function handleClick() {
     const returnParams = new URLSearchParams()
     if (activeStage) returnParams.set('status', activeStage)
@@ -226,7 +227,7 @@ export function CaseRow({ c, columns, isFlashed, isLastViewed, queueIds, queueId
         <td
           key={colId}
           className="px-3 py-1.5 text-sm align-middle"
-          style={{ width: ALL_COLUMNS.find(c => c.id === colId)?.width }}
+          style={{ width: colWidths[colId] ?? ALL_COLUMNS.find(col => col.id === colId)?.width, overflow: 'hidden' }}
         >
           {getCellValue(c, colId)}
         </td>

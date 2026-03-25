@@ -429,7 +429,7 @@ function CasesContent() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm" style={{ minWidth: activeColumns.length * 80 }}>
+              <table className="w-full text-sm" style={{ minWidth: activeColumns.length * 80, tableLayout: 'fixed' }}>
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50 group">
                     
@@ -472,6 +472,7 @@ function CasesContent() {
                       key={c.id}
                       c={c}
                       columns={activeColumns}
+                      colWidths={colWidths}
                       isFlashed={flashedIds.has(c.id)}
                       isLastViewed={lastViewedId === c.hubspot_deal_id}
                       queueIds={cases.map(x => x.hubspot_deal_id)}
