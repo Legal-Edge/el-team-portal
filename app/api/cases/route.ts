@@ -11,21 +11,24 @@ async function getOwnerMap(): Promise<Map<string, string>> {
   if (_ownerCache && Date.now() - _ownerCacheAt < 3_600_000) return _ownerCache
   const map = new Map<string, string>()
   try {
-    const token = process.env.HUBSPOT_ACCESS_TOKEN
+    const token = process.env.HUBSPOT_ACCESS_TOKEN ?? ''
     if (token) {
       const res = await fetch('https://api.hubapi.com/crm/v3/owners?limit=500', {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {
-        const json = await res.json() as { results?: { id: string; userId?: number; firstName?: string; lastName?: string; email?: string }[] }
-        for (const o of json.results ?? []) {
+        type OwnerResult = { id: string; userId?: number; firstName?: string; lastName?: string; email?: string }
+        const json = await res.json() as { results?: OwnerResult[] }
+        for (const o of (json.results ?? [])) {
           const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || o.id
-          map.set(o.id, name)                           // owner ID key
-          if (o.userId) map.set(String(o.userId), name) // user ID key (used by owner-ref properties)
+          map.set(o.id, name)
+          if (o.userId != null) { map.set(String(o.userId), name) }
         }
       }
     }
-  } catch { /* non-fatal */ }
+  } catch (_err) {
+    // non-fatal — owner names will show as blank
+  }
   _ownerCache = map
   _ownerCacheAt = Date.now()
   return map
