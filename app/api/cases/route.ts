@@ -22,7 +22,7 @@ async function getOwnerMap(): Promise<Map<string, string>> {
           const name = [o.firstName, o.lastName].filter(Boolean).join(' ') || o.email || o.id
           map.set(o.id, name)                           // owner ID key
           if (o.userId) map.set(String(o.userId), name) // user ID key (used by owner-ref properties)
-      }
+        }
     }
   } catch { /* non-fatal */ }
   _ownerCache = map
