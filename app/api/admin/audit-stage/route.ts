@@ -93,41 +93,49 @@ export async function POST(req: NextRequest) {
   const fixErrors: string[] = []
 
   if (fix && wrongStage.length > 0) {
-    // Group by target stage for efficient batch updates
+    // Rule 1: no dealstage in HubSpot → delete from app entirely
+    // Rule 2: dealstage exists but doesn't match our DB → update to correct stage
+    const toDelete: string[] = []
     const byTarget = new Map<string, string[]>()
-    for (const { dealId, hubspot } of wrongStage) {
-      const target = hubspot === '__deleted__' ? '__deleted__' : (hubspot ?? 'unknown')
-      if (!byTarget.has(target)) byTarget.set(target, [])
-      byTarget.get(target)!.push(dealId)
+
+    for (const { dealId, hubspot, raw_hs_stage } of wrongStage) {
+      if (hubspot === '__deleted__' || raw_hs_stage === '') {
+        // No stage or deal doesn't exist in HubSpot — remove from app
+        toDelete.push(dealId)
+      } else if (hubspot && hubspot !== 'unknown') {
+        // Valid stage — update to correct one
+        if (!byTarget.has(hubspot)) byTarget.set(hubspot, [])
+        byTarget.get(hubspot)!.push(dealId)
+      }
+      // If hubspot='unknown' but raw_hs_stage is non-empty, it's an unrecognized pipeline stage
+      // — treat as deleted (not part of our pipeline)
+      else if (raw_hs_stage !== '') {
+        toDelete.push(dealId)
+      }
     }
 
+    // Delete in batches of 100
+    for (let i = 0; i < toDelete.length; i += 100) {
+      const chunk = toDelete.slice(i, i + 100)
+      const { error: delErr } = await client.from('cases').delete().in('hubspot_deal_id', chunk)
+      if (delErr) fixErrors.push(`delete error: ${delErr.message}`)
+      else fixed += chunk.length
+    }
+
+    // Update to correct stages
     for (const [targetStage, ids] of byTarget) {
-      if (targetStage === '__deleted__') {
-        // Hard-delete deals HubSpot no longer knows about
-        const { error: delErr } = await client
-          .from('cases')
-          .delete()
-          .in('hubspot_deal_id', ids)
-        if (delErr) fixErrors.push(`delete error: ${delErr.message}`)
-        else fixed += ids.length
-      } else if (targetStage !== 'unknown') {
-        // Update to correct stage
-        const now = new Date().toISOString()
-        const { error: updErr } = await client
-          .from('cases')
-          .update({
-            case_status:       targetStage,
-            hubspot_synced_at: now,
-            updated_at:        now,
-            // Clear closed_at when moving to active stage
-            ...(targetStage === 'settled' || targetStage === 'dropped'
-              ? {}
-              : { closed_at: null }),
-          })
-          .in('hubspot_deal_id', ids)
-        if (updErr) fixErrors.push(`update to ${targetStage} error: ${updErr.message}`)
-        else fixed += ids.length
-      }
+      const now = new Date().toISOString()
+      const { error: updErr } = await client
+        .from('cases')
+        .update({
+          case_status:       targetStage,
+          hubspot_synced_at: now,
+          updated_at:        now,
+          ...(targetStage === 'settled' || targetStage === 'dropped' ? {} : { closed_at: null }),
+        })
+        .in('hubspot_deal_id', ids)
+      if (updErr) fixErrors.push(`update to ${targetStage} error: ${updErr.message}`)
+      else fixed += ids.length
     }
   }
 
