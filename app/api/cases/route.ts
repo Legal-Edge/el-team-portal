@@ -259,14 +259,15 @@ export async function GET(req: NextRequest) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Per-stage COUNT queries
-  const stageCountResults = await Promise.all(
-    STAGE_KEYS.map(s =>
-      db.from('cases').select('*', { count: 'exact', head: true }).eq('case_status', s).eq('is_deleted', false)
-    )
-  )
+  // Single query for all stage counts (replaces 9 separate COUNT queries)
+  const { data: statusRows } = await db
+    .from('cases')
+    .select('case_status')
+    .eq('is_deleted', false)
   const stageCounts: Record<string, number> = {}
-  STAGE_KEYS.forEach((s, i) => { stageCounts[s] = stageCountResults[i]?.count ?? 0 })
+  for (const row of statusRows ?? []) {
+    if (row.case_status) stageCounts[row.case_status] = (stageCounts[row.case_status] ?? 0) + 1
+  }
 
   // Group counts
   const groupCounts: Record<string, number> = { active: 0, attorney_review: 0, retained: 0, settled: 0, dropped: 0 }
@@ -313,6 +314,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Last engagement per case (actual human activity — calls, emails, SMS, notes)
+  // Limit to caseIds.length * 5 rows max — rows are desc by occurred_at so we get
+  // the most recent engagements first and stop once we have one per case.
   const lastEngMap: Record<string, string> = {}
   if (caseIds.length > 0) {
     const { data: engRows } = await db
@@ -320,7 +323,7 @@ export async function GET(req: NextRequest) {
       .select('case_id, occurred_at')
       .in('case_id', caseIds)
       .order('occurred_at', { ascending: false })
-    // Take the most recent per case (rows already desc by occurred_at)
+      .limit(caseIds.length * 5)
     for (const r of engRows ?? []) {
       if (r.case_id && r.occurred_at && !lastEngMap[r.case_id]) {
         lastEngMap[r.case_id] = r.occurred_at

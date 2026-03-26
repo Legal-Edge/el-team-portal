@@ -173,11 +173,21 @@ function CasesContent() {
 
   // ── SSE live updates ──────────────────────────────────────────────────────
   useEffect(() => {
+    let offlineTimer: ReturnType<typeof setTimeout> | null = null
+
     function connect() {
       const es = new EventSource('/api/cases/stream')
       esRef.current = es
-      es.addEventListener('connected', () => setIsLive(true))
-      es.onerror = () => setIsLive(false)
+      es.addEventListener('connected', () => {
+        if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null }
+        setIsLive(true)
+      })
+      // Don't flash "Connecting…" on the normal 55s Vercel reconnect cycle.
+      // Only mark offline if we haven't reconnected within 5 seconds.
+      es.onerror = () => {
+        if (offlineTimer) clearTimeout(offlineTimer)
+        offlineTimer = setTimeout(() => setIsLive(false), 5000)
+      }
       es.addEventListener('case', (e: MessageEvent) => {
         const payload = JSON.parse(e.data) as { type: string; new: CaseRecord | null; old: CaseRecord | null }
         if (payload.type === 'INSERT' && payload.new) {
@@ -195,7 +205,11 @@ function CasesContent() {
       })
     }
     connect()
-    return () => { esRef.current?.close(); setIsLive(false) }
+    return () => {
+      if (offlineTimer) clearTimeout(offlineTimer)
+      esRef.current?.close()
+      setIsLive(false)
+    }
   }, [])
 
   // ── Supabase realtime comms_state ─────────────────────────────────────────
