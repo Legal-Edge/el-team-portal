@@ -67,6 +67,6 @@ export default auth((req: NextRequest & { auth: any }) => {
 // Configure which routes should be processed by the middleware
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/admin/azure-users|api/admin/block-user|api/admin/staff-roles|api/admin/sync-roles-from-titles|api/admin/debug-provision|api/admin/provision-all|api/admin/update-user|api/admin/cleanup-stale-intake|api/cases/|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/admin/azure-users|api/admin/block-user|api/admin/staff-roles|api/admin/sync-roles-from-titles|api/admin/debug-provision|api/admin/provision-all|api/admin/update-user|api/admin/cleanup-stale-intake|api/admin/audit-stage|api/cases/|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
