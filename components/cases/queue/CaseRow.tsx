@@ -24,6 +24,7 @@ export interface CaseRecord {
   notes_last_updated:  string | null
   last_engagement_at:  string | null
   created_at:          string
+  deal_created_at:     string | null
   updated_at:          string
   hubspot_properties:  Record<string, string | null> | null
   comms_state?: {

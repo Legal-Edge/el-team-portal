@@ -349,6 +349,7 @@ export interface CaseRow {
   case_priority:              string
   estimated_value:            number | null
   created_at:                 string | null
+  deal_created_at:            string | null
   closed_at:                  string | null
   notes_last_updated:         string | null
   is_deleted:                 boolean
