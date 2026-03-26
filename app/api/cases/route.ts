@@ -217,6 +217,8 @@ export async function GET(req: NextRequest) {
   ).schema('core')
 
   const orderCol = SORT_COLS[sortColRaw] ?? 'notes_last_updated'
+  // Special case: sort by HubSpot createdate stored inside hubspot_properties JSONB
+  const isJsonbSort = sortColRaw === 'create_date'
 
   // Parse optional filter groups
   let filterGroups: FilterGroup[] = []
@@ -236,7 +238,10 @@ export async function GET(req: NextRequest) {
       { count: 'exact' }
     )
     .eq('is_deleted', false)
-    .order(orderCol, { ascending: sortAsc, nullsFirst: false })
+    .order(
+      isJsonbSort ? 'hubspot_properties->>createdate' : orderCol,
+      { ascending: sortAsc, nullsFirst: false }
+    )
     .range(offset, offset + limit - 1)
 
   // Stage filter (individual stage takes priority over group)
