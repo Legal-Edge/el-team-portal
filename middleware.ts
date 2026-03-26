@@ -35,7 +35,8 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/backfill',               // per-case backfill: engagements + docs + extraction (token-protected)
     '/api/webhooks/sharepoint',         // SharePoint Graph webhook (no session)
     '/api/webhooks/sharepoint/lifecycle', // SharePoint lifecycle notifications (no session)
-    '/api/webhooks/hubspot-team',     // HubSpot real-time webhook (token-protected)
+    '/api/webhooks/hubspot-team',             // HubSpot real-time webhook (token-protected)
+    '/api/integrations/quickbooks/callback', // QB OAuth callback — no session (QB redirects here)
   ]
   
   // Check if current path is public
