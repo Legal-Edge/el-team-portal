@@ -26,20 +26,19 @@ export async function POST(req: NextRequest) {
 
   if (!dealIds.length) return NextResponse.json({ error: 'No deal_ids provided' }, { status: 400 })
 
-  const client = createClient(
+  const coreDb = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   ).schema('core')
 
   // Find which IDs exist in Supabase
-  let query = client
+  const baseQuery = coreDb
     .from('cases')
     .select('hubspot_deal_id, case_status')
     .in('hubspot_deal_id', dealIds)
 
-  if (stage) query = query.eq('case_status', stage)
+  const { data, error } = await (stage ? baseQuery.eq('case_status', stage) : baseQuery)
 
-  const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const foundIds   = new Set((data ?? []).map(r => r.hubspot_deal_id))
