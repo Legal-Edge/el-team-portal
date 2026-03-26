@@ -42,8 +42,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Exchange code for tokens
-    const tokens = await exchangeCode(code, realmId)
+    // Exchange code for tokens (pass entitySlug so correct app credentials are used)
+    const tokens = await exchangeCode(code, realmId, entitySlug)
     const expiresAt = new Date(Date.now() + tokens.expiresIn * 1000).toISOString()
 
     const db = getFinanceDb()

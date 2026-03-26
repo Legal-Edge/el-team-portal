@@ -13,12 +13,28 @@ const QB_BASE_URL     = 'https://quickbooks.api.intuit.com/v3/company'
 const QB_MINOR_VER    = '65'
 const QB_SCOPES       = 'com.intuit.quickbooks.accounting'
 
-function getQBCredentials() {
+/**
+ * Returns the correct QB credentials for a given entity slug.
+ * legal-edge → EL_QUICKBOOKS_CLIENT_ID / EL_QUICKBOOKS_CLIENT_SECRET
+ * rockpoint  → RPL_QUICKBOOKS_CLIENT_ID / RPL_QUICKBOOKS_CLIENT_SECRET
+ */
+function getQBCredentials(entitySlug?: string) {
+  const redirectUri = process.env.QUICKBOOKS_REDIRECT_URI || 'https://team.easylemon.com/api/integrations/quickbooks/callback'
+
+  if (entitySlug === 'rockpoint') {
+    const clientId     = process.env.RPL_QUICKBOOKS_CLIENT_ID
+    const clientSecret = process.env.RPL_QUICKBOOKS_CLIENT_SECRET
+    if (!clientId || !clientSecret) {
+      throw new Error('Missing QuickBooks credentials for RockPoint: RPL_QUICKBOOKS_CLIENT_ID and RPL_QUICKBOOKS_CLIENT_SECRET required')
+    }
+    return { clientId, clientSecret, redirectUri }
+  }
+
+  // Default: Legal Edge (legal-edge)
   const clientId     = process.env.EL_QUICKBOOKS_CLIENT_ID
   const clientSecret = process.env.EL_QUICKBOOKS_CLIENT_SECRET
-  const redirectUri  = process.env.QUICKBOOKS_REDIRECT_URI || 'https://team.easylemon.com/api/integrations/quickbooks/callback'
   if (!clientId || !clientSecret) {
-    throw new Error('Missing QuickBooks credentials: EL_QUICKBOOKS_CLIENT_ID and EL_QUICKBOOKS_CLIENT_SECRET required')
+    throw new Error('Missing QuickBooks credentials for Legal Edge: EL_QUICKBOOKS_CLIENT_ID and EL_QUICKBOOKS_CLIENT_SECRET required')
   }
   return { clientId, clientSecret, redirectUri }
 }
@@ -67,7 +83,7 @@ export interface QBTransactionLine {
  * @param entitySlug  'legal-edge' or 'rockpoint'
  */
 export function getAuthUrl(entitySlug: string): string {
-  const { clientId, redirectUri } = getQBCredentials()
+  const { clientId, redirectUri } = getQBCredentials(entitySlug)
   const state = Buffer.from(entitySlug).toString('base64')
   const params = new URLSearchParams({
     client_id:     clientId,
@@ -83,8 +99,8 @@ export function getAuthUrl(entitySlug: string): string {
 /**
  * Exchange authorization code for access + refresh tokens.
  */
-export async function exchangeCode(code: string, realmId: string): Promise<QBTokens> {
-  const { clientId, clientSecret, redirectUri } = getQBCredentials()
+export async function exchangeCode(code: string, realmId: string, entitySlug?: string): Promise<QBTokens> {
+  const { clientId, clientSecret, redirectUri } = getQBCredentials(entitySlug)
   const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
 
   const res = await fetch(QB_TOKEN_URL, {
@@ -118,8 +134,8 @@ export async function exchangeCode(code: string, realmId: string): Promise<QBTok
 /**
  * Refresh an expired access token.
  */
-export async function refreshTokens(refreshToken: string, realmId: string): Promise<QBTokens> {
-  const { clientId, clientSecret } = getQBCredentials()
+export async function refreshTokens(refreshToken: string, realmId: string, entitySlug?: string): Promise<QBTokens> {
+  const { clientId, clientSecret } = getQBCredentials(entitySlug)
   const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
 
   const res = await fetch(QB_TOKEN_URL, {
@@ -157,7 +173,7 @@ export async function getTokensForEntity(entityId: string): Promise<{ accessToke
   const db = getFinanceDb()
   const { data: entity, error } = await db
     .from('qb_entities')
-    .select('realm_id, access_token, refresh_token, token_expires_at, entity_name, connected')
+    .select('realm_id, access_token, refresh_token, token_expires_at, entity_name, entity_slug, connected')
     .eq('id', entityId)
     .single()
 
@@ -169,7 +185,7 @@ export async function getTokensForEntity(entityId: string): Promise<{ accessToke
   const needsRefresh = !expiresAt || expiresAt.getTime() - Date.now() < 5 * 60 * 1000
 
   if (needsRefresh && entity.refresh_token) {
-    const tokens = await refreshTokens(entity.refresh_token, entity.realm_id!)
+    const tokens = await refreshTokens(entity.refresh_token, entity.realm_id!, entity.entity_slug)
     const newExpiry = new Date(Date.now() + tokens.expiresIn * 1000).toISOString()
     await db.from('qb_entities').update({
       access_token:     tokens.accessToken,
