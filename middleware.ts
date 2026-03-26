@@ -32,6 +32,7 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/provision-all',          // token-protected bulk user provision
     '/api/admin/update-user',            // token-protected user field update
     '/api/admin/cleanup-stale-intake',   // one-time stale intake case cleanup (token-protected)
+    '/api/admin/audit-stage',            // per-stage HubSpot vs Supabase audit + fix (token-protected)
     '/api/admin/backfill',               // per-case backfill: engagements + docs + extraction (token-protected)
     '/api/webhooks/sharepoint',         // SharePoint Graph webhook (no session)
     '/api/webhooks/sharepoint/lifecycle', // SharePoint lifecycle notifications (no session)
