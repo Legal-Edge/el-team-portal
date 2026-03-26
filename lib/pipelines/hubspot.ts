@@ -349,7 +349,7 @@ export interface CaseRow {
   case_priority:              string
   estimated_value:            number | null
   created_at:                 string | null
-  deal_created_at:            string | null
+
   closed_at:                  string | null
   notes_last_updated:         string | null
   is_deleted:                 boolean
@@ -402,7 +402,6 @@ export function buildCaseRow(
     case_priority:          'normal',
     estimated_value:        dp['amount'] ? applyTransform(dp['amount'], 'parseFloat') as number : null,
     created_at:             safeDate(dp['createdate']),
-    deal_created_at:        safeDate(dp['createdate']),
 
     closed_at:              isClosed ? safeDate(dp['closedate']) : null,
     notes_last_updated:     safeDate(dp['notes_last_updated']),
