@@ -634,6 +634,163 @@ export async function deleteCase(
   return { caseId: existing?.id ?? null, error: null }
 }
 
+// ── Fast-path property patch (webhook propertyChange events) ─────────────────
+
+/**
+ * Maps HubSpot property names → Supabase column names + transform.
+ * Used by the webhook fast-path to avoid full HubSpot API fetches on every
+ * property change.  ALL 300+ deal properties that don't map to a dedicated
+ * column still get merged into `hubspot_properties` (JSONB snapshot).
+ */
+export const HS_PROPERTY_TO_COLUMN: Record<string, { col: string; transform?: string } | null> = {
+  // Pipeline
+  dealstage:    { col: 'case_status', transform: 'stage_map' },
+  amount:       { col: 'estimated_value', transform: 'parseFloat' },
+  closedate:    { col: 'closed_at', transform: 'safeDate' },
+  el_app_status: { col: 'el_app_status' },
+  // Vehicle
+  vehicle_year:  { col: 'vehicle_year',  transform: 'parseInt' },
+  what_is_the_approximate_year_of_your_vehicle_: { col: 'vehicle_year',  transform: 'parseInt' },
+  vehicle_make:  { col: 'vehicle_make'  },
+  what_is_the_make_of_your_vehicle_: { col: 'vehicle_make' },
+  vehicle_model: { col: 'vehicle_model' },
+  what_is_the_model_of_your_vehicle_: { col: 'vehicle_model' },
+  vin:           { col: 'vehicle_vin'   },
+  what_is_the_mileage_of_your_vehicle_:  { col: 'vehicle_mileage', transform: 'parseInt' },
+  mileage_at_first_repair:               { col: 'vehicle_mileage', transform: 'parseInt' },
+  purchase_price:                          { col: 'vehicle_purchase_price', transform: 'parseFloat' },
+  purchase__lease_agreement_amount:        { col: 'vehicle_purchase_price', transform: 'parseFloat' },
+  purchase__lease_date:                    { col: 'vehicle_purchase_date', transform: 'safeDate' },
+  when_did_you_purchase_or_lease_your_vehicle_: { col: 'vehicle_purchase_date', transform: 'safeDate' },
+  was_it_purchased_or_leased_new_or_used_: { col: 'vehicle_is_new', transform: 'boolean_new_used' },
+  did_you_purchase_or_lease_your_car_:     { col: 'vehicle_is_new', transform: 'boolean_new_used' },
+  which_state_did_you_purchase_or_lease_your_vehicle_: { col: 'state_jurisdiction', transform: 'state_abbreviate' },
+  notes_last_updated: { col: 'notes_last_updated', transform: 'safeDate' },
+  sharepoint_file_url: { col: 'sharepoint_file_url' },
+  // Properties that only update the JSONB snapshot — no dedicated column (null = JSONB only)
+  documents_needed:          null,
+  document_collection_notes: null,
+  document_promise_date:     null,
+  document_collection_status: null,
+}
+
+export interface PropertyPatch {
+  propertyName:  string
+  propertyValue: string | null
+}
+
+/**
+ * Fast-path update for deal.propertyChange webhook events.
+ *
+ * Reads nothing from HubSpot.  Applies typed column updates + merges the
+ * changed properties into the `hubspot_properties` JSONB snapshot.
+ *
+ * Returns 'not_found' when the deal isn't in Supabase yet (caller should
+ * fall back to a full upsert via fetchHsDeal + upsertCase).
+ */
+export async function patchCaseFromWebhook(
+  client:  SupabaseClient,
+  dealId:  string,
+  patches: PropertyPatch[],
+  options: { emitEvents?: boolean; source?: string } = {}
+): Promise<{ result: string; stageChanged: boolean; prevStage: string | null; newStage: string | null }> {
+  const { emitEvents: shouldEmit = false, source = EVENT_SOURCES.HUBSPOT_WEBHOOK } = options
+  const coreDb = client.schema('core')
+
+  // Look up existing case (need id, current stage, current JSONB props)
+  const { data: existing } = await coreDb
+    .from('cases')
+    .select('id, case_status, hubspot_properties')
+    .eq('hubspot_deal_id', dealId)
+    .maybeSingle()
+
+  if (!existing) return { result: 'not_found', stageChanged: false, prevStage: null, newStage: null }
+
+  const update: Record<string, unknown> = {
+    hubspot_synced_at: new Date().toISOString(),
+    updated_at:        new Date().toISOString(),
+  }
+
+  // Merge changed values into JSONB snapshot
+  const mergedProps: Record<string, unknown> = { ...(existing.hubspot_properties as Record<string, unknown> ?? {}) }
+  let stageChanged = false
+  let newStage: string | null = null
+  const prevStage = existing.case_status
+
+  for (const { propertyName, propertyValue: raw } of patches) {
+    const val = raw ?? ''
+    mergedProps[propertyName] = val  // always keep JSONB fresh
+
+    const mapping = HS_PROPERTY_TO_COLUMN[propertyName]
+    if (mapping === undefined) continue  // not in map at all — JSONB only
+    if (mapping === null)      continue  // explicitly JSONB only
+
+    const { col, transform } = mapping
+
+    switch (transform) {
+      case 'stage_map': {
+        const stage = STAGE_MAP[val] ?? null
+        if (stage) {
+          update[col] = stage
+          newStage     = stage
+          stageChanged  = stage !== prevStage
+          // Clear closed_at when moving to active stage
+          if (!CLOSED_STATUSES.has(stage)) update['closed_at'] = null
+        }
+        break
+      }
+      case 'safeDate':
+        update[col] = safeDate(val) ?? null
+        break
+      case 'parseInt':
+        update[col] = val ? (parseInt(String(val).replace(/,/g, '')) || null) : null
+        break
+      case 'parseFloat':
+        update[col] = val ? (parseFloat(String(val).replace(/,/g, '')) || null) : null
+        break
+      case 'boolean_new_used':
+        update[col] = val ? applyTransform(val, 'boolean_new_used') : null
+        break
+      case 'state_abbreviate':
+        update[col] = val ? applyTransform(val, 'state_abbreviate') : null
+        break
+      default:
+        update[col] = val || null
+    }
+  }
+
+  // If moving to a closed stage and closedate wasn't in the batch, set closed_at = today
+  if (stageChanged && newStage && CLOSED_STATUSES.has(newStage) && !('closed_at' in update)) {
+    update['closed_at'] = new Date().toISOString().slice(0, 10)
+  }
+
+  update['hubspot_properties'] = mergedProps
+
+  const { error } = await coreDb
+    .from('cases')
+    .update(update)
+    .eq('hubspot_deal_id', dealId)
+
+  if (error) return { result: `error: ${error.message}`, stageChanged: false, prevStage, newStage: null }
+
+  // Emit stage change event
+  if (shouldEmit && stageChanged && newStage && existing.id) {
+    await emitEvent(client, {
+      event_type: PLATFORM_EVENTS.CASE_STAGE_CHANGED,
+      source,
+      case_id:    existing.id,
+      payload:    { hubspot_deal_id: dealId, from: prevStage, to: newStage },
+    }).catch(() => {})
+  }
+
+  return {
+    result:       stageChanged ? `stage: ${prevStage} → ${newStage}` : 'patched',
+    stageChanged,
+    prevStage,
+    newStage,
+  }
+}
+
 // ── Contact upsert (standalone — used by bulk sync routes) ───────────────────
 
 export interface ContactUpsertResult {

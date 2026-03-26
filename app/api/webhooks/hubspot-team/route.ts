@@ -18,7 +18,7 @@ export const maxDuration = 60   // extend Vercel function timeout to 60s
 
 import { NextRequest, NextResponse }                          from 'next/server'
 import { createClient }                                       from '@supabase/supabase-js'
-import { fetchHsDeal, fetchHsContact, upsertCase, deleteCase } from '@/lib/pipelines/hubspot'
+import { fetchHsDeal, fetchHsContact, upsertCase, deleteCase, patchCaseFromWebhook } from '@/lib/pipelines/hubspot'
 import { syncSingleEngagement }                               from '@/lib/hubspot/sync-single-engagement'
 import { EVENT_SOURCES }                                      from '@/lib/events'
 
@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
 
   // ── Route events by type ──────────────────────────────────────────────────
   const dealDeletions        = new Set<string>()
-  const dealUpserts          = new Set<string>()
-  const creationIds          = new Set<string>()
+  const dealCreations        = new Set<string>()                    // need full HubSpot fetch
+  const dealPatches          = new Map<string, { name: string; value: string | null }[]>()  // fast-path
   const engagements: { objectId: string; objectType: string }[] = []
   const engagementDeletions  = new Set<string>()
   const contactIds           = new Set<string>()
@@ -68,10 +68,21 @@ export async function POST(req: NextRequest) {
     if (type.startsWith('deal.')) {
       if (type === 'deal.deletion') {
         dealDeletions.add(id)
-        dealUpserts.delete(id)
+        dealCreations.delete(id)
+        dealPatches.delete(id)
+      } else if (type === 'deal.creation') {
+        // New deal — needs full HubSpot fetch to populate all columns
+        if (!dealDeletions.has(id)) dealCreations.add(id)
+      } else if (type === 'deal.propertyChange' && e.propertyName) {
+        // Fast-path: update only the changed column(s) — no HubSpot API call needed
+        if (!dealDeletions.has(id) && !dealCreations.has(id)) {
+          const patches = dealPatches.get(id) ?? []
+          patches.push({ name: e.propertyName, value: e.propertyValue ?? null })
+          dealPatches.set(id, patches)
+        }
       } else {
-        if (!dealDeletions.has(id)) dealUpserts.add(id)
-        if (type === 'deal.creation') creationIds.add(id)
+        // deal.restore or unknown deal event — treat as creation (full fetch)
+        if (!dealDeletions.has(id)) dealCreations.add(id)
       }
     } else if (type.startsWith('note.')) {
       if (type === 'note.deletion') engagementDeletions.add(id)
@@ -101,11 +112,35 @@ export async function POST(req: NextRequest) {
     results[`deal:${dealId}`] = error ? `delete_err: ${error}` : 'deleted'
   }
 
-  // ── Deal upserts ──────────────────────────────────────────────────────────
-  for (const dealId of dealUpserts) {
+  // ── Deal property patches (fast-path — no HubSpot API call) ─────────────
+  // For each deal with only propertyChange events, apply targeted column updates
+  // directly from the webhook payload. ~10ms per deal vs ~800ms for a full fetch.
+  for (const [dealId, patches] of dealPatches) {
+    try {
+      const { result, stageChanged } = await patchCaseFromWebhook(
+        client,
+        dealId,
+        patches.map(p => ({ propertyName: p.name, propertyValue: p.value })),
+        { emitEvents: true, source: EVENT_SOURCES.HUBSPOT_WEBHOOK }
+      )
+      if (result === 'not_found') {
+        // Deal exists in HubSpot but not in our DB — do a full upsert to create it
+        dealCreations.add(dealId)
+        results[`deal:${dealId}`] = 'not_found_queued_for_full_sync'
+      } else {
+        results[`deal:${dealId}`] = stageChanged ? `fast_patch:${result}` : 'fast_patch:ok'
+      }
+    } catch (err) {
+      results[`deal:${dealId}`] = `error: ${(err as Error).message}`
+    }
+  }
+
+  // ── Deal creations (full HubSpot fetch — new rows need all columns) ───────
+  for (const dealId of dealCreations) {
     try {
       let deal = await fetchHsDeal(dealId)
-      if (!deal && creationIds.has(dealId)) {
+      // New deals may not be immediately available — retry with backoff
+      if (!deal) {
         for (const ms of [1500, 3000, 6000]) {
           await new Promise(r => setTimeout(r, ms))
           deal = await fetchHsDeal(dealId)
@@ -117,7 +152,6 @@ export async function POST(req: NextRequest) {
         results[`deal:${dealId}`] = 'deleted_on_404'
         continue
       }
-      // Validate deal ID was preserved before upserting
       const resolvedId = (deal as { id?: string }).id
       if (!resolvedId || resolvedId === 'undefined') {
         results[`deal:${dealId}`] = 'error: fetchHsDeal returned no id'
@@ -192,7 +226,7 @@ export async function POST(req: NextRequest) {
       const dealIds = (assocData.results ?? []).map(r => r.id)
 
       for (const dealId of dealIds.slice(0, 5)) {  // cap at 5 deals per contact
-        if (!dealUpserts.has(dealId)) {  // skip if deal already being synced
+        if (!dealCreations.has(dealId) && !dealPatches.has(dealId)) {  // skip if deal already being synced
           const deal    = await fetchHsDeal(dealId)
           const contact = await fetchHsContact(dealId)
           if (deal) {
@@ -214,11 +248,11 @@ export async function POST(req: NextRequest) {
     await client.schema('core').from('sync_log').insert({
       sync_type:     'webhook',
       completed_at:  new Date().toISOString(),
-      deals_seen:    dealUpserts.size + dealDeletions.size,
+      deals_seen:    dealCreations.size + dealPatches.size + dealDeletions.size,
       deals_synced:  synced,
       deals_errored: errored,
       status:        errored > 0 && synced === 0 ? 'error' : errored > 0 ? 'partial' : 'success',
-      notes:         `batch of ${events.length} events (${dealUpserts.size} deals, ${seenEngIds.size} engagements, ${contactIds.size} contacts)`,
+      notes:         `batch of ${events.length} events (${dealCreations.size} creations, ${dealPatches.size} patches, ${dealDeletions.size} deletions, ${seenEngIds.size} engagements, ${contactIds.size} contacts)`,
       errors:        Object.entries(results).filter(([,v]) => v.includes('err') || v.startsWith('error')).map(([k,v]) => `[${k}] ${v}`).slice(0, 50),
     })
   } catch { /* log failure is non-fatal */ }
