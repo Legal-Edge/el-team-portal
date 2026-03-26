@@ -259,14 +259,16 @@ export async function GET(req: NextRequest) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Per-stage COUNT queries
-  const stageCountResults = await Promise.all(
-    STAGE_KEYS.map(s =>
-      db.from('cases').select('*', { count: 'exact', head: true }).eq('case_status', s).eq('is_deleted', false)
-    )
+  // Single GROUP BY via SQL function — replaces 9 separate COUNT queries
+  const supabaseRaw = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
+  const { data: stageCountRows } = await supabaseRaw.rpc('get_case_stage_counts')
   const stageCounts: Record<string, number> = {}
-  STAGE_KEYS.forEach((s, i) => { stageCounts[s] = stageCountResults[i]?.count ?? 0 })
+  for (const r of (stageCountRows ?? []) as { case_status: string; cnt: number }[]) {
+    if (r.case_status) stageCounts[r.case_status] = Number(r.cnt)
+  }
 
   // Group counts
   const groupCounts: Record<string, number> = { active: 0, attorney_review: 0, retained: 0, settled: 0, dropped: 0 }
@@ -312,19 +314,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Last engagement per case (actual human activity — calls, emails, SMS, notes)
+  // Last engagement per case — DISTINCT ON SQL function, exact result per case,
+  // backed by idx_hs_eng_case_occurred index, scales at any volume.
   const lastEngMap: Record<string, string> = {}
   if (caseIds.length > 0) {
-    const { data: engRows } = await db
-      .from('hubspot_engagements')
-      .select('case_id, occurred_at')
-      .in('case_id', caseIds)
-      .order('occurred_at', { ascending: false })
-    // Take the most recent per case (rows already desc by occurred_at)
-    for (const r of engRows ?? []) {
-      if (r.case_id && r.occurred_at && !lastEngMap[r.case_id]) {
-        lastEngMap[r.case_id] = r.occurred_at
-      }
+    const { data: engRows } = await supabaseRaw.rpc('last_engagements_for_cases', {
+      p_case_ids: caseIds,
+    })
+    for (const r of (engRows ?? []) as { case_id: string; occurred_at: string }[]) {
+      if (r.case_id && r.occurred_at) lastEngMap[r.case_id] = r.occurred_at
     }
   }
 
