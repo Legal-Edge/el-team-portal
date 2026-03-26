@@ -61,6 +61,7 @@ const STAGE_KEYS = ['intake','nurture','document_collection','attorney_review','
 const SORT_COLS: Record<string, string> = {
   notes_last_updated: 'notes_last_updated',
   created_at:         'created_at',
+  create_date:        'created_at',
   updated_at:         'updated_at',
   client_first_name:  'client_first_name',
   case_status:        'case_status',
