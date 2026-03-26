@@ -350,6 +350,7 @@ function CasesContent() {
     state:              'state_jurisdiction',
     stage:              'case_status',
     last_activity:      'notes_last_updated',
+    create_date:        'create_date',
   }
 
   return (
