@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
 
   // 2. Batch-read current dealstage from HubSpot (100 per request)
   const hubspotStages: Record<string, string | null> = {}  // dealId → our internal stage
+  const rawStages:     Record<string, string>        = {}  // dealId → raw HubSpot stage ID
   const deletedIds: string[] = []
 
   for (let i = 0; i < dealIds.length; i += 100) {
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
     for (const r of data.results ?? []) {
       const mapped = STAGE_MAP[r.properties?.dealstage ?? ''] ?? null
       hubspotStages[r.id] = mapped
+      rawStages[r.id] = r.properties?.dealstage ?? ''
     }
     for (const e of data.errors ?? []) {
       deletedIds.push(e.id)
@@ -79,11 +81,11 @@ export async function POST(req: NextRequest) {
   }
 
   // 3. Find wrong-stage deals
-  const wrongStage: { dealId: string; supabase: string; hubspot: string | null }[] = []
+  const wrongStage: { dealId: string; supabase: string; hubspot: string | null; raw_hs_stage: string }[] = []
   for (const dealId of dealIds) {
     const hsStage = hubspotStages[dealId]
     if (hsStage === stage) continue          // correct — skip
-    wrongStage.push({ dealId, supabase: stage, hubspot: hsStage ?? 'unknown' })
+    wrongStage.push({ dealId, supabase: stage, hubspot: hsStage ?? 'unknown', raw_hs_stage: rawStages[dealId] ?? '' })
   }
 
   // 4. Fix if requested
