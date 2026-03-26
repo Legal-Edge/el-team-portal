@@ -403,6 +403,7 @@ export function buildCaseRow(
     estimated_value:        dp['amount'] ? applyTransform(dp['amount'], 'parseFloat') as number : null,
     created_at:             safeDate(dp['createdate']),
     deal_created_at:        safeDate(dp['createdate']),
+
     closed_at:              isClosed ? safeDate(dp['closedate']) : null,
     notes_last_updated:     safeDate(dp['notes_last_updated']),
     el_app_status:              dp['el_app_status'] ? String(dp['el_app_status']) : null,
