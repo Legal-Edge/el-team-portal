@@ -180,6 +180,7 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 
     case 'demand_sent':
     case 'settled_date':
+    case 'create_date':
       return raw ? <span className="text-gray-600 text-xs tabular-nums">{fmtDate(String(raw))}</span> : <span className="text-gray-300">—</span>
 
     default:
