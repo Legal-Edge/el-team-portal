@@ -459,27 +459,68 @@ function generateGuidance(
     if (!hasROs) missingDocs.push('Repair orders')
     if (!hasPA)  missingDocs.push('Purchase or lease agreement')
 
+    const docCollectionStatus  = hp['document_collection_status']  ? String(hp['document_collection_status'])  : null
+    const docPromiseDate        = hp['document_promise_date']        ? String(hp['document_promise_date'])        : null
+    const clientHasRepairDocsAns = hp['do_you_have_the_repair_documents__or_would_you_need_to_get_it_from_the_dealership_']
+      ? String(hp['do_you_have_the_repair_documents__or_would_you_need_to_get_it_from_the_dealership_']) : null
+    const clientNeedsDealerDocs = clientHasRepairDocsAns
+      ? /dealer|dealership/i.test(clientHasRepairDocsAns) : false
+    const clientHasDocsAtHome   = clientHasRepairDocsAns
+      ? /have|yes|at home|i have/i.test(clientHasRepairDocsAns) && !clientNeedsDealerDocs : false
+
+    // Promise date flag
+    const promiseDateFlag = (() => {
+      if (!docPromiseDate) return null
+      const d = new Date(docPromiseDate)
+      if (isNaN(d.getTime())) return null
+      const past = d < new Date()
+      return past
+        ? `⚠️ Promise date passed: ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : `📅 Promise date: ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    })()
+
+    const statusLine = docCollectionStatus ? `Status: ${docCollectionStatus}.` : ''
     const stage_goal = missingDocs.length === 0
       ? 'All required documents appear to be on file. Confirm with the attorney team before routing to Attorney Review.'
-      : `Collect missing documents: ${missingDocs.join(', ')}.`
+      : `Collect missing documents: ${missingDocs.join(', ')}.${statusLine ? ' ' + statusLine : ''}`
 
     if (!hasROs) {
+      const repairDocsHow = clientNeedsDealerDocs
+        ? [
+            `${firstName} indicated they need to get the repair documents from the dealership.`,
+            'Ask them to call the dealership\'s service department and request copies of all service records.',
+            'Most dealerships can provide these within 1–2 business days.',
+            'They can take a clear photo of each page and reply to your text.',
+          ]
+        : clientHasDocsAtHome
+          ? [
+              `${firstName} indicated they have the repair documents at home but hasn\'t uploaded them yet.`,
+              'Follow up and ask them to take a clear photo of each page and reply to your text.',
+              'Documents just need to be legible — photos work perfectly.',
+            ]
+          : [
+              `Ask ${firstName} to pull the paperwork from each time the ${vehicle} was serviced.`,
+              'These should show the date, complaint, diagnosis, and work performed.',
+              'If they don\'t have copies, the dealership\'s service department can provide them.',
+              'A clear photo replied to your text message works perfectly.',
+              ...(promiseDateFlag ? [promiseDateFlag] : []),
+            ]
+
+      const repairDocsSms = clientNeedsDealerDocs
+        ? `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo move your case forward, we need the repair records from your dealership. Since the dealer has them on file, the easiest way is to:\n\n1. Call the dealership\'s service department\n2. Ask for copies of all service records for your ${vehicle}\n3. Take a photo and reply to this text, or have them email you a PDF\n\nThey\'re required to provide these — it usually takes 1–2 days. Once we have them, our attorneys can review everything! 🍋 (855) 435-3666`
+        : `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo move your case forward, we need copies of the repair paperwork from your dealership visits — the paperwork from each time your ${vehicle} was in for service.\n\nIf you have them at home, just take a photo and reply to this text! If not, call the dealership\'s service department and ask for copies of all service records.\n\nOnce we have these, our attorneys will review everything and reach out with next steps. 🍋\n\n(855) 435-3666`
+
       checklist.push({
         id:   'collect_repair_orders',
         icon: '📄',
-        what: 'Repair orders from all completed dealer visits',
-        how: [
-          `Ask ${firstName} to pull the paperwork from each time the ${vehicle} was serviced.`,
-          'These should show the date, complaint, diagnosis, and work performed.',
-          'If they don\'t have copies, the dealership\'s service department can provide them.',
-          'A clear photo replied to your text message works perfectly.',
-        ],
+        what: clientNeedsDealerDocs
+          ? 'Repair orders — client needs to request from dealership'
+          : clientHasDocsAtHome
+            ? 'Repair orders — client has them, needs to upload'
+            : 'Repair orders from all completed dealer visits',
+        how:  repairDocsHow,
         then: 'Once repair orders are received, our attorneys can begin their review.',
-        template: {
-          type:  'sms',
-          label: 'Request repair orders',
-          body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nTo move your case forward, we need copies of the repair paperwork from your dealership visits — the paperwork from each time your ${vehicle} was in for service.\n\nIf you have them at home, just take a photo and reply to this text! If not, call the dealership\'s service department and ask for copies of all service records.\n\nOnce we have these, our attorneys will review everything and reach out with next steps. 🍋\n\n(855) 435-3666`,
-        },
+        template: { type: 'sms', label: 'Request repair orders', body: repairDocsSms },
       })
     }
 
@@ -528,12 +569,40 @@ function generateGuidance(
 
   // ── STAGE: ATTORNEY REVIEW ────────────────────────────────────────────────
   if (stage === 'attorney_review') {
+    const handlingAttorney  = hp['handling_attorney']              ? String(hp['handling_attorney'])              : null
+    const causeOfAction     = hp['cause_of_action']                ? String(hp['cause_of_action'])                : null
+    const attorneyComments  = hp['attorney_comments']              ? String(hp['attorney_comments'])              : null
+    const aiAnalysisSummary = hp['case_summary_attorney_decision__ai_']
+      ? String(hp['case_summary_attorney_decision__ai_']).slice(0, 200) + (String(hp['case_summary_attorney_decision__ai_']).length > 200 ? '…' : '')
+      : null
+
     const hasInstructions = !!(atty.clarification_needed || atty.repairs_needed_note || atty.ai_instructions || atty.nurture_decision)
+
+    // Build enriched situation with attorney-specific fields
+    const attyContextLines = [
+      handlingAttorney  ? `Assigned to: ${handlingAttorney}` : null,
+      causeOfAction     ? `Cause of action: ${causeOfAction}` : null,
+      aiAnalysisSummary ? `AI Analysis: ${aiAnalysisSummary}` : null,
+    ].filter(Boolean)
+
     const stage_goal = hasInstructions
       ? 'Attorney has flagged action items. Complete the requests below before the case can move forward.'
       : atty.review_decision
         ? `Attorney decision: ${atty.review_decision}. Follow up with the client on next steps.`
-        : 'Case is with the attorney. Monitor for instructions and maintain client communication.'
+        : [
+            'Case is with the attorney. Monitor for instructions and maintain client communication.',
+            ...attyContextLines,
+          ].join(' | ')
+
+    if (attorneyComments) {
+      checklist.push({
+        id:   'attorney_comments',
+        icon: '💬',
+        what: 'Attorney comments on file',
+        how:  [attorneyComments],
+        then: 'Review and act on attorney comments as needed.',
+      })
+    }
 
     if (atty.ai_instructions) {
       checklist.push({
@@ -647,35 +716,56 @@ function generateGuidance(
 
   // ── STAGE: INFO NEEDED ────────────────────────────────────────────────────
   if (stage === 'info_needed') {
-    const infoNeeded = atty.clarification_needed || atty.ai_instructions
-    const stage_goal = infoNeeded
-      ? `Attorney needs specific information before the review can continue: ${infoNeeded.slice(0, 120)}...`
-      : `Get missing information from ${firstName} so the attorney review can continue.`
+    const infoNeeded    = atty.clarification_needed || atty.ai_instructions
+    const infoProvided  = hp['attorney_review_clarification_provided__notes_']
+      ? String(hp['attorney_review_clarification_provided__notes_']) : null
+    const clientResponded = !!infoProvided
+
+    const stage_goal = clientResponded && infoNeeded
+      ? `Client has responded to attorney's request. Route case back to Attorney Review.`
+      : infoNeeded
+        ? `Attorney needs specific information before the review can continue: ${infoNeeded.slice(0, 120)}${infoNeeded.length > 120 ? '…' : ''}`
+        : `Get missing information from ${firstName} so the attorney review can continue.`
 
     checklist.push({
       id:   'get_missing_info',
       icon: '❓',
-      what: infoNeeded ? 'Get attorney-requested information from client' : 'Identify and collect missing information',
-      how: infoNeeded
-        ? [
-            `Attorney has requested: "${infoNeeded}"`,
-            `Contact ${firstName} directly — call is faster than SMS for specific questions.`,
-            'Log the response in HubSpot notes immediately after the call.',
-          ]
-        : [
-            `Review the case notes for what information is outstanding.`,
-            `Contact ${firstName} and ask directly.`,
-            'Document the answer in HubSpot.',
-          ],
-      then: 'Once the information is received and logged, route back to Attorney Review.',
-      template: {
-        type:  'sms',
+      what: clientResponded
+        ? 'Client has provided clarification'
+        : infoNeeded ? 'Get attorney-requested information from client' : 'Identify and collect missing information',
+      how: [
+        ...(infoNeeded ? [`Attorney requested: "${infoNeeded}"`] : [`Review the case notes for what information is outstanding.`]),
+        ...(infoProvided ? [`Client provided: "${infoProvided}"`] : [
+          `Contact ${firstName} directly — call is faster than SMS for specific questions.`,
+          'Log the response in HubSpot notes immediately after the call.',
+        ]),
+      ],
+      then: clientResponded
+        ? 'Route case back to Attorney Review — attorney has the information they need.'
+        : 'Once the information is received and logged, route back to Attorney Review.',
+      ...(!clientResponded ? { template: {
+        type:  'sms' as const,
         label: 'Request missing information',
         body:  `Hi ${firstName}! This is [Your Name] from Easy Lemon 🍋\n\nOur attorney has a quick question about your case that we need your help with. Could you give us a call at (855) 435-3666 when you get a chance? It\'s a quick question and will help us move forward. Thanks! 🍋`,
-      },
+      }} : {}),
     })
 
-    next_steps.push(`Get missing information from ${firstName}, log in HubSpot, and route back to Attorney Review.`)
+    if (clientResponded) {
+      checklist.push({
+        id:   'route_back_to_review',
+        icon: '↩️',
+        what: 'Route case back to Attorney Review',
+        how: [
+          'Client has provided the requested information.',
+          'Update HubSpot stage to Attorney Review.',
+          'Notify the handling attorney that clarification has been provided.',
+        ],
+        then: 'Attorney will complete their review with the new information.',
+      })
+      next_steps.push(`Client responded. Route ${firstName}'s case back to Attorney Review.`)
+    } else {
+      next_steps.push(`Get missing information from ${firstName}, log in HubSpot, and route back to Attorney Review.`)
+    }
 
     return {
       stage_goal, situation, checklist, next_steps,
@@ -1292,33 +1382,35 @@ export async function GET(
   // ── Resolve case state (deterministic) ────────────────────────────────────
   const caseState = resolveCaseState(hp, engagements, docTypes, clientName)
 
-  // ── AI guidance synthesis (Claude) ────────────────────────────────────────
-  // Build comprehensive context from all available signals and ask Claude to
-  // synthesize actionable, case-specific guidance. Falls back to deterministic.
-  const stage       = String(caseRow.case_status)
+  // ── AI guidance synthesis (Claude — Nurture only) ────────────────────────
+  // Only run for Nurture stage: complex multi-signal reasoning justifies LLM cost.
+  // All other stages use deterministic rule-based guidance (instant, no LLM cost).
+  const stage           = String(caseRow.case_status)
   const stateLawSummary = buildStateLawSummary(caseState.state)
   let aiGuidance: Awaited<ReturnType<typeof synthesizeGuidance>> | null = null
 
-  try {
-    const synthInput = buildSynthesisInput({
-      stage,
-      caseRow: { client_first_name: caseRow.client_first_name, client_last_name: caseRow.client_last_name },
-      hp,
-      engagements,
-      docFiles: (docs ?? []) as { file_name: string; document_type_code: string | null; extracted_text?: string | null }[],
-      docTypes,
-      daysSinceContact: (() => {
-        const lastContacted = hp['notes_last_contacted'] ? String(hp['notes_last_contacted']) : null
-        const ms = lastContacted
-          ? (/^\d{13}$/.test(lastContacted) ? parseInt(lastContacted) : new Date(lastContacted).getTime())
-          : (engagements[0]?.createdAt ?? null)
-        return ms ? Math.floor((Date.now() - ms) / 86_400_000) : null
-      })(),
-      stateLawSummary,
-    })
-    aiGuidance = await synthesizeGuidance(synthInput)
-  } catch (err) {
-    console.error('[intelligence] AI synthesis failed, falling back to deterministic:', err)
+  if (stage === 'nurture') {
+    try {
+      const synthInput = buildSynthesisInput({
+        stage,
+        caseRow: { client_first_name: caseRow.client_first_name, client_last_name: caseRow.client_last_name },
+        hp,
+        engagements,
+        docFiles: (docs ?? []) as { file_name: string; document_type_code: string | null; extracted_text?: string | null }[],
+        docTypes,
+        daysSinceContact: (() => {
+          const lastContacted = hp['notes_last_contacted'] ? String(hp['notes_last_contacted']) : null
+          const ms = lastContacted
+            ? (/^\d{13}$/.test(lastContacted) ? parseInt(lastContacted) : new Date(lastContacted).getTime())
+            : (engagements[0]?.createdAt ?? null)
+          return ms ? Math.floor((Date.now() - ms) / 86_400_000) : null
+        })(),
+        stateLawSummary,
+      })
+      aiGuidance = await synthesizeGuidance(synthInput)
+    } catch (err) {
+      console.error('[intelligence] AI synthesis failed, falling back to deterministic:', err)
+    }
   }
 
   // ── Deterministic guidance (fallback) ────────────────────────────────────
