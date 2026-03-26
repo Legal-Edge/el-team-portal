@@ -76,6 +76,53 @@ function fmtDate(d: string | null): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+const TZ = 'America/Los_Angeles'
+
+function fmtDateTime(d: string | null): string {
+  if (!d) return '—'
+  const date = new Date(d)
+  if (isNaN(date.getTime())) return '—'
+
+  const tz = Intl.DateTimeFormat('en-US', { timeZone: TZ, timeZoneName: 'short' })
+    .formatToParts(date)
+    .find(p => p.type === 'timeZoneName')?.value ?? 'PT'
+
+  const timeStr = date.toLocaleTimeString('en-US', {
+    timeZone: TZ,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+
+  // Compare calendar dates in the target timezone
+  const nowParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date())
+  const dateParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date)
+
+  const toKey = (parts: Intl.DateTimeFormatPart[]) =>
+    `${parts.find(p => p.type === 'year')?.value}-${parts.find(p => p.type === 'month')?.value}-${parts.find(p => p.type === 'day')?.value}`
+
+  const nowKey  = toKey(nowParts)
+  const dateKey = toKey(dateParts)
+
+  const yesterdayDate = new Date()
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+  const yestKey = toKey(new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(yesterdayDate))
+
+  if (dateKey === nowKey)  return `Today at ${timeStr} ${tz}`
+  if (dateKey === yestKey) return `Yesterday at ${timeStr} ${tz}`
+
+  const dateLabel = date.toLocaleDateString('en-US', {
+    timeZone: TZ, month: 'short', day: 'numeric', year: 'numeric',
+  })
+  return `${dateLabel} ${timeStr} ${tz}`
+}
+
 function daysSince(d: string | null): number | null {
   if (!d) return null
   return Math.floor((Date.now() - new Date(d).getTime()) / (1000 * 60 * 60 * 24))
@@ -180,8 +227,10 @@ function getCellValue(c: CaseRecord, colId: string): React.ReactNode {
 
     case 'demand_sent':
     case 'settled_date':
-    case 'create_date':
       return raw ? <span className="text-gray-600 text-xs tabular-nums">{fmtDate(String(raw))}</span> : <span className="text-gray-300">—</span>
+
+    case 'create_date':
+      return raw ? <span className="text-gray-600 text-xs tabular-nums whitespace-nowrap">{fmtDateTime(String(raw))}</span> : <span className="text-gray-300">—</span>
 
     default:
       return raw
