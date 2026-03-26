@@ -313,21 +313,20 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Last engagement per case (actual human activity — calls, emails, SMS, notes)
-  // Limit to caseIds.length * 5 rows max — rows are desc by occurred_at so we get
-  // the most recent engagements first and stop once we have one per case.
+  // Last engagement per case — uses a DISTINCT ON SQL function backed by the
+  // existing idx_hs_eng_case_occurred index. Returns exactly one row per case,
+  // accurate at any scale, no JS-level dedup needed.
   const lastEngMap: Record<string, string> = {}
   if (caseIds.length > 0) {
-    const { data: engRows } = await db
-      .from('hubspot_engagements')
-      .select('case_id, occurred_at')
-      .in('case_id', caseIds)
-      .order('occurred_at', { ascending: false })
-      .limit(caseIds.length * 5)
-    for (const r of engRows ?? []) {
-      if (r.case_id && r.occurred_at && !lastEngMap[r.case_id]) {
-        lastEngMap[r.case_id] = r.occurred_at
-      }
+    const supabaseRaw = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+    const { data: engRows } = await supabaseRaw.rpc('last_engagements_for_cases', {
+      p_case_ids: caseIds,
+    })
+    for (const r of (engRows ?? []) as { case_id: string; occurred_at: string }[]) {
+      if (r.case_id && r.occurred_at) lastEngMap[r.case_id] = r.occurred_at
     }
   }
 
