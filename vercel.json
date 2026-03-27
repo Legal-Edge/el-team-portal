@@ -15,10 +15,6 @@
     {
       "path": "/api/admin/cron/sharepoint-renew",
       "schedule": "0 */12 * * *"
-    },
-    {
-      "path": "/api/admin/cron/qb-sync",
-      "schedule": "0 6 * * *"
     }
   ]
 }
