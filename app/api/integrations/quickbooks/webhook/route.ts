@@ -183,6 +183,7 @@ export async function POST(req: NextRequest) {
   }
 
   const notifications: any[] = body?.eventNotifications || []
+  console.log('QB webhook payload:', JSON.stringify(body, null, 2))
   if (notifications.length === 0) {
     return NextResponse.json({ ok: true, message: 'No notifications' })
   }
