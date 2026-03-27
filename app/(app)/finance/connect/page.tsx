@@ -150,15 +150,20 @@ export default function QBConnectPage() {
             totalLines += r.lineItemsSynced ?? 0
           } else {
             failed++
+            console.warn(`Chunk ${chunk.start}→${chunk.end} failed:`, r?.error)
           }
-        } catch {
+        } catch (err) {
           failed++
+          console.warn(`Chunk ${chunk.start}→${chunk.end} fetch error:`, err)
         }
       }
 
+      const failNote = failed > 0
+        ? ` (${failed} chunks had errors — check browser console for details)`
+        : ''
       setMessage({
-        type: failed === 0 ? 'success' : 'error',
-        text: `Full history complete — ${totalTxns} transactions, ${totalLines} line items synced.${failed > 0 ? ` (${failed} chunks failed)` : ''}`,
+        type: failed === chunks.length ? 'error' : 'success',
+        text: `Full history complete — ${totalTxns} transactions, ${totalLines} line items synced.${failNote}`,
       })
       loadStatus()
     } catch {
