@@ -1,4 +1,4 @@
-import { signIn, auth } from '@/auth'
+import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import Image from 'next/image'
 import type { Metadata } from 'next'
@@ -28,10 +28,8 @@ export default async function LoginPage() {
           </p>
         </div>
 
-        <form action={async () => {
-          "use server"
-          await signIn("microsoft-entra-id")
-        }}>
+        <form method="POST" action="/api/auth/signin/microsoft-entra-id">
+          <input type="hidden" name="callbackUrl" value="/dashboard" />
           <button
             type="submit"
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center gap-3"
