@@ -39,8 +39,8 @@ export default async function FinancePage() {
         account_type, amount, transaction_date, description,
         qb_transactions!inner (vendor_name, doc_number, transaction_type)
       `)
-      // Only show P&L expense lines — exclude income, equity, assets, and liabilities
-      .in('account_type', ['Expense', 'Other Expense', 'Cost of Goods Sold', 'Credit Card', 'Bank'])
+      // Include all P&L-relevant lines — exclude only pure balance sheet items (assets, liabilities, equity)
+      .in('account_type', ['Expense', 'Other Expense', 'Cost of Goods Sold', 'Credit Card', 'Bank', 'Other Income'])
       .gt('amount', 0)
       .order('transaction_date', { ascending: false })
       .range(from, from + pageSize - 1)
