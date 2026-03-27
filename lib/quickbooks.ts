@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js'
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const QB_AUTH_URL     = 'https://appcenter.intuit.com/connect/oauth2'
-const QB_TOKEN_URL    = 'https://oauth.platform.intuit.com/op/v2/tokens'
+const QB_TOKEN_URL    = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
 const QB_BASE_URL     = 'https://quickbooks.api.intuit.com/v3/company'
 const QB_MINOR_VER    = '65'
 const QB_SCOPES       = 'com.intuit.quickbooks.accounting'

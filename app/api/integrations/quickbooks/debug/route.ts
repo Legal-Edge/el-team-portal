@@ -7,7 +7,7 @@
 import { NextResponse }   from 'next/server'
 import { getTeamSession } from '@/lib/session'
 
-const QB_TOKEN_URL = 'https://oauth.platform.intuit.com/op/v2/tokens'
+const QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
 
 export async function GET() {
   const session = await getTeamSession()
