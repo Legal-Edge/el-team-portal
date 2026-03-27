@@ -161,8 +161,14 @@ async function upsertTransaction(
     let amount = line.Amount || 0
 
     if (txnType === 'Purchase' || txnType === 'Bill') {
-      const detail = line.AccountBasedExpenseLineDetail
-      if (detail?.AccountRef) accountRef = detail.AccountRef
+      const acctDetail = line.AccountBasedExpenseLineDetail
+      if (acctDetail?.AccountRef) {
+        accountRef = acctDetail.AccountRef
+      } else {
+        const itemDetail = line.ItemBasedExpenseLineDetail
+        if (itemDetail?.AccountRef) accountRef = itemDetail.AccountRef
+        else if (itemDetail?.ItemRef) accountRef = { value: itemDetail.ItemRef.value, name: itemDetail.ItemRef.name || '' }
+      }
     } else if (txnType === 'JournalEntry') {
       const detail = line.JournalEntryLineDetail
       if (detail?.AccountRef) accountRef = detail.AccountRef

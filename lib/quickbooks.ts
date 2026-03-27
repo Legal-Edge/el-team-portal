@@ -307,8 +307,20 @@ function extractLineItems(txn: any, txnType: string, accountMap: Map<string, QBA
     let amount = line.Amount || 0
 
     if (txnType === 'Purchase' || txnType === 'Bill') {
-      const detail = line.AccountBasedExpenseLineDetail
-      if (detail?.AccountRef) accountRef = detail.AccountRef
+      // Account-based expense line (direct account coding)
+      const acctDetail = line.AccountBasedExpenseLineDetail
+      if (acctDetail?.AccountRef) {
+        accountRef = acctDetail.AccountRef
+      } else {
+        // Item-based expense line (via QB items) — use item's account if available
+        const itemDetail = line.ItemBasedExpenseLineDetail
+        if (itemDetail?.AccountRef) {
+          accountRef = itemDetail.AccountRef
+        } else if (itemDetail?.ItemRef) {
+          // Fall back to item ref as identifier
+          accountRef = { value: itemDetail.ItemRef.value, name: itemDetail.ItemRef.name || '' }
+        }
+      }
     } else if (txnType === 'Invoice') {
       const detail = line.SalesItemLineDetail
       if (detail?.ItemRef) {
