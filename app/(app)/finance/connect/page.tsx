@@ -54,14 +54,17 @@ export default function QBConnectPage() {
     if (connected) {
       setMessage({ type: 'success', text: `QuickBooks connected successfully!` })
     } else if (error) {
+      const detail = searchParams.get('detail')
       const msgs: Record<string, string> = {
         denied:         'Authorization was denied.',
-        missing_params: 'Missing OAuth parameters.',
-        invalid_state:  'Invalid OAuth state.',
+        missing_params: 'Missing OAuth parameters from QuickBooks.',
+        invalid_state:  'Invalid OAuth state parameter.',
         db_error:       'Database error saving connection.',
         token_exchange: 'Failed to exchange authorization code.',
+        empty_tokens:   'QuickBooks returned an empty token response.',
       }
-      setMessage({ type: 'error', text: msgs[error] || `OAuth error: ${error}` })
+      const base = msgs[error] || `OAuth error: ${error}`
+      setMessage({ type: 'error', text: detail ? `${base} Detail: ${detail}` : base })
     }
   }, [searchParams])
 

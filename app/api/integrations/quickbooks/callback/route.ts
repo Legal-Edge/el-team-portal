@@ -44,6 +44,10 @@ export async function GET(req: NextRequest) {
   try {
     // Exchange code for tokens (pass entitySlug so correct app credentials are used)
     const tokens = await exchangeCode(code, realmId, entitySlug)
+    if (!tokens || !tokens.accessToken) {
+      console.error('QB callback: empty token response')
+      return NextResponse.redirect(new URL('/finance/connect?error=empty_tokens', req.url))
+    }
     const expiresAt = new Date(Date.now() + tokens.expiresIn * 1000).toISOString()
 
     const db = getFinanceDb()
@@ -77,7 +81,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(new URL('/finance/connect?connected=' + entitySlug, req.url))
   } catch (err) {
-    console.error('QB callback error:', err)
-    return NextResponse.redirect(new URL('/finance/connect?error=token_exchange', req.url))
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('QB callback token exchange error:', msg)
+    // Surface the actual error in URL for debugging (safe — no tokens exposed)
+    const errParam = encodeURIComponent(msg.slice(0, 200))
+    return NextResponse.redirect(new URL(`/finance/connect?error=token_exchange&detail=${errParam}`, req.url))
   }
 }
