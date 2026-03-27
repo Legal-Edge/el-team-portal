@@ -40,6 +40,7 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/webhooks/sharepoint/lifecycle', // SharePoint lifecycle notifications (no session)
     '/api/webhooks/hubspot-team',             // HubSpot real-time webhook (token-protected)
     '/api/integrations/quickbooks/callback', // QB OAuth callback — no session (QB redirects here)
+    '/api/integrations/quickbooks/webhook',  // QB real-time webhook — signed by Intuit, no session
   ]
   
   // Check if current path is public
