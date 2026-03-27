@@ -83,14 +83,16 @@ export default function QBConnectPage() {
 
   useEffect(() => { loadStatus() }, [])
 
-  async function handleSync(entityId: string) {
+  async function handleSync(entityId: string, fullHistory = false) {
     setSyncing(entityId)
     setMessage(null)
     try {
+      const body: Record<string, string> = { entityId }
+      if (fullHistory) body.startDate = '2010-01-01'
       const res  = await fetch('/api/integrations/quickbooks/sync', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ entityId }),
+        body:    JSON.stringify(body),
       })
       const data = await res.json()
       if (data.success) {
@@ -221,6 +223,14 @@ export default function QBConnectPage() {
                         className="px-4 py-2 bg-[#FFD600] hover:bg-[#F5C800] text-gray-900 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSyncing ? 'Syncing…' : 'Sync Now'}
+                      </button>
+                      <button
+                        onClick={() => { if (confirm('Pull all transactions from 2010 to today? This may take a few minutes.')) handleSync(entity.id, true) }}
+                        disabled={!!isSyncing}
+                        className="px-4 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Pull full transaction history from 2010"
+                      >
+                        Full History
                       </button>
                       <a
                         href={`/api/integrations/quickbooks/auth?entity=${entity.entity_slug}`}

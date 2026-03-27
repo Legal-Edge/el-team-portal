@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
 
   const now      = new Date()
   const endDate  = body.endDate   || now.toISOString().split('T')[0]
-  const startDate = body.startDate || new Date(now.getFullYear() - 2, 0, 1).toISOString().split('T')[0]
+  // Default: full history from 2015 (covers all likely QB data)
+  const startDate = body.startDate || '2015-01-01'
 
   const db = getFinanceDb()
 
