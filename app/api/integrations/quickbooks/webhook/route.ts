@@ -68,8 +68,8 @@ async function fetchTransaction(
   })
   if (!res.ok) return null
   const data = await res.json()
-  // Response key matches the entity type
-  return data?.[type] || null
+  // QB returns Purchase for both "Purchase" and "Expense" (bank feed) types
+  return data?.[type] || data?.Purchase || null
 }
 
 // ── Upsert a single transaction + its line items ────────────────────────────
@@ -120,7 +120,7 @@ async function upsertTransaction(
     let accountRef: { value: string; name: string } | null = null
     let amount = line.Amount || 0
 
-    if (txnType === 'Purchase' || txnType === 'Bill') {
+    if (txnType === 'Purchase' || txnType === 'Expense' || txnType === 'Bill') {
       const acctDetail = line.AccountBasedExpenseLineDetail
       if (acctDetail?.AccountRef) {
         accountRef = acctDetail.AccountRef
@@ -231,7 +231,8 @@ export async function POST(req: NextRequest) {
     )
 
     // Fetch and upsert each changed transaction directly (skip CDC — IDs are in the event)
-    const supportedTypes = new Set(['Purchase', 'Bill', 'Invoice', 'JournalEntry'])
+    // "Expense" is QB's bank-feed categorized transaction (maps to Purchase in API)
+    const supportedTypes = new Set(['Purchase', 'Bill', 'Invoice', 'JournalEntry', 'Expense'])
     let processed = 0
 
     for (const changedEntity of changedEntities) {
