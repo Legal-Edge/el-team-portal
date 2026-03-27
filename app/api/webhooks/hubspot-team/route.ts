@@ -31,6 +31,7 @@ interface HubSpotEvent {
   objectId:         number
   propertyName?:    string
   propertyValue?:   string
+  mergedObjectIds?: number[]  // deal.merge — secondary deal IDs that were absorbed
 }
 
 // ── GET — HubSpot URL verification ───────────────────────────────────────────
@@ -79,6 +80,16 @@ export async function POST(req: NextRequest) {
           const patches = dealPatches.get(id) ?? []
           patches.push({ name: e.propertyName, value: e.propertyValue ?? null })
           dealPatches.set(id, patches)
+        }
+      } else if (type === 'deal.merge') {
+        // Primary deal (objectId) absorbed secondary deal(s) (mergedObjectIds)
+        // → delete secondary deals from DB, full upsert primary
+        if (!dealDeletions.has(id)) dealCreations.add(id)  // upsert primary
+        for (const mergedId of e.mergedObjectIds ?? []) {
+          const sid = String(mergedId)
+          dealDeletions.add(sid)   // delete secondary
+          dealCreations.delete(sid)
+          dealPatches.delete(sid)
         }
       } else {
         // deal.restore or unknown deal event — treat as creation (full fetch)
