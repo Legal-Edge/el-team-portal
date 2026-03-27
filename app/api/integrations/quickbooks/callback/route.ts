@@ -52,11 +52,10 @@ export async function GET(req: NextRequest) {
 
     const db = getFinanceDb()
 
-    // Upsert entity with tokens + realm ID
-    const { data: entity, error: dbError } = await db
+    // Step 1: Update the existing pre-seeded entity row (matched by slug)
+    const { error: updateError } = await db
       .from('qb_entities')
-      .upsert({
-        entity_slug:      entitySlug,
+      .update({
         realm_id:         realmId,
         access_token:     tokens.accessToken,
         refresh_token:    tokens.refreshToken,
@@ -64,16 +63,29 @@ export async function GET(req: NextRequest) {
         connected:        true,
         connected_at:     new Date().toISOString(),
         updated_at:       new Date().toISOString(),
-      }, { onConflict: 'entity_slug' })
-      .select('id')
-      .single()
+      })
+      .eq('entity_slug', entitySlug)
 
-    if (dbError || !entity) {
-      console.error('QB callback DB error:', dbError)
-      return NextResponse.redirect(new URL('/finance/connect?error=db_error', req.url))
+    if (updateError) {
+      console.error('QB callback DB update error:', JSON.stringify(updateError))
+      const detail = encodeURIComponent(updateError.message || 'update failed')
+      return NextResponse.redirect(new URL(`/finance/connect?error=db_error&detail=${detail}`, req.url))
     }
 
-    // Ensure sync state row exists
+    // Step 2: Fetch the entity id
+    const { data: entity, error: fetchError } = await db
+      .from('qb_entities')
+      .select('id')
+      .eq('entity_slug', entitySlug)
+      .single()
+
+    if (fetchError || !entity) {
+      console.error('QB callback DB fetch error:', JSON.stringify(fetchError))
+      const detail = encodeURIComponent(fetchError?.message || 'entity not found after update')
+      return NextResponse.redirect(new URL(`/finance/connect?error=db_error&detail=${detail}`, req.url))
+    }
+
+    // Step 3: Ensure sync state row exists
     await db.from('qb_sync_state').upsert({
       entity_id: entity.id,
       status:    'idle',
