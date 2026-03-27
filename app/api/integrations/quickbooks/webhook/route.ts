@@ -50,46 +50,6 @@ function verifySignature(payload: string, signature: string): boolean {
   return false
 }
 
-// ── CDC fetch — get changed transactions since a timestamp ──────────────────
-
-async function fetchChangedTransactions(
-  accessToken: string,
-  realmId: string,
-  changedSince: string
-): Promise<{ type: string; id: string }[]> {
-  const entities = 'Purchase,Bill,Invoice,JournalEntry'
-  const url = `${QB_BASE_URL}/${realmId}/cdc?entities=${entities}&changedSince=${encodeURIComponent(changedSince)}&minorversion=${QB_MINOR_VER}`
-
-  const res = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Accept':        'application/json',
-    },
-    cache: 'no-store',
-  })
-
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`QB CDC fetch failed (${res.status}): ${err}`)
-  }
-
-  const data = await res.json()
-  const cdcResponse = data?.CDCResponse?.[0]?.QueryResponse || []
-
-  const changed: { type: string; id: string }[] = []
-  for (const qr of cdcResponse) {
-    // Each QueryResponse entry is keyed by entity type
-    for (const [entityType, records] of Object.entries(qr)) {
-      if (!Array.isArray(records)) continue
-      for (const record of records as any[]) {
-        if (record.Id) changed.push({ type: entityType, id: record.Id })
-      }
-    }
-  }
-
-  return changed
-}
-
 // ── Fetch a single transaction by type + id ─────────────────────────────────
 
 async function fetchTransaction(
@@ -259,13 +219,6 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    // Find earliest change timestamp for CDC
-    const timestamps = changedEntities
-      .map(e => e.lastUpdated)
-      .filter(Boolean)
-      .sort()
-    const changedSince = timestamps[0] || new Date(Date.now() - 5 * 60 * 1000).toISOString()
-
     // Fetch account map for this entity
     const { data: accounts } = await db
       .from('qb_accounts')
@@ -276,24 +229,26 @@ export async function POST(req: NextRequest) {
       (accounts || []).map(a => [a.qb_account_id, a.fully_qualified_name || ''])
     )
 
-    // Use CDC to get changed transactions
-    try {
-      const changed = await fetchChangedTransactions(accessToken, realmId, changedSince)
+    // Fetch and upsert each changed transaction directly (skip CDC — IDs are in the event)
+    const supportedTypes = new Set(['Purchase', 'Bill', 'Invoice', 'JournalEntry'])
+    let processed = 0
 
-      for (const { type, id } of changed) {
-        try {
-          const txn = await fetchTransaction(accessToken, realmId, type, id)
-          if (!txn) continue
-          await upsertTransaction(db, entity.id, entity.entity_name, txn, type, accountMap)
-        } catch (err) {
-          console.error(`QB webhook: failed to upsert ${type} ${id}:`, err)
-        }
+    for (const changedEntity of changedEntities) {
+      const txnType = changedEntity.name
+      const txnId   = changedEntity.id
+      if (!txnId || !supportedTypes.has(txnType)) continue
+
+      try {
+        const txn = await fetchTransaction(accessToken, realmId, txnType, txnId)
+        if (!txn) continue
+        await upsertTransaction(db, entity.id, entity.entity_name, txn, txnType, accountMap)
+        processed++
+      } catch (err) {
+        console.error(`QB webhook: failed to upsert ${txnType} ${txnId}:`, err)
       }
-
-      console.log(`QB webhook: processed ${changed.length} changes for ${entity.entity_name}`)
-    } catch (err) {
-      console.error(`QB webhook CDC error for ${entity.entity_name}:`, err)
     }
+
+    console.log(`QB webhook: processed ${processed} changes for ${entity.entity_name}`)
   }
 
   // QB requires 200 response quickly
