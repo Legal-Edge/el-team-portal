@@ -39,7 +39,9 @@ export default async function FinancePage() {
         account_type, amount, transaction_date, description,
         qb_transactions!inner (vendor_name, doc_number, transaction_type)
       `)
-      .eq('account_type', 'Expense')
+      // Include all P&L expense account types (Expense + COGS + OtherExpense)
+      .in('account_type', ['Expense', 'Cost of Goods Sold', 'Other Expense', 'OtherExpense', 'COGS'])
+      .gt('amount', 0)
       .order('transaction_date', { ascending: false })
       .range(from, from + pageSize - 1)
 
