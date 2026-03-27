@@ -83,25 +83,84 @@ export default function QBConnectPage() {
 
   useEffect(() => { loadStatus() }, [])
 
+  // Generate 6-month date chunks between two dates
+  function getDateChunks(startYear: number): Array<{ start: string; end: string }> {
+    const chunks = []
+    const now = new Date()
+    let current = new Date(startYear, 0, 1)
+    while (current < now) {
+      const chunkEnd = new Date(current)
+      chunkEnd.setMonth(chunkEnd.getMonth() + 6)
+      const end = chunkEnd > now ? now : new Date(chunkEnd.getTime() - 86400000)
+      chunks.push({
+        start: current.toISOString().split('T')[0],
+        end:   end.toISOString().split('T')[0],
+      })
+      current = chunkEnd
+    }
+    return chunks
+  }
+
   async function handleSync(entityId: string, fullHistory = false) {
     setSyncing(entityId)
     setMessage(null)
+
     try {
-      const body: Record<string, string> = { entityId }
-      if (fullHistory) body.startDate = '2010-01-01'
-      const res  = await fetch('/api/integrations/quickbooks/sync', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      })
-      const data = await res.json()
-      if (data.success) {
-        const r = data.results?.[0]
-        setMessage({ type: 'success', text: `Sync complete — ${r?.transactionsSynced ?? 0} transactions, ${r?.lineItemsSynced ?? 0} line items.` })
-        loadStatus()
-      } else {
-        setMessage({ type: 'error', text: data.results?.[0]?.error || 'Sync failed.' })
+      if (!fullHistory) {
+        // Standard sync — last 2 years, single request
+        const res  = await fetch('/api/integrations/quickbooks/sync', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ entityId }),
+        })
+        const data = await res.json()
+        if (data.success) {
+          const r = data.results?.[0]
+          setMessage({ type: 'success', text: `Sync complete — ${r?.transactionsSynced ?? 0} transactions, ${r?.lineItemsSynced ?? 0} line items.` })
+          loadStatus()
+        } else {
+          setMessage({ type: 'error', text: data.results?.[0]?.error || 'Sync failed.' })
+        }
+        return
       }
+
+      // Full history — process one 6-month chunk at a time
+      const chunks = getDateChunks(2015)
+      let totalTxns = 0
+      let totalLines = 0
+      let failed = 0
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i]
+        setMessage({
+          type: 'success',
+          text: `Full history sync: chunk ${i + 1}/${chunks.length} (${chunk.start} → ${chunk.end})…`,
+        })
+
+        try {
+          const res  = await fetch('/api/integrations/quickbooks/sync', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ entityId, startDate: chunk.start, endDate: chunk.end }),
+          })
+          const data = await res.json()
+          const r    = data.results?.[0]
+          if (r?.success) {
+            totalTxns  += r.transactionsSynced ?? 0
+            totalLines += r.lineItemsSynced ?? 0
+          } else {
+            failed++
+          }
+        } catch {
+          failed++
+        }
+      }
+
+      setMessage({
+        type: failed === 0 ? 'success' : 'error',
+        text: `Full history complete — ${totalTxns} transactions, ${totalLines} line items synced.${failed > 0 ? ` (${failed} chunks failed)` : ''}`,
+      })
+      loadStatus()
     } catch {
       setMessage({ type: 'error', text: 'Sync request failed.' })
     } finally {
