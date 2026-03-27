@@ -80,7 +80,7 @@ async function upsertTransaction(
   entityName: string,
   txn: any,
   txnType: string,
-  accountMap: Map<string, string> // qb_account_id → fully_qualified_name
+  accountMap: Map<string, { fqn: string; accountType: string }>
 ) {
   const txnDate    = txn.TxnDate
   const vendorName = txn.EntityRef?.name || txn.VendorRef?.name || null
@@ -140,7 +140,9 @@ async function upsertTransaction(
 
     if (!accountRef?.value) continue
 
-    const fullyQualifiedName = accountMap.get(accountRef.value) || accountRef.name || ''
+    const acctInfo           = accountMap.get(accountRef.value)
+    const fullyQualifiedName = acctInfo?.fqn || accountRef.name || ''
+    const accountType        = acctInfo?.accountType || ''
     const expenseGroup       = extractExpenseGroup(fullyQualifiedName, accountRef.name || '')
 
     lineRows.push({
@@ -150,6 +152,7 @@ async function upsertTransaction(
       qb_account_id:        accountRef.value,
       account_name:         accountRef.name || '',
       fully_qualified_name: fullyQualifiedName,
+      account_type:         accountType,
       expense_group:        expenseGroup,
       description:          line.Description || '',
       amount,
@@ -220,14 +223,17 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    // Fetch account map for this entity
+    // Fetch account map for this entity (includes account_type for Finance page filter)
     const { data: accounts } = await db
       .from('qb_accounts')
-      .select('qb_account_id, fully_qualified_name')
+      .select('qb_account_id, fully_qualified_name, account_type')
       .eq('entity_id', entity.id)
 
-    const accountMap = new Map<string, string>(
-      (accounts || []).map(a => [a.qb_account_id, a.fully_qualified_name || ''])
+    const accountMap = new Map<string, { fqn: string; accountType: string }>(
+      (accounts || []).map(a => [a.qb_account_id, {
+        fqn:         a.fully_qualified_name || '',
+        accountType: a.account_type || '',
+      }])
     )
 
     // Fetch and upsert each changed transaction directly (skip CDC — IDs are in the event)
