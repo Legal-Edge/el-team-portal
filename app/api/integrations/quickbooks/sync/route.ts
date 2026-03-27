@@ -49,26 +49,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No connected QB entities found' }, { status: 404 })
   }
 
+  // Split into 6-month chunks to avoid Vercel timeout (60s limit)
+  function getDateChunks(start: string, end: string, monthsPerChunk = 6): Array<{ start: string; end: string }> {
+    const chunks = []
+    let current = new Date(start)
+    const endDt  = new Date(end)
+    while (current < endDt) {
+      const chunkEnd = new Date(current)
+      chunkEnd.setMonth(chunkEnd.getMonth() + monthsPerChunk)
+      chunks.push({
+        start: current.toISOString().split('T')[0],
+        end:   (chunkEnd > endDt ? endDt : new Date(chunkEnd.getTime() - 86400000)).toISOString().split('T')[0],
+      })
+      current = chunkEnd
+    }
+    return chunks
+  }
+
+  const chunks = getDateChunks(startDate, endDate)
   const results = []
 
   for (const entity of entities) {
-    try {
-      const result = await syncEntity(entity.id, startDate, endDate)
-      results.push({
-        entityId:   entity.id,
-        entityName: entity.entity_name,
-        success:    true,
-        ...result,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      results.push({
-        entityId:   entity.id,
-        entityName: entity.entity_name,
-        success:    false,
-        error:      msg,
-      })
+    let totalTxns = 0
+    let totalLines = 0
+    let success = true
+    let errorMsg = ''
+
+    for (const chunk of chunks) {
+      try {
+        const result = await syncEntity(entity.id, chunk.start, chunk.end)
+        totalTxns  += result.transactionsSynced
+        totalLines += result.lineItemsSynced
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        // Log but continue with other chunks
+        console.error(`Sync chunk ${chunk.start}→${chunk.end} failed for ${entity.entity_name}:`, msg)
+        errorMsg = msg
+        success = false
+      }
     }
+
+    results.push({
+      entityId:           entity.id,
+      entityName:         entity.entity_name,
+      success,
+      transactionsSynced: totalTxns,
+      lineItemsSynced:    totalLines,
+      error:              errorMsg || undefined,
+    })
   }
 
   return NextResponse.json({

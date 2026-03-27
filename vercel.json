@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "app/api/integrations/quickbooks/sync/route.ts": {
+      "maxDuration": 300
+    }
+  },
   "crons": [
     {
       "path": "/api/admin/cron/delta-sync",
