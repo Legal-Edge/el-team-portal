@@ -26,9 +26,7 @@ export default async function FinancePage() {
     .select('id, entity_name, entity_slug, connected, qb_sync_state(status, last_synced_at, records_synced)')
     .order('entity_name')
 
-  // Load transaction lines — last 12 months by default, expenses only
-  const startDate = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1).toISOString().split('T')[0]
-
+  // Load all synced expense transaction lines (up to 10k rows)
   const { data: lines } = await db
     .from('qb_transaction_lines')
     .select(`
@@ -36,10 +34,9 @@ export default async function FinancePage() {
       account_type, amount, transaction_date, description,
       qb_transactions!inner (vendor_name, doc_number, transaction_type)
     `)
-    .gte('transaction_date', startDate)
     .eq('account_type', 'Expense')
     .order('transaction_date', { ascending: false })
-    .limit(5000)
+    .limit(10000)
 
   return (
     <FinanceClient

@@ -41,6 +41,7 @@ const DATE_PRESETS = [
   { label: 'This quarter',  start: new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1) },
   { label: 'YTD',           start: new Date(now.getFullYear(), 0, 1) },
   { label: 'Last 12 mo',    start: new Date(now.getFullYear(), now.getMonth() - 11, 1) },
+  { label: 'All time',      start: new Date(2000, 0, 1) },
 ]
 
 function toDateStr(d: Date): string {
