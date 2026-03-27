@@ -25,7 +25,7 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { id: 'demand_sent',        label: 'Demand Sent',      field: 'hp.date___demand_sent',               width: 110, sortable: false, type: 'date',   stageDefault: ['retained'] },
   { id: 'settlement_amount',  label: 'Settlement',       field: 'hp.c__total_settlement_amount',       width: 110, sortable: false, type: 'number', stageDefault: ['settled'] },
   { id: 'settled_date',       label: 'Settled Date',     field: 'hp.date___settled',                   width: 110, sortable: false, type: 'date',   stageDefault: ['settled'] },
-  { id: 'create_date',        label: 'Deal Create Date', field: 'hp.createdate',                       width: 120, sortable: true,  type: 'date'   },
+  { id: 'create_date',        label: 'Deal Create Date', field: 'deal_created_at',                     width: 160, sortable: true,  type: 'date'   },
 ]
 
 export const DEFAULT_COLUMNS = [
