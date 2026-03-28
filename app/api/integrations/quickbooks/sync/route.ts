@@ -19,6 +19,7 @@ function getFinanceDb() {
 }
 
 export async function POST(req: NextRequest) {
+  try {
   // Admin only
   const session = await getTeamSession()
   if (!session || session.role !== 'admin') {
@@ -77,4 +78,9 @@ export async function POST(req: NextRequest) {
     endDate,
     results,
   })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('QB sync route unhandled error:', msg)
+    return NextResponse.json({ success: false, error: msg, results: [] }, { status: 500 })
+  }
 }
