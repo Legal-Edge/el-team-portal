@@ -100,7 +100,7 @@ async function upsertTransaction(
       currency_code:     txn.CurrencyRef?.value || 'USD',
       synced_at:         new Date().toISOString(),
       raw_json:          txn,
-    }, { onConflict: 'entity_id,qb_transaction_id,transaction_type' })
+    }, { onConflict: 'entity_id,qb_transaction_id' })
     .select('id')
     .single()
 
@@ -238,21 +238,43 @@ export async function POST(req: NextRequest) {
 
     // Fetch and upsert each changed transaction directly (skip CDC — IDs are in the event)
     // "Expense" is QB's bank-feed categorized transaction (maps to Purchase in API)
-    const supportedTypes = new Set(['Purchase', 'Bill', 'Invoice', 'JournalEntry', 'Expense'])
+    const supportedTypes = new Set(['Purchase', 'Bill', 'Invoice', 'JournalEntry', 'Expense', 'Check'])
     let processed = 0
 
     for (const changedEntity of changedEntities) {
-      const txnType = changedEntity.name
-      const txnId   = changedEntity.id
+      const txnType  = changedEntity.name
+      const txnId    = changedEntity.id
+      const operation = changedEntity.operation // 'Create' | 'Update' | 'Delete' | 'Merge' | 'Void'
       if (!txnId || !supportedTypes.has(txnType)) continue
 
       try {
+        if (operation === 'Delete' || operation === 'Void') {
+          // Remove from our DB — transaction was deleted or voided in QB
+          const { data: txnRow } = await db
+            .from('qb_transactions')
+            .select('id')
+            .eq('entity_id', entity.id)
+            .eq('qb_transaction_id', txnId)
+            .maybeSingle()
+
+          if (txnRow) {
+            await db.from('qb_transaction_lines').delete().eq('transaction_id', txnRow.id)
+            await db.from('qb_transactions').delete().eq('id', txnRow.id)
+            console.log(`QB webhook: deleted ${txnType} ${txnId} from ${entity.entity_name}`)
+          }
+          processed++
+          continue
+        }
+
+        // Create / Update — fetch and upsert
         const txn = await fetchTransaction(accessToken, realmId, txnType, txnId)
         if (!txn) continue
-        await upsertTransaction(db, entity.id, entity.entity_name, txn, txnType, accountMap)
+        // Normalize Check → Purchase (consistent storage type)
+        const storedType = txnType === 'Check' ? 'Purchase' : txnType
+        await upsertTransaction(db, entity.id, entity.entity_name, txn, storedType, accountMap)
         processed++
       } catch (err) {
-        console.error(`QB webhook: failed to upsert ${txnType} ${txnId}:`, err)
+        console.error(`QB webhook: failed to process ${txnType} ${txnId}:`, err)
       }
     }
 
