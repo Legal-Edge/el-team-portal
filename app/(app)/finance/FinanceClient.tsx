@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo }   from 'react'
+import { useState, useMemo, useRef, useEffect as useLayoutEffect } from 'react'
 import Link                    from 'next/link'
 import { FinanceCharts }       from './FinanceCharts'
 import type { Settlement }     from './page'
@@ -115,6 +115,86 @@ interface Props {
 
 function toDateStr(d: Date): string {
   return d.toISOString().split('T')[0]
+}
+
+// ─── Custom period dropdown ───────────────────────────────────────────────────
+function PeriodSelector({
+  value, onChange,
+}: {
+  value:    Period
+  onChange: (p: Period) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Close on outside click
+  useLayoutEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={ref} className="relative select-none">
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-sm font-medium transition-all ${
+          open
+            ? 'bg-white border-gray-300 shadow-sm'
+            : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm'
+        } text-gray-800 cursor-pointer`}
+      >
+        {/* Calendar icon */}
+        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <rect x="3" y="4" width="18" height="18" rx="3" />
+          <path d="M3 9h18M8 2v4M16 2v4" strokeLinecap="round" />
+        </svg>
+        <span className="min-w-[100px]">{PERIOD_LABELS[value]}</span>
+        {/* Chevron */}
+        <svg
+          className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+        >
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 top-full mt-1.5 left-0 w-48 bg-white border border-gray-100 rounded-xl shadow-xl py-1 overflow-hidden">
+          {(Object.entries(PERIOD_LABELS) as [Period, string][]).map(([val, label], i) => {
+            const isSelected = val === value
+            const isDivider  = i > 0 && (val === 'this_quarter' || val === 'ytd' || val === 'all' || val === 'custom')
+            return (
+              <div key={val}>
+                {isDivider && <div className="my-1 border-t border-gray-100" />}
+                <button
+                  type="button"
+                  onClick={() => { onChange(val); setOpen(false) }}
+                  className={`w-full flex items-center justify-between gap-2 px-4 py-2 text-sm transition-colors text-left ${
+                    isSelected
+                      ? 'bg-gray-50 text-gray-900 font-semibold'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                  {isSelected && (
+                    <svg className="w-3.5 h-3.5 text-[#FFD600] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function fmt(amount: number): string {
@@ -338,20 +418,8 @@ export function FinanceClient({ entities, initialLines, settlements }: Props) {
           {/* ── Unified period selector (controls charts + table) ──────── */}
           {hasData && (
             <div className="flex flex-wrap items-center gap-3 mb-6">
-              {/* Period dropdown */}
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">📅</span>
-                <select
-                  value={period}
-                  onChange={e => setPeriod(e.target.value as Period)}
-                  className="pl-8 pr-8 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#FFD600] appearance-none cursor-pointer"
-                >
-                  {(Object.entries(PERIOD_LABELS) as [Period, string][]).map(([val, label]) => (
-                    <option key={val} value={val}>{label}</option>
-                  ))}
-                </select>
-                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▾</span>
-              </div>
+              {/* Period dropdown — custom styled */}
+              <PeriodSelector value={period} onChange={setPeriod} />
 
               {/* Custom date inputs — shown only when Custom is selected */}
               {period === 'custom' && (
@@ -372,10 +440,13 @@ export function FinanceClient({ entities, initialLines, settlements }: Props) {
                 </div>
               )}
 
-              {/* Period label badge — shows the active date range */}
+              {/* Active date range badge */}
               {period !== 'custom' && filterStart && (
-                <span className="text-xs text-gray-400 font-medium">
-                  {filterStart}{filterEnd && filterEnd !== new Date().toISOString().split('T')[0] ? ` → ${filterEnd}` : ' → today'}
+                <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-xs text-gray-500 font-medium tabular-nums">
+                  <span className="text-gray-300">|</span>
+                  {filterStart}
+                  <span className="text-gray-300">→</span>
+                  {filterEnd && filterEnd !== new Date().toISOString().split('T')[0] ? filterEnd : 'today'}
                 </span>
               )}
             </div>
