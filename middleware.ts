@@ -35,6 +35,7 @@ export default auth((req: NextRequest & { auth: any }) => {
     '/api/admin/audit-stage',            // per-stage HubSpot vs Supabase audit + fix (token-protected)
     '/api/admin/resync-deals',           // force-sync specific deal IDs from HubSpot (token-protected)
     '/api/admin/find-missing-deals',     // find HubSpot IDs missing from Supabase (token-protected)
+    '/api/admin/replay-failed-events',   // replay failed webhook events (token-protected)
     '/api/admin/backfill',               // per-case backfill: engagements + docs + extraction (token-protected)
     '/api/webhooks/sharepoint',         // SharePoint Graph webhook (no session)
     '/api/webhooks/sharepoint/lifecycle', // SharePoint lifecycle notifications (no session)
@@ -70,6 +71,6 @@ export default auth((req: NextRequest & { auth: any }) => {
 // Configure which routes should be processed by the middleware
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/admin/azure-users|api/admin/block-user|api/admin/staff-roles|api/admin/sync-roles-from-titles|api/admin/debug-provision|api/admin/provision-all|api/admin/update-user|api/admin/cleanup-stale-intake|api/admin/audit-stage|api/admin/resync-deals|api/admin/find-missing-deals|api/cases/|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/backfill-sms|api/admin/reconcile-comms|api/admin/sync-hubspot-cases|api/admin/case-counts|api/admin/sync-missing-deals|api/admin/cron|api/admin/count-check|api/admin/find-orphaned-deals|api/admin/sharepoint|api/admin/azure-users|api/admin/block-user|api/admin/staff-roles|api/admin/sync-roles-from-titles|api/admin/debug-provision|api/admin/provision-all|api/admin/update-user|api/admin/cleanup-stale-intake|api/admin/audit-stage|api/admin/resync-deals|api/admin/find-missing-deals|api/admin/replay-failed-events|api/cases/|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

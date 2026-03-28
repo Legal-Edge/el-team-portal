@@ -458,12 +458,35 @@ export async function upsertCase(
   const isNew    = !existing
   const prevStage = existing?.case_status ?? null
 
-  // Upsert case
-  const { data: upserted, error: caseErr } = await coreDb
-    .from('cases')
-    .upsert(caseRow, { onConflict: 'hubspot_deal_id', ignoreDuplicates: false })
-    .select('id')
-    .maybeSingle()
+  // Upsert case — with automatic sequence recovery on case_number constraint violation
+  let upserted: { id: string } | null = null
+  let caseErr: { message: string } | null = null
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await coreDb
+      .from('cases')
+      .upsert(caseRow, { onConflict: 'hubspot_deal_id', ignoreDuplicates: false })
+      .select('id')
+      .maybeSingle()
+
+    if (!res.error) { upserted = res.data; caseErr = null; break }
+
+    // Auto-advance sequence if case_number constraint fires, then retry once
+    if (attempt === 0 && res.error.message.includes('cases_case_number_key')) {
+      console.warn(`[upsertCase] case_number sequence exhausted for deal ${dealId} — auto-advancing`)
+      try {
+        // advance_case_number_seq is a SECURITY DEFINER function in core schema
+        await client.schema('core').rpc('advance_case_number_seq' as never)
+      } catch (rpcErr) {
+        console.error('[upsertCase] advance_case_number_seq RPC failed:', rpcErr)
+      }
+      caseErr = res.error
+      continue
+    }
+
+    caseErr = res.error
+    break
+  }
 
   if (caseErr) {
     return { caseId: null, isNew, prevStage, error: caseErr.message }

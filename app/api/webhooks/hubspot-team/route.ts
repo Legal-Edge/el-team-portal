@@ -34,6 +34,26 @@ interface HubSpotEvent {
   mergedObjectIds?: number[]  // deal.merge — secondary deal IDs that were absorbed
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function logFailedEvent(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client:    any,
+  dealId:    string,
+  eventType: string,
+  error:     string,
+  payload?:  Record<string, unknown>
+) {
+  try {
+    await client.schema('core').from('failed_webhook_events').insert({
+      deal_id:       dealId,
+      event_type:    eventType,
+      error_message: error,
+      payload:       payload ?? null,
+    })
+  } catch { /* non-fatal */ }
+}
+
 // ── GET — HubSpot URL verification ───────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')
@@ -167,6 +187,7 @@ export async function POST(req: NextRequest) {
       if (!resolvedId || resolvedId === 'undefined') {
         results[`deal:${dealId}`] = 'error: fetchHsDeal returned no id'
         console.error(`[webhook] fetchHsDeal returned no id for deal ${dealId}`)
+        await logFailedEvent(client, dealId, 'deal.creation', 'fetchHsDeal returned no id')
         continue
       }
 
@@ -175,9 +196,16 @@ export async function POST(req: NextRequest) {
         emitEvents: true,
         source:     EVENT_SOURCES.HUBSPOT_WEBHOOK,
       })
-      results[`deal:${dealId}`] = result.error ? `case_err: ${result.error}` : result.isNew ? 'created' : 'upserted'
+      if (result.error) {
+        results[`deal:${dealId}`] = `case_err: ${result.error}`
+        await logFailedEvent(client, dealId, 'deal.creation', result.error)
+      } else {
+        results[`deal:${dealId}`] = result.isNew ? 'created' : 'upserted'
+      }
     } catch (err) {
-      results[`deal:${dealId}`] = `error: ${(err as Error).message}`
+      const msg = (err as Error).message
+      results[`deal:${dealId}`] = `error: ${msg}`
+      await logFailedEvent(client, dealId, 'deal.creation', msg)
     }
   }
 
