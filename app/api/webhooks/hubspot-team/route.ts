@@ -4,12 +4,16 @@
  * HubSpot → Supabase real-time webhook handler.
  *
  * Handles:
- *   deal.*           → upsert/delete core.cases (full property sync)
- *   note.*           → upsert core.hubspot_engagements (Aloware SMS/notes)
- *   call.*           → upsert core.hubspot_engagements
- *   email.*          → upsert core.hubspot_engagements
- *   communication.*  → upsert core.hubspot_engagements
- *   contact.*        → re-sync contact props on associated cases
+ *   deal.creation          → full fetch + upsert core.cases
+ *   deal.propertyChange    → fast-path patch (no HubSpot API call)
+ *   deal.deletion          → delete from core.cases
+ *   deal.merge             → delete secondary, full upsert primary
+ *   deal.associationChange → full re-fetch to pick up new contact/company
+ *   note.*                 → upsert core.hubspot_engagements (Aloware SMS/notes)
+ *   call.*                 → upsert core.hubspot_engagements
+ *   email.*                → upsert core.hubspot_engagements
+ *   communication.*        → upsert core.hubspot_engagements
+ *   contact.*              → re-sync contact props on associated cases
  *
  * Security: ?token=<BACKFILL_IMPORT_TOKEN>
  */
@@ -111,6 +115,10 @@ export async function POST(req: NextRequest) {
           dealCreations.delete(sid)
           dealPatches.delete(sid)
         }
+      } else if (type === 'deal.associationChange') {
+        // Contact/company associated or disassociated from deal
+        // Full re-fetch picks up updated contact name, email, phone, etc.
+        if (!dealDeletions.has(id)) dealCreations.add(id)
       } else {
         // deal.restore or unknown deal event — treat as creation (full fetch)
         if (!dealDeletions.has(id)) dealCreations.add(id)
