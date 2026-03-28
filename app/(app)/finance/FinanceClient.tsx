@@ -153,10 +153,21 @@ export function FinanceClient({ entities, initialLines }: Props) {
     setSyncing(true)
     setSyncMsg(null)
     try {
-      const res  = await fetch('/api/integrations/quickbooks/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const endDate   = new Date().toISOString().split('T')[0]
+      const startObj  = new Date(); startObj.setDate(startObj.getDate() - 90)
+      const startDate = startObj.toISOString().split('T')[0]
+      const res  = await fetch('/api/integrations/quickbooks/sync', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ startDate, endDate }),
+      })
+      if (!res.ok) {
+        setSyncMsg(`Sync failed (HTTP ${res.status}). Try again in a moment.`)
+        return
+      }
       const data = await res.json()
       if (data.success) {
-        setSyncMsg('Sync complete. Refresh the page to see updated data.')
+        setSyncMsg('Sync complete — data updated.')
       } else {
         setSyncMsg('Sync finished with errors. Check QB Connections for details.')
       }
