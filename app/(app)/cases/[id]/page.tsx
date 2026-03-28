@@ -1699,11 +1699,10 @@ function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
 
   return (
     <div
-      className={`rounded-lg border px-4 py-3 transition-all duration-150 cursor-pointer
+      className={`rounded-lg border px-4 py-3 transition-all duration-150
         ${cardBase}
         hover:-translate-y-0.5 hover:shadow-md hover:border-gray-300 hover:bg-gray-50
         active:translate-y-0 active:shadow-sm`}
-      onClick={() => { window.location.href = `/cases/${caseId}/documents/${f.id}` }}
     >
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -1727,6 +1726,17 @@ function AIDocRow({ f, caseId }: { f: CaseFile; caseId: string }) {
               <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />Not extracted
             </span>
           )}
+          {/* Arrow button → opens extraction view directly */}
+          <a
+            href={`/cases/${caseId}/documents/${f.id}?view=extraction`}
+            onClick={e => e.stopPropagation()}
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-gray-100 hover:bg-lemon-400 hover:text-gray-900 text-gray-500 transition-all active:scale-95"
+            title="View extracted fields"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </a>
         </div>
       </div>
       {ex && dateIn && (

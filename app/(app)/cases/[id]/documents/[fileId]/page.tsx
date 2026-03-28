@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { useRouter }                   from 'next/navigation'
+import { useRouter, useSearchParams }  from 'next/navigation'
 import Link                            from 'next/link'
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -322,13 +322,16 @@ export default function DocumentViewerPage({
   const router = useRouter()
   const [caseId,    setCaseId]    = useState<string | null>(null)
   const [fileId,    setFileId]    = useState<string | null>(null)
+  const searchParams  = useSearchParams()
+  const startInExtraction = searchParams.get('view') === 'extraction'
+
   const [files,     setFiles]     = useState<FileItem[]>([])
   const [caseInfo,  setCaseInfo]  = useState<CaseInfo | null>(null)
   const [active,      setActive]      = useState<FileItem | null>(null)
   const [blobUrl,     setBlobUrl]     = useState<string | null>(null)
   const [pdfErr,      setPdfErr]      = useState(false)
   const [loading,     setLoading]     = useState(true)
-  const [mobileView,  setMobileView]  = useState<'list' | 'extraction'>('list')
+  const [mobileView,  setMobileView]  = useState<'list' | 'extraction'>(startInExtraction ? 'extraction' : 'list')
   const prevBlobRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -488,6 +491,38 @@ export default function DocumentViewerPage({
                 {!active ? 'Select a document' : 'Extraction only available for PDFs'}
               </div>
             )}
+
+            {/* ── Mobile prev/next navigation bar ── */}
+            {active && sorted.length > 1 && (() => {
+              const idx  = sorted.findIndex(f => f.id === active.id)
+              const prev = idx > 0 ? sorted[idx - 1] : null
+              const next = idx < sorted.length - 1 ? sorted[idx + 1] : null
+              return (
+                <div className="shrink-0 border-t border-gray-100 bg-white px-4 py-3 flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => prev && handleFileSelect(prev)}
+                    disabled={!prev}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 ${
+                      prev ? 'text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200' : 'text-gray-300 bg-gray-50 border border-gray-100 cursor-not-allowed'
+                    }`}
+                  >
+                    ← Prev
+                  </button>
+                  <span className="text-xs text-gray-400 font-medium tabular-nums">
+                    {idx + 1} of {sorted.length}
+                  </span>
+                  <button
+                    onClick={() => next && handleFileSelect(next)}
+                    disabled={!next}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 ${
+                      next ? 'text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200' : 'text-gray-300 bg-gray-50 border border-gray-100 cursor-not-allowed'
+                    }`}
+                  >
+                    Next →
+                  </button>
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
