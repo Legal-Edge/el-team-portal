@@ -123,8 +123,15 @@ export function FinanceClient({ entities, initialLines }: Props) {
     })
   }, [initialLines, entityFilter, groupFilter, filterStart, filterEnd])
 
-  // ── Summary ────────────────────────────────────────────────────────────────
-  const totalAmount = useMemo(() => filtered.reduce((s, r) => s + (r.amount || 0), 0), [filtered])
+  // ── Summary (Reimbursements are intercompany transfers — excluded from totals) ──
+  const totalAmount = useMemo(
+    () => filtered.reduce((s, r) => r.expense_group === 'Reimbursement' ? s : s + (r.amount || 0), 0),
+    [filtered]
+  )
+  const reimbursementTotal = useMemo(
+    () => filtered.reduce((s, r) => r.expense_group === 'Reimbursement' ? s + (r.amount || 0) : s, 0),
+    [filtered]
+  )
 
   // ── Grouped view ──────────────────────────────────────────────────────────
   const groupedData = useMemo(() => {
@@ -287,16 +294,22 @@ export function FinanceClient({ entities, initialLines }: Props) {
 
           {/* Summary bar */}
           {hasData && (
-            <div className="mb-4 flex items-center gap-6 px-4 py-3 bg-gray-50 rounded-xl text-sm">
+            <div className="mb-4 flex items-center gap-6 px-4 py-3 bg-gray-50 rounded-xl text-sm flex-wrap">
               <div>
                 <span className="text-gray-500">Showing</span>{' '}
                 <span className="font-semibold text-gray-900">{filtered.length.toLocaleString()}</span>{' '}
                 <span className="text-gray-500">line items</span>
               </div>
               <div>
-                <span className="text-gray-500">Total</span>{' '}
+                <span className="text-gray-500">Total Expenses</span>{' '}
                 <span className="font-semibold text-gray-900">{fmt(totalAmount)}</span>
               </div>
+              {reimbursementTotal > 0 && (
+                <div title="Intercompany transfers (RockPoint → Legal Edge) — excluded from total">
+                  <span className="text-gray-400">Reimbursements</span>{' '}
+                  <span className="font-medium text-gray-400 line-through">{fmt(reimbursementTotal)}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -359,21 +372,28 @@ function Table({ rows, showEntity }: { rows: TransactionLine[]; showEntity?: boo
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+          {rows.map((row, i) => {
+            const isReimbursement = row.expense_group === 'Reimbursement'
+            return (
+            <tr key={row.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${isReimbursement ? 'opacity-50' : i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
               {showEntity && (
                 <td className="px-4 py-3 text-gray-700 font-medium whitespace-nowrap">{row.entity_name}</td>
               )}
-              <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{row.expense_group || '—'}</td>
+              <td className="px-4 py-3 whitespace-nowrap">
+                {isReimbursement
+                  ? <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">Reimbursement</span>
+                  : <span className="text-gray-600">{row.expense_group || '\u2014'}</span>
+                }
+              </td>
               <td className="px-4 py-3 text-gray-600">
                 <span title={row.fully_qualified_name || undefined}>{row.account_name || '—'}</span>
               </td>
               <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(row.transaction_date)}</td>
               <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{(Array.isArray(row.qb_transactions) ? row.qb_transactions[0]?.vendor_name : row.qb_transactions?.vendor_name) || '—'}</td>
               <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{row.description || '—'}</td>
-              <td className="px-4 py-3 text-right font-medium text-gray-900 whitespace-nowrap">{fmt(row.amount)}</td>
+              <td className={`px-4 py-3 text-right font-medium whitespace-nowrap ${isReimbursement ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{fmt(row.amount)}</td>
             </tr>
-          ))}
+          )})
         </tbody>
       </table>
     </div>

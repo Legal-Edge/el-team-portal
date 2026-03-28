@@ -254,9 +254,12 @@ export async function fetchAccounts(accessToken: string, realmId: string): Promi
  * Extract top-level expense group from a fully qualified account name.
  * 'Advertising & Marketing:PPC - Google' → 'Advertising & Marketing'
  */
-export function extractExpenseGroup(fullyQualifiedName: string, accountName: string): string {
+export function extractExpenseGroup(fullyQualifiedName: string, accountName: string, entitySlug?: string): string {
   if (!fullyQualifiedName) return accountName
-  return fullyQualifiedName.split(':')[0]
+  const group = fullyQualifiedName.split(':')[0]
+  // RockPoint "Services" lines are intercompany transfers to Legal Edge — treat as pass-through
+  if (entitySlug === 'rockpoint' && group === 'Services') return 'Reimbursement'
+  return group
 }
 
 /**
@@ -294,7 +297,7 @@ async function fetchTransactionType(
  * Extract line items from a QB transaction object.
  * Handles Purchase, Bill, Invoice line detail types.
  */
-function extractLineItems(txn: any, txnType: string, accountMap: Map<string, QBAccount>): QBTransactionLine[] {
+function extractLineItems(txn: any, txnType: string, accountMap: Map<string, QBAccount>, entitySlug = ''): QBTransactionLine[] {
   const lines: QBTransactionLine[] = []
   const rawLines: any[] = txn.Line || []
 
@@ -338,7 +341,7 @@ function extractLineItems(txn: any, txnType: string, accountMap: Map<string, QBA
     // Look up full account details from our account map
     const account = accountMap.get(accountRef.value)
     const fullyQualifiedName = account?.fullyQualifiedName || accountRef.name || ''
-    const expenseGroup = extractExpenseGroup(fullyQualifiedName, accountRef.name || '')
+    const expenseGroup = extractExpenseGroup(fullyQualifiedName, accountRef.name || '', entitySlug)
 
     lines.push({
       lineNum:            i + 1,
@@ -373,8 +376,9 @@ export async function syncEntity(
   const { accessToken, realmId } = await getTokensForEntity(entityId)
 
   // Get entity info
-  const { data: entity } = await db.from('qb_entities').select('entity_name').eq('id', entityId).single()
+  const { data: entity } = await db.from('qb_entities').select('entity_name, entity_slug').eq('id', entityId).single()
   const entityName = entity?.entity_name || ''
+  const entitySlug = entity?.entity_slug || ''
 
   // Update sync state to running
   await db.from('qb_sync_state').upsert({
@@ -457,7 +461,7 @@ export async function syncEntity(
         transactionsSynced++
 
         // Extract and upsert line items
-        const lineItems = extractLineItems(txn, txnType, accountMap)
+        const lineItems = extractLineItems(txn, txnType, accountMap, entitySlug)
 
         if (lineItems.length > 0) {
           // Delete existing lines for this transaction then re-insert

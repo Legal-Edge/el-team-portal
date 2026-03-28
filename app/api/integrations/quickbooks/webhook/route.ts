@@ -78,6 +78,7 @@ async function upsertTransaction(
   db: ReturnType<typeof getFinanceDb>,
   entityId: string,
   entityName: string,
+  entitySlug: string,
   txn: any,
   txnType: string,
   accountMap: Map<string, { fqn: string; accountType: string }>
@@ -143,7 +144,7 @@ async function upsertTransaction(
     const acctInfo           = accountMap.get(accountRef.value)
     const fullyQualifiedName = acctInfo?.fqn || accountRef.name || ''
     const accountType        = acctInfo?.accountType || ''
-    const expenseGroup       = extractExpenseGroup(fullyQualifiedName, accountRef.name || '')
+    const expenseGroup       = extractExpenseGroup(fullyQualifiedName, accountRef.name || '', entitySlug)
 
     lineRows.push({
       transaction_id:       txnRow.id,
@@ -271,7 +272,7 @@ export async function POST(req: NextRequest) {
         if (!txn) continue
         // Normalize Check → Purchase (consistent storage type)
         const storedType = txnType === 'Check' ? 'Purchase' : txnType
-        await upsertTransaction(db, entity.id, entity.entity_name, txn, storedType, accountMap)
+        await upsertTransaction(db, entity.id, entity.entity_name, entity.entity_slug, txn, storedType, accountMap)
         processed++
       } catch (err) {
         console.error(`QB webhook: failed to process ${txnType} ${txnId}:`, err)
