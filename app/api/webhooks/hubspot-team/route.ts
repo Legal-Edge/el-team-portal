@@ -140,6 +140,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Identify deal IDs needing settlement sync ─────────────────────────────
+  // Any deal that was created, merged, or had a settlement-relevant property change
+  const SETTLEMENT_PROPS = new Set(['attorneys_fees', 'date___settled', 'date___disburse_funds'])
+  const settlementDealIds = new Set<string>()
+  for (const e of events) {
+    const id   = String(e.objectId)
+    const type = e.subscriptionType ?? ''
+    if (type === 'deal.creation' || type === 'deal.merge') {
+      settlementDealIds.add(id)
+    } else if (type === 'deal.propertyChange' && e.propertyName && SETTLEMENT_PROPS.has(e.propertyName)) {
+      settlementDealIds.add(id)
+    }
+    // Remove deleted deals from settlement tracking
+    if (type === 'deal.deletion') settlementDealIds.delete(id)
+  }
+
   const results: Record<string, string> = {}
 
   // ── Deal deletions ────────────────────────────────────────────────────────
@@ -284,6 +300,57 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       results[`contact:${contactId}`] = `error: ${(err as Error).message}`
+    }
+  }
+
+  // ── Settlement sync (attorneys_fees / date___settled / date___disburse_funds) ──
+  if (settlementDealIds.size > 0) {
+    const financeDb  = createClient(SUPABASE_URL, SUPABASE_KEY).schema('finance')
+    const hsToken    = process.env.HUBSPOT_ACCESS_TOKEN!
+    const settleProps = 'dealname,attorneys_fees,date___settled,date___disburse_funds'
+
+    const parseHsDate = (val: string | null | undefined): string | null => {
+      if (!val) return null
+      if (/^\d{10,}$/.test(val)) return new Date(parseInt(val)).toISOString().split('T')[0]
+      if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.split('T')[0]
+      return null
+    }
+
+    for (const dealId of settlementDealIds) {
+      try {
+        const res = await fetch(
+          `https://api.hubapi.com/crm/v3/objects/deals/${dealId}?properties=${settleProps}`,
+          { headers: { Authorization: `Bearer ${hsToken}` }, signal: AbortSignal.timeout(5000) }
+        )
+        if (!res.ok) { results[`settle:${dealId}`] = 'fetch_failed'; continue }
+
+        const deal         = await res.json()
+        const props        = deal.properties ?? {}
+        const attorneys    = parseFloat(props.attorneys_fees || '0') || 0
+        const dateSettled  = parseHsDate(props.date___settled)
+        const dateDisburse = parseHsDate(props.date___disburse_funds)
+        const revenueDate  = dateSettled || dateDisburse
+
+        if (attorneys <= 0 || !revenueDate) {
+          // If a deal previously had fees but no longer qualifies, remove it
+          await financeDb.from('settlements').delete().eq('hubspot_deal_id', dealId)
+          results[`settle:${dealId}`] = 'skipped_or_removed'
+        } else {
+          const { error: sErr } = await financeDb.from('settlements').upsert({
+            hubspot_deal_id: dealId,
+            deal_name:       props.dealname || null,
+            attorneys_fees:  attorneys,
+            date_settled:    dateSettled,
+            date_disburse:   dateDisburse,
+            revenue_date:    revenueDate,
+            entity_name:     'RockPoint Law, P.C.',
+            synced_at:       new Date().toISOString(),
+          }, { onConflict: 'hubspot_deal_id' })
+          results[`settle:${dealId}`] = sErr ? `settle_err:${sErr.message}` : 'settlement_upserted'
+        }
+      } catch (err) {
+        results[`settle:${dealId}`] = `settle_error:${(err as Error).message}`
+      }
     }
   }
 
