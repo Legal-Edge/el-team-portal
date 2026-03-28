@@ -153,11 +153,11 @@ export default async function DashboardPage() {
   ])
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8">
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6 md:space-y-8">
 
       {/* Greeting */}
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">{greeting}, {firstName}</h1>
+        <h1 className="text-xl md:text-2xl font-semibold text-gray-900">{greeting}, {firstName}</h1>
         <p className="text-sm text-gray-500 mt-0.5">{today} · Los Angeles</p>
       </div>
 
