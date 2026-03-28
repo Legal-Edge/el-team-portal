@@ -243,8 +243,20 @@ function CasesContent() {
 
   function selectStage(s: string) {
     setActiveStage(s)
-    setActiveViewId(null)
     setPage(1)
+
+    // Apply saved view for the target stage if one exists — preserves column order
+    const stageMatch = savedViews.find(v => v.stage_tab === (s || null))
+    if (stageMatch) {
+      setActiveViewId(stageMatch.id)
+      if (stageMatch.columns?.length)       setActiveColumns(stageMatch.columns)
+      if (stageMatch.sort_by)               setSortCol(stageMatch.sort_by)
+      if (stageMatch.sort_dir)              setSortDir(stageMatch.sort_dir as 'asc' | 'desc')
+    } else {
+      setActiveViewId(null)
+      setActiveColumns(s ? getDefaultColumnsForStage(s) : DEFAULT_COLUMNS)
+    }
+
     // Persist tab in URL so refresh restores it
     const params = new URLSearchParams(searchParams.toString())
     if (s) { params.set('status', s) } else { params.delete('status') }
@@ -357,16 +369,26 @@ function CasesContent() {
     <div className="p-4 md:p-6 space-y-4">
 
       {/* ── Title row ── */}
+      {/* displayTotal: for "All" tab use sum of stageCounts (stable across tab switches);
+          for a specific stage use that stage's count from stageCounts if available */}
+      {(() => {
+        const stageSum = Object.values(stageCounts).reduce((a, b) => a + b, 0)
+        const displayTotal = activeStage
+          ? (stageCounts[activeStage] ?? total)
+          : (stageSum > 0 ? stageSum : total)
+        return (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold text-gray-900">Case Queue</h1>
-          {total > 0 && <span className="text-sm text-gray-400">{total.toLocaleString()} cases</span>}
+          {displayTotal > 0 && <span className="text-sm text-gray-400">{displayTotal.toLocaleString()} cases</span>}
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium transition-all duration-500 ${isLive ? 'text-emerald-600' : 'text-gray-300'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
             {isLive ? 'Live' : 'Connecting…'}
           </span>
         </div>
       </div>
+        ) // end return inside IIFE
+      })()} {/* end displayTotal IIFE */}
 
       {/* ── Stage tabs ── */}
       <StageTabs
