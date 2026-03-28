@@ -14,9 +14,14 @@ async function fetchAll() {
   ])
 
   const [azureData, rolesData] = await Promise.all([
-    azureRes.ok  ? azureRes.json()  : { users: [], error: 'Failed to load users' },
+    azureRes.ok  ? azureRes.json()  : azureRes.json().catch(() => ({ users: [], error: `HTTP ${azureRes.status}: Failed to load users` })),
     rolesRes.ok  ? rolesRes.json()  : { roles: [], staffUsers: [] },
   ])
+
+  // Surface the real error from the API response
+  if (!azureRes.ok && azureData.detail) {
+    azureData.error = `${azureData.error ?? 'Error'}: ${JSON.stringify(azureData.detail)}`
+  }
 
   return {
     users:      azureData.users      ?? [],
