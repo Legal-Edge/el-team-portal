@@ -223,18 +223,25 @@ export function FinanceCharts({ lines, entityFilter, settlements }: Props) {
   const donutData = useMemo(() => {
     const map = new Map<string, number>()
     for (const l of expLines) {
-      // Normalize: title-case the group name to deduplicate "Advertising & Marketing" vs "Advertising & marketing"
+      // Normalize: deduplicate by lowercased key, display the title-cased version
+      // Handles "Advertising & Marketing" vs "Advertising & marketing" → same bucket
       const raw = l.expense_group || 'Other'
-      const g   = raw.charAt(0).toUpperCase() + raw.slice(1)
-      map.set(g, (map.get(g) || 0) + (l.amount || 0))
+      const key = raw.toLowerCase().trim()
+      // Title-case for display: capitalize first letter of each word
+      const display = raw.replace(/\b\w/g, c => c.toUpperCase()).trim()
+      // Use existing display name if already seen (keeps stable naming)
+      if (!map.has(key)) map.set(key, 0)
+      map.set(key, (map.get(key) || 0) + (l.amount || 0))
+      // Store display name separately
+      if (!(map as any)[`__label_${key}`]) (map as any)[`__label_${key}`] = display
     }
-    const total = Array.from(map.values()).reduce((s, v) => s + v, 0)
+    const mapTotal = Array.from(map.values()).reduce((s, v) => s + v, 0)
     const sorted = Array.from(map.entries())
-      .sort(([, a], [, b]) => b - a)
-      .map(([name, value]) => ({ name, value: Math.round(value) }))
+      .map(([key, value]) => ({ name: (map as any)[`__label_${key}`] || key, value: Math.round(value) }))
+      .sort((a, b) => b.value - a.value)
 
     // Group slices under 2% of total into "Other"
-    const THRESHOLD = total * 0.02
+    const THRESHOLD = mapTotal * 0.02
     const main  = sorted.filter(d => d.value >= THRESHOLD)
     const small = sorted.filter(d => d.value < THRESHOLD)
     if (small.length > 0) {

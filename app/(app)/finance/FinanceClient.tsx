@@ -5,23 +5,70 @@ import Link                    from 'next/link'
 import { FinanceCharts }       from './FinanceCharts'
 import type { Settlement }     from './page'
 
-type Period = '1m' | '3m' | '12m' | 'all'
+type Period =
+  | 'this_month' | 'last_month'
+  | 'last_3m'
+  | 'this_quarter' | 'last_quarter'
+  | 'ytd' | 'last_year'
+  | 'all' | 'custom'
 
 const PERIOD_LABELS: Record<Period, string> = {
-  '1m':  'This Month',
-  '3m':  'Last 3 Mo',
-  '12m': 'Last 12 Mo',
-  'all': 'All Time',
+  this_month:   'This Month',
+  last_month:   'Last Month',
+  last_3m:      'Last 3 Months',
+  this_quarter: 'This Quarter',
+  last_quarter: 'Last Quarter',
+  ytd:          'This Year So Far',
+  last_year:    'Last Year',
+  all:          'All Time',
+  custom:       'Custom Range',
 }
 
-function getPeriodStart(p: Period): string | null {
-  if (p === 'all') return null
-  const now = new Date()
-  if (p === '1m') return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-  const d = new Date(now)
-  if (p === '3m')  d.setMonth(d.getMonth() - 3)
-  if (p === '12m') d.setMonth(d.getMonth() - 12)
-  return d.toISOString().split('T')[0]
+function getPeriodRange(
+  p: Period,
+  customStart?: string,
+  customEnd?: string,
+): { start: string | null; end: string | null } {
+  const now   = new Date()
+  const today = now.toISOString().split('T')[0]
+  const y     = now.getFullYear()
+  const m     = now.getMonth() // 0-indexed
+
+  const iso = (d: Date) => d.toISOString().split('T')[0]
+
+  switch (p) {
+    case 'this_month':
+      return { start: iso(new Date(y, m, 1)),   end: today }
+    case 'last_month':
+      return { start: iso(new Date(y, m - 1, 1)), end: iso(new Date(y, m, 0)) }
+    case 'last_3m': {
+      const d = new Date(now); d.setMonth(m - 3)
+      return { start: iso(d), end: today }
+    }
+    case 'this_quarter': {
+      const q = Math.floor(m / 3)
+      return { start: iso(new Date(y, q * 3, 1)), end: today }
+    }
+    case 'last_quarter': {
+      const q = Math.floor(m / 3)
+      const lq = q === 0 ? 3 : q - 1
+      const ly = q === 0 ? y - 1 : y
+      return { start: iso(new Date(ly, lq * 3, 1)), end: iso(new Date(ly, lq * 3 + 3, 0)) }
+    }
+    case 'ytd':
+      return { start: iso(new Date(y, 0, 1)), end: today }
+    case 'last_year':
+      return { start: iso(new Date(y - 1, 0, 1)), end: iso(new Date(y - 1, 11, 31)) }
+    case 'all':
+      return { start: null, end: null }
+    case 'custom':
+      return { start: customStart || null, end: customEnd || today }
+  }
+}
+
+// Keep backward-compat helper used in useEffect for funnel metrics
+function getPeriodStart(p: Period, customStart?: string): string | null {
+  return getPeriodRange(p, customStart).start
 }
 
 /** Strip the expense group prefix from account name when redundant.
@@ -66,19 +113,6 @@ interface Props {
   settlements:  Settlement[]
 }
 
-// ─── Date presets ─────────────────────────────────────────────────────────────
-
-const now = new Date()
-
-const DATE_PRESETS = [
-  { label: 'This month',    start: new Date(now.getFullYear(), now.getMonth(), 1) },
-  { label: 'Last month',    start: new Date(now.getFullYear(), now.getMonth() - 1, 1), end: new Date(now.getFullYear(), now.getMonth(), 0) },
-  { label: 'This quarter',  start: new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1) },
-  { label: 'YTD',           start: new Date(now.getFullYear(), 0, 1) },
-  { label: 'Last 12 mo',    start: new Date(now.getFullYear(), now.getMonth() - 11, 1) },
-  { label: 'All time',      start: new Date(2000, 0, 1) },
-]
-
 function toDateStr(d: Date): string {
   return d.toISOString().split('T')[0]
 }
@@ -121,25 +155,19 @@ function exportCSV(rows: TransactionLine[]) {
 export function FinanceClient({ entities, initialLines, settlements }: Props) {
   const [entityFilter, setEntityFilter]   = useState('all')
   const [groupFilter, setGroupFilter]     = useState('all')
-  const [datePreset, setDatePreset]       = useState('Last 12 mo')
+  const [searchQuery, setSearchQuery]     = useState('')
+  const [period, setPeriod]               = useState<Period>('this_month')
   const [customStart, setCustomStart]     = useState('')
   const [customEnd, setCustomEnd]         = useState('')
   const [grouped, setGrouped]             = useState(false)
   const [syncing, setSyncing]             = useState(false)
   const [syncMsg, setSyncMsg]             = useState<string | null>(null)
-  const [period, setPeriod]               = useState<Period>('3m')
 
-  // ── Date bounds ──────────────────────────────────────────────────────────────
+  // ── Date bounds (unified — drives both charts and table) ─────────────────
   const { filterStart, filterEnd } = useMemo(() => {
-    if (datePreset === 'Custom') {
-      return { filterStart: customStart, filterEnd: customEnd || toDateStr(now) }
-    }
-    const preset = DATE_PRESETS.find(p => p.label === datePreset)
-    return {
-      filterStart: preset ? toDateStr(preset.start) : '',
-      filterEnd:   preset?.end ? toDateStr(preset.end) : toDateStr(now),
-    }
-  }, [datePreset, customStart, customEnd])
+    const { start, end } = getPeriodRange(period, customStart, customEnd)
+    return { filterStart: start || '', filterEnd: end || '' }
+  }, [period, customStart, customEnd])
 
   // ── Unique groups ──────────────────────────────────────────────────────────
   const allGroups = useMemo(() => {
@@ -148,35 +176,41 @@ export function FinanceClient({ entities, initialLines, settlements }: Props) {
     return Array.from(groups).sort()
   }, [initialLines])
 
-  // ── Filtered rows ──────────────────────────────────────────────────────────
+  // ── Filtered rows (table) ─────────────────────────────────────────────────
   const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase()
     return initialLines.filter(l => {
       if (entityFilter !== 'all' && l.entity_name !== entityFilter) return false
       if (groupFilter  !== 'all' && l.expense_group !== groupFilter) return false
       if (filterStart && l.transaction_date < filterStart) return false
       if (filterEnd   && l.transaction_date > filterEnd)   return false
+      if (q) {
+        const vendor = (Array.isArray(l.qb_transactions) ? l.qb_transactions[0]?.vendor_name : l.qb_transactions?.vendor_name) || ''
+        const haystack = [l.expense_group, l.account_name, l.description, vendor].join(' ').toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
       return true
     })
-  }, [initialLines, entityFilter, groupFilter, filterStart, filterEnd])
+  }, [initialLines, entityFilter, groupFilter, filterStart, filterEnd, searchQuery])
 
-  // ── Chart lines: period + entity filtered (no group/search — charts show full picture) ──
+  // ── Chart lines: unified period + entity (no group/search filter) ─────────
   const chartLines = useMemo(() => {
-    const periodStart = getPeriodStart(period)
     return initialLines.filter(l => {
       if (entityFilter !== 'all' && l.entity_name !== entityFilter) return false
-      if (periodStart && l.transaction_date && l.transaction_date < periodStart) return false
+      if (filterStart && l.transaction_date < filterStart) return false
+      if (filterEnd   && l.transaction_date > filterEnd)   return false
       return true
     })
-  }, [initialLines, entityFilter, period])
+  }, [initialLines, entityFilter, filterStart, filterEnd])
 
-  // ── Settlements filtered by period (revenue always from RockPoint) ────────
+  // ── Settlements filtered by unified period ────────────────────────────────
   const chartSettlements = useMemo(() => {
-    const periodStart = getPeriodStart(period)
     return settlements.filter(s => {
-      if (periodStart && s.revenue_date < periodStart) return false
+      if (filterStart && s.revenue_date < filterStart) return false
+      if (filterEnd   && s.revenue_date > filterEnd)   return false
       return true
     })
-  }, [settlements, period])
+  }, [settlements, filterStart, filterEnd])
 
   // ── Summary (Reimbursements are intercompany transfers — excluded from totals) ──
   const totalAmount = useMemo(
@@ -301,31 +335,58 @@ export function FinanceClient({ entities, initialLines, settlements }: Props) {
       {/* Filters + data */}
       {connectedCount > 0 && (
         <>
-          {/* Period toggle for charts */}
+          {/* ── Unified period selector (controls charts + table) ──────── */}
           {hasData && (
-            <div className="flex items-center gap-1 mb-6 bg-gray-50 rounded-xl p-1 w-fit">
-              {(Object.keys(PERIOD_LABELS) as Period[]).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                    period === p
-                      ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
+            <div className="flex flex-wrap items-center gap-3 mb-6">
+              {/* Period dropdown */}
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">📅</span>
+                <select
+                  value={period}
+                  onChange={e => setPeriod(e.target.value as Period)}
+                  className="pl-8 pr-8 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#FFD600] appearance-none cursor-pointer"
                 >
-                  {PERIOD_LABELS[p]}
-                </button>
-              ))}
+                  {(Object.entries(PERIOD_LABELS) as [Period, string][]).map(([val, label]) => (
+                    <option key={val} value={val}>{label}</option>
+                  ))}
+                </select>
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▾</span>
+              </div>
+
+              {/* Custom date inputs — shown only when Custom is selected */}
+              {period === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={customStart}
+                    onChange={e => setCustomStart(e.target.value)}
+                    className="text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#FFD600]"
+                  />
+                  <span className="text-gray-400 text-sm">→</span>
+                  <input
+                    type="date"
+                    value={customEnd}
+                    onChange={e => setCustomEnd(e.target.value)}
+                    className="text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#FFD600]"
+                  />
+                </div>
+              )}
+
+              {/* Period label badge — shows the active date range */}
+              {period !== 'custom' && filterStart && (
+                <span className="text-xs text-gray-400 font-medium">
+                  {filterStart}{filterEnd && filterEnd !== new Date().toISOString().split('T')[0] ? ` → ${filterEnd}` : ' → today'}
+                </span>
+              )}
             </div>
           )}
 
-          {/* Charts — driven by period + entity filter */}
+          {/* Charts — driven by unified period + entity filter */}
           {hasData && (
             <FinanceCharts lines={chartLines} entityFilter={entityFilter} settlements={chartSettlements} />
           )}
 
-          {/* Filters */}
+          {/* ── Table filters ────────────────────────────────────────────── */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
             {/* Entity filter */}
             <select
@@ -339,28 +400,6 @@ export function FinanceClient({ entities, initialLines, settlements }: Props) {
               ))}
             </select>
 
-            {/* Date preset */}
-            <select
-              value={datePreset}
-              onChange={e => setDatePreset(e.target.value)}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#FFD600]"
-            >
-              {DATE_PRESETS.map(p => (
-                <option key={p.label}>{p.label}</option>
-              ))}
-              <option value="Custom">Custom range</option>
-            </select>
-
-            {datePreset === 'Custom' && (
-              <>
-                <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
-                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#FFD600]" />
-                <span className="text-gray-400 text-sm">to</span>
-                <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
-                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#FFD600]" />
-              </>
-            )}
-
             {/* Group filter */}
             <select
               value={groupFilter}
@@ -370,6 +409,15 @@ export function FinanceClient({ entities, initialLines, settlements }: Props) {
               <option value="all">All groups</option>
               {allGroups.map(g => <option key={g}>{g}</option>)}
             </select>
+
+            {/* Search */}
+            <input
+              type="text"
+              placeholder="Search vendor, account, description…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#FFD600] min-w-[220px]"
+            />
 
             {/* Grouped toggle */}
             <button
