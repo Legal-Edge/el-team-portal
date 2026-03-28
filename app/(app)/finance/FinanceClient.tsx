@@ -3,6 +3,7 @@
 import { useState, useMemo }   from 'react'
 import Link                    from 'next/link'
 import { FinanceCharts }       from './FinanceCharts'
+import type { Settlement }     from './page'
 
 type Period = '1m' | '3m' | '12m' | 'all'
 
@@ -62,6 +63,7 @@ interface TransactionLine {
 interface Props {
   entities:     Entity[]
   initialLines: TransactionLine[]
+  settlements:  Settlement[]
 }
 
 // ─── Date presets ─────────────────────────────────────────────────────────────
@@ -116,7 +118,7 @@ function exportCSV(rows: TransactionLine[]) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function FinanceClient({ entities, initialLines }: Props) {
+export function FinanceClient({ entities, initialLines, settlements }: Props) {
   const [entityFilter, setEntityFilter]   = useState('all')
   const [groupFilter, setGroupFilter]     = useState('all')
   const [datePreset, setDatePreset]       = useState('Last 12 mo')
@@ -166,6 +168,15 @@ export function FinanceClient({ entities, initialLines }: Props) {
       return true
     })
   }, [initialLines, entityFilter, period])
+
+  // ── Settlements filtered by period (revenue always from RockPoint) ────────
+  const chartSettlements = useMemo(() => {
+    const periodStart = getPeriodStart(period)
+    return settlements.filter(s => {
+      if (periodStart && s.revenue_date < periodStart) return false
+      return true
+    })
+  }, [settlements, period])
 
   // ── Summary (Reimbursements are intercompany transfers — excluded from totals) ──
   const totalAmount = useMemo(
@@ -311,7 +322,7 @@ export function FinanceClient({ entities, initialLines }: Props) {
 
           {/* Charts — driven by period + entity filter */}
           {hasData && (
-            <FinanceCharts lines={chartLines} entityFilter={entityFilter} />
+            <FinanceCharts lines={chartLines} entityFilter={entityFilter} settlements={chartSettlements} />
           )}
 
           {/* Filters */}

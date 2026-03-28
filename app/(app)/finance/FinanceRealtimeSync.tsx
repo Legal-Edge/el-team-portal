@@ -23,18 +23,12 @@ export function FinanceRealtimeSync() {
 
     const channel = supabase
       .channel('finance-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event:  '*',   // INSERT, UPDATE, DELETE
-          schema: 'finance',
-          table:  'qb_transaction_lines',
-        },
-        () => {
-          // Silently re-run server component data fetch
-          router.refresh()
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'finance', table: 'qb_transaction_lines' }, () => {
+        router.refresh()
+      })
+      .on('postgres_changes', { event: '*', schema: 'finance', table: 'settlements' }, () => {
+        router.refresh()
+      })
       .subscribe()
 
     return () => {

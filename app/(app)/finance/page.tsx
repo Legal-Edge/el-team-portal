@@ -5,6 +5,17 @@ import { FinanceClient }        from './FinanceClient'
 import { FinanceRealtimeSync }  from './FinanceRealtimeSync'
 import type { Metadata }        from 'next'
 
+export interface Settlement {
+  id:             string
+  hubspot_deal_id: string
+  deal_name:      string | null
+  attorneys_fees: number
+  date_settled:   string | null
+  date_disburse:  string | null
+  revenue_date:   string
+  entity_name:    string
+}
+
 export const metadata: Metadata = { title: 'Finance' }
 
 function getFinanceDb() {
@@ -54,13 +65,20 @@ export default async function FinancePage() {
 
   const lines = allLines
 
+  // Load settlements (revenue) from HubSpot sync
+  const { data: settlements } = await db
+    .from('settlements')
+    .select('id, hubspot_deal_id, deal_name, attorneys_fees, date_settled, date_disburse, revenue_date, entity_name')
+    .order('revenue_date', { ascending: false })
+
   return (
     <>
-      {/* Invisible realtime listener — refreshes server data when QB webhook lands */}
+      {/* Invisible realtime listener — refreshes server data when QB webhook or settlement lands */}
       <FinanceRealtimeSync />
       <FinanceClient
         entities={entities ?? []}
         initialLines={lines ?? []}
+        settlements={(settlements ?? []) as Settlement[]}
       />
     </>
   )

@@ -63,9 +63,16 @@ export interface ChartLine {
   qb_transactions:  { vendor_name: string | null } | { vendor_name: string | null }[] | null
 }
 
+interface SettlementRow {
+  revenue_date:   string
+  attorneys_fees: number
+  deal_name:      string | null
+}
+
 interface Props {
   lines:        ChartLine[]
   entityFilter: string
+  settlements:  SettlementRow[]
 }
 
 // ─── KPI card ─────────────────────────────────────────────────────────────────
@@ -110,7 +117,7 @@ function ChartTooltip({ active, payload, label }: any) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function FinanceCharts({ lines, entityFilter }: Props) {
+export function FinanceCharts({ lines, entityFilter, settlements }: Props) {
   // Exclude reimbursements
   const expLines = useMemo(
     () => lines.filter(l => l.expense_group !== 'Reimbursement' && (l.amount || 0) > 0),
@@ -191,6 +198,54 @@ export function FinanceCharts({ lines, entityFilter }: Props) {
 
   const showBothEntities = entityFilter === 'all'
 
+  // ── Revenue (settlements) ─────────────────────────────────────────────────
+  const totalRevenue = useMemo(
+    () => settlements.reduce((s, r) => s + (r.attorneys_fees || 0), 0),
+    [settlements]
+  )
+  const netProfit  = totalRevenue - total
+  const marginPct  = totalRevenue > 0 ? (netProfit / totalRevenue * 100) : 0
+
+  // Monthly revenue for trend chart overlay
+  const monthlyRevMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const s of settlements) {
+      const m = s.revenue_date?.slice(0, 7)
+      if (!m) continue
+      map.set(m, (map.get(m) || 0) + (s.attorneys_fees || 0))
+    }
+    return map
+  }, [settlements])
+
+  // Merge monthly expense + revenue data
+  const monthlyDataWithRevenue = useMemo(() => {
+    // Collect all months present in either dataset
+    const allMonths = new Set<string>()
+    for (const d of monthlyData) allMonths.add(d.month)
+    monthlyRevMap.forEach((_, m) => allMonths.add(monthLabel(m)))
+
+    // Rebuild from expense data, add Revenue and Profit columns
+    const expByMonth = new Map(monthlyData.map(d => [d.month, d]))
+    // Build from raw months
+    const rawMonths = new Set<string>()
+    for (const l of expLines) { const m = l.transaction_date?.slice(0,7); if (m) rawMonths.add(m) }
+    monthlyRevMap.forEach((_, m) => rawMonths.add(m))
+
+    return Array.from(rawMonths)
+      .sort()
+      .map(m => {
+        const label = monthLabel(m)
+        const existing = expByMonth.get(label) || { month: label, 'Legal Edge': 0, 'RockPoint': 0, 'Total': 0 }
+        const revenue  = Math.round(monthlyRevMap.get(m) || 0)
+        const expenses = existing['Total'] as number
+        return {
+          ...existing,
+          'Revenue':    revenue,
+          'Net Profit': Math.round(revenue - expenses),
+        }
+      })
+  }, [monthlyData, monthlyRevMap, expLines])
+
   // ── Marketing monthly stacked bar ─────────────────────────────────────────
   const mktLines = useMemo(
     () => expLines.filter(l => l.expense_group?.toLowerCase().includes('advertis') || l.expense_group?.toLowerCase().includes('marketing')),
@@ -254,28 +309,36 @@ export function FinanceCharts({ lines, entityFilter }: Props) {
 
       {/* ── KPI cards ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="Total Expenses"
-          value={fmtFull(total)}
-          sub="selected period"
-        />
-        <KpiCard
-          label="vs Last Month"
-          value={`${momPct >= 0 ? '+' : ''}${momPct.toFixed(1)}%`}
-          sub={`${fmtFull(currMonthTotal)} this month`}
-          color={momPct > 15 ? '#EF4444' : momPct < -5 ? '#10B981' : '#111827'}
-        />
-        <KpiCard
-          label="Top Category"
-          value={topGroup || '\u2014'}
-          sub={topGroupAmt > 0 ? fmtFull(topGroupAmt) : undefined}
-        />
-        <KpiCard
-          label="Marketing Share"
-          value={`${mktPct.toFixed(1)}%`}
-          sub="of total spend"
-          color="#B45309"
-        />
+        {totalRevenue > 0 ? (
+          <>
+            <KpiCard label="Revenue" value={fmtFull(totalRevenue)} sub="attorneys fees settled" color="#16A34A" />
+            <KpiCard label="Total Expenses" value={fmtFull(total)} sub="selected period" />
+            <KpiCard
+              label="Net Profit"
+              value={fmtFull(netProfit)}
+              sub="revenue minus expenses"
+              color={netProfit >= 0 ? '#16A34A' : '#EF4444'}
+            />
+            <KpiCard
+              label="Margin"
+              value={`${marginPct.toFixed(1)}%`}
+              sub="net profit / revenue"
+              color={marginPct >= 20 ? '#16A34A' : marginPct >= 0 ? '#B45309' : '#EF4444'}
+            />
+          </>
+        ) : (
+          <>
+            <KpiCard label="Total Expenses" value={fmtFull(total)} sub="selected period" />
+            <KpiCard
+              label="vs Last Month"
+              value={`${momPct >= 0 ? '+' : ''}${momPct.toFixed(1)}%`}
+              sub={`${fmtFull(currMonthTotal)} this month`}
+              color={momPct > 15 ? '#EF4444' : momPct < -5 ? '#10B981' : '#111827'}
+            />
+            <KpiCard label="Top Category" value={topGroup || '\u2014'} sub={topGroupAmt > 0 ? fmtFull(topGroupAmt) : undefined} />
+            <KpiCard label="Marketing Share" value={`${mktPct.toFixed(1)}%`} sub="of total spend" color="#B45309" />
+          </>
+        )}
       </div>
 
       {/* ── Charts row ────────────────────────────────────────────────────── */}
@@ -285,7 +348,7 @@ export function FinanceCharts({ lines, entityFilter }: Props) {
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-5">Monthly Expenses</h3>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={monthlyData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <LineChart data={monthlyDataWithRevenue} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
               <XAxis
                 dataKey="month"
@@ -329,11 +392,18 @@ export function FinanceCharts({ lines, entityFilter }: Props) {
               <Line
                 type="monotone"
                 dataKey={showBothEntities ? 'Total' : (entityFilter.toLowerCase().includes('legal edge') ? 'Legal Edge' : 'RockPoint')}
-                stroke="#FFD600"
-                strokeWidth={2.5}
+                stroke="#6B7280"
+                strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 5 }}
+                name="Expenses"
               />
+              {totalRevenue > 0 && (
+                <Line type="monotone" dataKey="Revenue" stroke="#16A34A" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+              )}
+              {totalRevenue > 0 && (
+                <Line type="monotone" dataKey="Net Profit" stroke="#FFD600" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} strokeDasharray="4 2" />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>
