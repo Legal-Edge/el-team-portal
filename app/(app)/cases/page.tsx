@@ -240,6 +240,8 @@ function CasesContent() {
   function selectStage(s: string) {
     setActiveStage(s)
     setPage(1)
+    setCases([])      // clear immediately so stale rows don't show during fetch
+    setLoading(true)  // show skeleton right away
 
     // Apply saved view for the target stage if one exists — preserves column order
     const stageMatch = savedViews.find(v => v.stage_tab === (s || null))
@@ -536,7 +538,36 @@ function CasesContent() {
       {/* ── Table ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         {loading && cases.length === 0 ? (
-          <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: activeColumns.length * 80, tableLayout: 'fixed' }}>
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  {activeColumns.map(colId => {
+                    const colDef = ALL_COLUMNS.find(c => c.id === colId)
+                    return (
+                      <th key={colId} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">
+                        {colDef?.label ?? colId}
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    {activeColumns.map(colId => (
+                      <td key={colId} className="px-4 py-3">
+                        <div
+                          className="h-3 bg-gray-100 rounded"
+                          style={{ width: `${55 + ((i * 7 + colId.length * 3) % 35)}%` }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : cases.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-gray-400 text-sm">No cases found</p>
