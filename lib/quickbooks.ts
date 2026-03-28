@@ -265,7 +265,7 @@ export function extractExpenseGroup(fullyQualifiedName: string, accountName: str
 async function fetchTransactionType(
   accessToken: string,
   realmId: string,
-  type: 'Purchase' | 'Bill' | 'Invoice' | 'JournalEntry',
+  type: 'Purchase' | 'Bill' | 'Invoice' | 'JournalEntry' | 'Check',
   startDate: string,
   endDate: string
 ): Promise<any[]> {
