@@ -391,7 +391,7 @@ function Table({ rows, showEntity }: { rows: TransactionLine[]; showEntity?: boo
               <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(row.transaction_date)}</td>
               <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{(Array.isArray(row.qb_transactions) ? row.qb_transactions[0]?.vendor_name : row.qb_transactions?.vendor_name) || '—'}</td>
               <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{row.description || '—'}</td>
-              <td className={`px-4 py-3 text-right font-medium whitespace-nowrap ${isReimbursement ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{fmt(row.amount)}</td>
+              <td className={['px-4 py-3 text-right font-medium whitespace-nowrap', isReimbursement ? 'text-gray-400 line-through' : 'text-gray-900'].join(' ')}>{fmt(row.amount)}</td>
             </tr>
           )})
         </tbody>
