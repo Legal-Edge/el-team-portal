@@ -3,6 +3,19 @@
 import { useState, useMemo } from 'react'
 import Link                   from 'next/link'
 
+/** Strip the expense group prefix from account name when redundant.
+ *  "Utilities:Phone Service" + group "Utilities" → "Phone Service"
+ *  "Advertising & Marketing" + group "Advertising & Marketing" → unchanged */
+function displayAccount(accountName: string | null, expenseGroup: string | null): string {
+  if (!accountName) return '\u2014'
+  if (!expenseGroup) return accountName
+  const prefix = expenseGroup + ':'
+  if (accountName.toLowerCase().startsWith(prefix.toLowerCase())) {
+    return accountName.slice(prefix.length).trim()
+  }
+  return accountName
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Entity {
@@ -405,7 +418,7 @@ function Table({ rows, showEntity }: { rows: TransactionLine[]; showEntity?: boo
                 }
               </td>
               <td className="px-4 py-3 text-gray-600">
-                <span title={row.fully_qualified_name || undefined}>{row.account_name || '\u2014'}</span>
+                <span title={row.fully_qualified_name || undefined}>{displayAccount(row.account_name, row.expense_group)}</span>
               </td>
               <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(row.transaction_date)}</td>
               <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{(Array.isArray(row.qb_transactions) ? row.qb_transactions[0]?.vendor_name : row.qb_transactions?.vendor_name) || '\u2014'}</td>
