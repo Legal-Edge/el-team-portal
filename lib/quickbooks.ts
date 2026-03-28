@@ -425,13 +425,17 @@ export async function syncEntity(
         const vendorName  = txn.EntityRef?.name || txn.VendorRef?.name || null
         const customerName = txn.CustomerRef?.name || null
 
+        // Normalize Check → Purchase (same concept, prevent duplicates if
+        // the same transaction appears in both QB endpoints)
+        const storedTxnType = txnType === 'Check' ? 'Purchase' : txnType
+
         // Upsert transaction header
         const { data: txnRow, error: txnError } = await db
           .from('qb_transactions')
           .upsert({
             entity_id:          entityId,
             qb_transaction_id:  txn.Id,
-            transaction_type:   txnType,
+            transaction_type:   storedTxnType,
             transaction_date:   txnDate,
             doc_number:         txn.DocNumber || null,
             vendor_name:        vendorName,
