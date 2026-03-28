@@ -1080,7 +1080,7 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments, 
       <div className={`rounded-xl border-2 overflow-hidden ${style ? `${style.border} ${style.bg}` : 'border-gray-200 bg-white'}`}>
 
         {/* Header row */}
-        <div className="px-5 py-4 flex items-center justify-between gap-4">
+        <div className="px-5 py-4 flex items-start md:items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-4 min-w-0">
             {style && dec ? (
               <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0 ${style.barBg}`}>
@@ -1111,7 +1111,7 @@ function CaseAnalysisPanel({ caseId, repairStats, roFiles, onSwitchToDocuments, 
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             {analysis?.confidence && style && (
               <span className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${style.border} ${style.text} bg-white`}>
                 {analysis.confidence_score != null
@@ -3664,7 +3664,7 @@ export default function CaseDetailPage() {
         <div className="min-w-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
 
           {/* Tab bar */}
-          <div className="flex gap-0 border-b border-gray-100 mb-5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0">
+          <div className="flex gap-0 border-b border-gray-100 mb-5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 pr-8 md:pr-0">
             {TABS.map(tab => (
               <button
                 key={tab.id}
