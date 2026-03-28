@@ -9,7 +9,10 @@ export default async function SettingsLayout({ children }: { children: React.Rea
 
   return (
     <div className="flex h-full">
-      <SettingsSidebar />
+      {/* Sidebar hidden on mobile — single section, accessible via bottom nav */}
+      <div className="hidden md:block">
+        <SettingsSidebar />
+      </div>
       <div className="flex-1 overflow-y-auto">
         {children}
       </div>

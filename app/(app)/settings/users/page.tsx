@@ -103,7 +103,7 @@ export default async function UsersPage() {
   const canEditRoles = session.email.toLowerCase() === ROLE_EDITOR.toLowerCase()
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-900">Users &amp; Teams</h1>
         <p className="mt-1 text-sm text-gray-500">
