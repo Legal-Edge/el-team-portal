@@ -2,7 +2,9 @@
 
 import { useMemo } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  LineChart, Line,
+  BarChart, Bar,
+  XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts'
@@ -55,8 +57,10 @@ export interface ChartLine {
   id:               string
   entity_name:      string | null
   expense_group:    string | null
+  account_name:     string | null
   amount:           number | null
   transaction_date: string | null
+  qb_transactions:  { vendor_name: string | null } | { vendor_name: string | null }[] | null
 }
 
 interface Props {
@@ -186,6 +190,64 @@ export function FinanceCharts({ lines, entityFilter }: Props) {
   }, [expLines])
 
   const showBothEntities = entityFilter === 'all'
+
+  // ── Marketing monthly stacked bar ─────────────────────────────────────────
+  const mktLines = useMemo(
+    () => expLines.filter(l => l.expense_group?.toLowerCase().includes('advertis') || l.expense_group?.toLowerCase().includes('marketing')),
+    [expLines]
+  )
+
+  // Collect unique marketing sub-accounts (strip group prefix)
+  const mktAccounts = useMemo(() => {
+    const set = new Set<string>()
+    for (const l of mktLines) {
+      const raw = l.account_name || l.expense_group || 'Other'
+      const grp = l.expense_group || ''
+      const prefix = grp + ':'
+      const name = raw.toLowerCase().startsWith(prefix.toLowerCase()) ? raw.slice(prefix.length).trim() : raw
+      set.add(name)
+    }
+    return Array.from(set)
+  }, [mktLines])
+
+  const mktMonthlyData = useMemo(() => {
+    const map = new Map<string, Record<string, number>>()
+    for (const l of mktLines) {
+      const m = l.transaction_date?.slice(0, 7)
+      if (!m) continue
+      const raw = l.account_name || l.expense_group || 'Other'
+      const grp = l.expense_group || ''
+      const prefix = grp + ':'
+      const acct = raw.toLowerCase().startsWith(prefix.toLowerCase()) ? raw.slice(prefix.length).trim() : raw
+      if (!map.has(m)) map.set(m, {})
+      const e = map.get(m)!
+      e[acct] = (e[acct] || 0) + (l.amount || 0)
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([m, data]) => {
+        const row: Record<string, string | number> = { month: monthLabel(m) }
+        for (const acct of mktAccounts) row[acct] = Math.round(data[acct] || 0)
+        return row
+      })
+  }, [mktLines, mktAccounts])
+
+  // Colors for marketing sub-accounts
+  const MKT_PALETTE = ['#FFD600','#1F2937','#3B82F6','#F59E0B','#10B981','#8B5CF6','#EF4444','#F97316','#6B7280','#34D399']
+
+  // ── Top vendors ───────────────────────────────────────────────────────────
+  const topVendors = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const l of expLines) {
+      const txns = l.qb_transactions
+      const vendor = (Array.isArray(txns) ? txns[0]?.vendor_name : txns?.vendor_name) || 'Unknown'
+      map.set(vendor, (map.get(vendor) || 0) + (l.amount || 0))
+    }
+    return Array.from(map.entries())
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([name, value]) => ({ name: name.length > 22 ? name.slice(0, 22) + '\u2026' : name, fullName: name, value: Math.round(value) }))
+  }, [expLines])
 
   return (
     <div className="space-y-5 mb-8">
@@ -322,6 +384,65 @@ export function FinanceCharts({ lines, entityFilter }: Props) {
               ))}
             </div>
           </div>
+        </div>
+
+      </div>
+
+      {/* ── Phase 2: Marketing breakdown + Top vendors ─────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* Marketing stacked bar — 2/3 width */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 p-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Marketing Spend Breakdown</h3>
+          <p className="text-xs text-gray-400 mb-5">Monthly by channel / account</p>
+          {mktMonthlyData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={mktMonthlyData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={fmtShort} tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} width={56} />
+                <Tooltip formatter={tooltipFmt} contentStyle={tooltipStyle} />
+                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                {mktAccounts.map((acct, i) => (
+                  <Bar key={acct} dataKey={acct} stackId="mkt" fill={MKT_PALETTE[i % MKT_PALETTE.length]} radius={i === mktAccounts.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-48 flex items-center justify-center text-sm text-gray-400">No marketing data for this period</div>
+          )}
+        </div>
+
+        {/* Top vendors — 1/3 width */}
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Top Vendors</h3>
+          <p className="text-xs text-gray-400 mb-5">By total spend</p>
+          {topVendors.length > 0 ? (
+            <div className="space-y-2.5">
+              {topVendors.map((v, i) => {
+                const pct = total > 0 ? (v.value / total * 100) : 0
+                return (
+                  <div key={v.fullName}>
+                    <div className="flex items-center justify-between text-xs mb-0.5">
+                      <span className="text-gray-700 truncate" title={v.fullName}>{v.name}</span>
+                      <span className="text-gray-500 font-medium ml-2 flex-shrink-0">{fmtShort(v.value)}</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.min(pct * (100 / (topVendors[0]?.value > 0 ? topVendors[0].value / total * 100 : 1)), 100)}%`,
+                          backgroundColor: i === 0 ? '#FFD600' : '#E5E7EB',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="h-48 flex items-center justify-center text-sm text-gray-400">No vendor data</div>
+          )}
         </div>
 
       </div>
