@@ -32,9 +32,12 @@ export async function POST(req: NextRequest) {
   } catch { /* empty body is fine */ }
 
   const now      = new Date()
-  const endDate  = body.endDate   || now.toISOString().split('T')[0]
-  // Default: full history from 2015 (covers all likely QB data)
-  const startDate = body.startDate || '2015-01-01'
+  const endDate  = body.endDate || now.toISOString().split('T')[0]
+  // Default: last 90 days for Sync Now (fast, within Vercel timeout)
+  // Full History uses explicit startDate per chunk via the connect page
+  const defaultStart = new Date(now)
+  defaultStart.setDate(defaultStart.getDate() - 90)
+  const startDate = body.startDate || defaultStart.toISOString().split('T')[0]
 
   const db = getFinanceDb()
 
