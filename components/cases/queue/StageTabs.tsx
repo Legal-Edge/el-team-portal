@@ -29,10 +29,16 @@ interface Props {
 }
 
 export function StageTabs({ activeStage, stageCounts, total, onSelect }: Props) {
+  // Use sum of individual stage counts for "All" tab — this is stable across tab switches
+  // because stageCounts is never cleared, only updated when API responds.
+  // Fall back to total only when stageCounts hasn't populated yet.
+  const stageCountSum = Object.values(stageCounts).reduce((a, b) => a + b, 0)
+  const allCount = stageCountSum > 0 ? stageCountSum : total
+
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-none border-b border-gray-200 pb-px">
       {STAGE_TABS.map(tab => {
-        const count = tab.id === '' ? total : (stageCounts[tab.id] ?? 0)
+        const count = tab.id === '' ? allCount : (stageCounts[tab.id] ?? 0)
         const isActive = activeStage === tab.id
         return (
           <button

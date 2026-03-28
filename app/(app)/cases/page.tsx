@@ -164,12 +164,8 @@ function CasesContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeStage, sortCol, sortDir, filterGroups])
 
-  // Update columns when stage changes
-  useEffect(() => {
-    if (!activeViewId) {
-      setActiveColumns(activeStage ? getDefaultColumnsForStage(activeStage) : DEFAULT_COLUMNS)
-    }
-  }, [activeStage, activeViewId])
+  // Column updates on stage change are handled entirely in selectStage()
+  // to avoid double-firing and overriding user's column arrangement.
 
   // ── SSE live updates ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -369,26 +365,16 @@ function CasesContent() {
     <div className="p-4 md:p-6 space-y-4">
 
       {/* ── Title row ── */}
-      {/* displayTotal: for "All" tab use sum of stageCounts (stable across tab switches);
-          for a specific stage use that stage's count from stageCounts if available */}
-      {(() => {
-        const stageSum = Object.values(stageCounts).reduce((a, b) => a + b, 0)
-        const displayTotal = activeStage
-          ? (stageCounts[activeStage] ?? total)
-          : (stageSum > 0 ? stageSum : total)
-        return (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold text-gray-900">Case Queue</h1>
-          {displayTotal > 0 && <span className="text-sm text-gray-400">{displayTotal.toLocaleString()} cases</span>}
+          {total > 0 && <span className="text-sm text-gray-400">{total.toLocaleString()} cases</span>}
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium transition-all duration-500 ${isLive ? 'text-emerald-600' : 'text-gray-300'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
             {isLive ? 'Live' : 'Connecting…'}
           </span>
         </div>
       </div>
-        ) // end return inside IIFE
-      })()} {/* end displayTotal IIFE */}
 
       {/* ── Stage tabs ── */}
       <StageTabs
