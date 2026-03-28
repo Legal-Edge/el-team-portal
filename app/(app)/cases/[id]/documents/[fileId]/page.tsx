@@ -324,10 +324,11 @@ export default function DocumentViewerPage({
   const [fileId,    setFileId]    = useState<string | null>(null)
   const [files,     setFiles]     = useState<FileItem[]>([])
   const [caseInfo,  setCaseInfo]  = useState<CaseInfo | null>(null)
-  const [active,    setActive]    = useState<FileItem | null>(null)
-  const [blobUrl,   setBlobUrl]   = useState<string | null>(null)
-  const [pdfErr,    setPdfErr]    = useState(false)
-  const [loading,   setLoading]   = useState(true)
+  const [active,      setActive]      = useState<FileItem | null>(null)
+  const [blobUrl,     setBlobUrl]     = useState<string | null>(null)
+  const [pdfErr,      setPdfErr]      = useState(false)
+  const [loading,     setLoading]     = useState(true)
+  const [mobileView,  setMobileView]  = useState<'list' | 'extraction'>('list')
   const prevBlobRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -379,6 +380,7 @@ export default function DocumentViewerPage({
 
   function handleFileSelect(f: FileItem) {
     setActive(f)
+    setMobileView('extraction')
     router.replace(`/cases/${caseId}/documents/${f.id}` as never)
   }
 
@@ -399,47 +401,101 @@ export default function DocumentViewerPage({
     </div>
   )
 
+  // Compact header info line
+  const headerMeta = [clientName, caseInfo?.state_jurisdiction, vehicleStr, caseInfo?.case_number ? `#${caseInfo.case_number}` : null]
+    .filter(Boolean).join(' · ')
+
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-3.5rem)] md:h-[calc(100vh-4rem)] overflow-hidden">
 
       {/* ── Top header bar ─────────────────────────────────────────── */}
-      <div className="shrink-0 bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4">
-        <Link
-          href={`/cases/${caseId}` as never}
-          className="flex items-center gap-1.5 text-sm font-semibold text-gray-600 hover:text-gray-900 transition-colors shrink-0 group"
-        >
-          <span className="group-hover:-translate-x-0.5 transition-transform inline-block">←</span>
-          Back to Case
-        </Link>
-        <div className="w-px h-5 bg-gray-200 shrink-0" />
+      <div className="shrink-0 bg-white border-b border-gray-200 px-4 md:px-6 py-2.5 md:py-3 flex items-center gap-3">
 
-        {/* Client + vehicle info */}
-        <div className="flex items-center gap-3 flex-wrap min-w-0">
-          {clientName && (
-            <span className="text-sm font-bold text-gray-900">{clientName}</span>
-          )}
-          {caseInfo?.state_jurisdiction && (
-            <span className="text-xs font-semibold text-white bg-gray-500 px-2 py-0.5 rounded-full">{caseInfo.state_jurisdiction}</span>
-          )}
-          {vehicleStr && (
-            <>
-              <span className="text-gray-300 select-none">·</span>
-              <span className="text-sm text-gray-600">{vehicleStr}</span>
-            </>
-          )}
-          {caseInfo?.case_number && (
-            <span className="text-xs text-gray-400 ml-1">#{caseInfo.case_number}</span>
-          )}
-        </div>
+        {/* Mobile: back button changes based on view */}
+        {mobileView === 'extraction' ? (
+          <button
+            onClick={() => setMobileView('list')}
+            className="md:hidden flex items-center gap-1 text-sm font-semibold text-gray-600 active:text-gray-900 shrink-0"
+          >
+            ← Documents
+          </button>
+        ) : (
+          <Link
+            href={`/cases/${caseId}` as never}
+            className="flex items-center gap-1.5 text-sm font-semibold text-gray-600 hover:text-gray-900 transition-colors shrink-0 group"
+          >
+            <span className="group-hover:-translate-x-0.5 transition-transform inline-block">←</span>
+            <span className="hidden md:inline">Back to Case</span>
+            <span className="md:hidden">Case</span>
+          </Link>
+        )}
 
-        <div className="flex-1" />
-        <span className="text-xs text-gray-400 shrink-0">{files.length} documents · {pdfFiles.filter(f => f.ai_extraction).length}/{pdfFiles.length} extracted</span>
+        <div className="w-px h-4 bg-gray-200 shrink-0" />
+
+        {/* Single-line meta on mobile, wrapped on desktop */}
+        <p className="text-xs text-gray-500 truncate flex-1 min-w-0">{headerMeta}</p>
+
+        <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">
+          {files.length} docs · {pdfFiles.filter(f => f.ai_extraction).length}/{pdfFiles.length} extracted
+        </span>
+
+        {/* Mobile: show active file name when in extraction view */}
+        {mobileView === 'extraction' && active && (
+          <span className="text-xs text-gray-400 shrink-0 sm:hidden">{pdfFiles.filter(f => f.ai_extraction).length}/{pdfFiles.length} extracted</span>
+        )}
       </div>
 
-      {/* ── Body ───────────────────────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* ── MOBILE: Single-pane view ────────────────────────────────── */}
+      <div className="md:hidden flex flex-col flex-1 overflow-hidden">
+        {mobileView === 'list' ? (
+          /* File list */
+          <div className="flex-1 overflow-y-auto bg-white">
+            {sorted.map(f => (
+              <FileListItem
+                key={f.id}
+                file={f}
+                active={active?.id === f.id}
+                onClick={() => handleFileSelect(f)}
+              />
+            ))}
+          </div>
+        ) : (
+          /* Extraction panel + optional SharePoint link */
+          <div className="flex-1 overflow-hidden flex flex-col bg-white">
+            {/* File name + SharePoint link */}
+            {active && (
+              <div className="shrink-0 px-4 py-2.5 border-b border-gray-100 flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-gray-700 truncate flex-1">{active.file_name}</p>
+                {active.web_url && (
+                  <a href={active.web_url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-blue-500 hover:underline shrink-0">
+                    View PDF ↗
+                  </a>
+                )}
+              </div>
+            )}
+            {active && isPdf ? (
+              <ExtractionPanel
+                key={active.id}
+                file={active}
+                onUpdated={updated => {
+                  setActive(updated)
+                  setFiles(prev => prev.map(f => f.id === updated.id ? updated : f))
+                }}
+              />
+            ) : (
+              <div className="flex items-center justify-center flex-1 text-gray-400 text-sm px-6 text-center">
+                {!active ? 'Select a document' : 'Extraction only available for PDFs'}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
-        {/* ── Left sidebar ─────────────────────────────────────────── */}
+      {/* ── DESKTOP: Three-column layout ────────────────────────────── */}
+      <div className="hidden md:flex flex-1 min-h-0 overflow-hidden">
+
+        {/* Left sidebar — file list */}
         <div className="w-72 shrink-0 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto">
             {sorted.map(f => (
@@ -453,7 +509,7 @@ export default function DocumentViewerPage({
           </div>
         </div>
 
-        {/* ── PDF viewer ───────────────────────────────────────────── */}
+        {/* PDF viewer */}
         <div className="flex-1 bg-gray-100 flex flex-col min-w-0">
           {!active ? (
             <div className="flex items-center justify-center h-full text-gray-400">
@@ -486,7 +542,7 @@ export default function DocumentViewerPage({
           )}
         </div>
 
-        {/* ── Extraction panel ─────────────────────────────────────── */}
+        {/* Extraction panel */}
         <div className="w-80 shrink-0 bg-white border-l border-gray-200 overflow-hidden flex flex-col">
           {active && isPdf ? (
             <ExtractionPanel
