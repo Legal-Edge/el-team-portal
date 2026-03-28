@@ -90,7 +90,7 @@ export default function QBConnectPage() {
     let current = new Date(startYear, 0, 1)
     while (current < now) {
       const chunkEnd = new Date(current)
-      chunkEnd.setMonth(chunkEnd.getMonth() + 6)
+      chunkEnd.setMonth(chunkEnd.getMonth() + 3) // 3-month chunks (smaller = fewer timeouts)
       const end = chunkEnd > now ? now : new Date(chunkEnd.getTime() - 86400000)
       chunks.push({
         start: current.toISOString().split('T')[0],

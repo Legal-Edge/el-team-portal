@@ -306,7 +306,7 @@ function extractLineItems(txn: any, txnType: string, accountMap: Map<string, QBA
     let description = line.Description || ''
     let amount = line.Amount || 0
 
-    if (txnType === 'Purchase' || txnType === 'Bill') {
+    if (txnType === 'Purchase' || txnType === 'Bill' || txnType === 'Check') {
       // Account-based expense line (direct account coding)
       const acctDetail = line.AccountBasedExpenseLineDetail
       if (acctDetail?.AccountRef) {
@@ -414,7 +414,8 @@ export async function syncEntity(
     const accountMap = new Map<string, QBAccount>(accounts.map(a => [a.id, a]))
 
     // ── 2. Sync transactions ─────────────────────────────────────────────────
-    const txnTypes: Array<'Purchase' | 'Bill' | 'Invoice' | 'JournalEntry'> = ['Purchase', 'Bill', 'Invoice', 'JournalEntry']
+    // Check = separate QB entity (wire transfers, check payments) — not the same as Purchase
+    const txnTypes: Array<'Purchase' | 'Bill' | 'Invoice' | 'JournalEntry' | 'Check'> = ['Purchase', 'Bill', 'Invoice', 'JournalEntry', 'Check']
 
     for (const txnType of txnTypes) {
       const txns = await fetchTransactionType(accessToken, realmId, txnType, startDate, endDate)
