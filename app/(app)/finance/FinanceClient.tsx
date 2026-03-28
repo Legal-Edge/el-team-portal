@@ -387,9 +387,9 @@ function Table({ rows, showEntity }: { rows: TransactionLine[]; showEntity?: boo
         <thead>
           <tr className="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
             {showEntity && <th className="px-4 py-3 font-medium">Entity</th>}
+            <th className="px-4 py-3 font-medium">Date</th>
             <th className="px-4 py-3 font-medium">Expense Group</th>
             <th className="px-4 py-3 font-medium">Account</th>
-            <th className="px-4 py-3 font-medium">Date</th>
             <th className="px-4 py-3 font-medium">Vendor</th>
             <th className="px-4 py-3 font-medium">Description</th>
             <th className="px-4 py-3 font-medium text-right">Amount</th>
@@ -411,6 +411,7 @@ function Table({ rows, showEntity }: { rows: TransactionLine[]; showEntity?: boo
               {showEntity && (
                 <td className="px-4 py-3 text-gray-700 font-medium whitespace-nowrap">{row.entity_name}</td>
               )}
+              <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(row.transaction_date)}</td>
               <td className="px-4 py-3 whitespace-nowrap">
                 {isR
                   ? <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">Reimbursement</span>
@@ -420,7 +421,6 @@ function Table({ rows, showEntity }: { rows: TransactionLine[]; showEntity?: boo
               <td className="px-4 py-3 text-gray-600">
                 <span title={row.fully_qualified_name || undefined}>{displayAccount(row.account_name, row.expense_group)}</span>
               </td>
-              <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(row.transaction_date)}</td>
               <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{(Array.isArray(row.qb_transactions) ? row.qb_transactions[0]?.vendor_name : row.qb_transactions?.vendor_name) || '\u2014'}</td>
               <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{row.description || '\u2014'}</td>
               <td className={amtCls}>{fmt(row.amount)}</td>
