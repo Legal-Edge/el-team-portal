@@ -1,7 +1,27 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import Link                   from 'next/link'
+import { useState, useMemo }   from 'react'
+import Link                    from 'next/link'
+import { FinanceCharts }       from './FinanceCharts'
+
+type Period = '1m' | '3m' | '12m' | 'all'
+
+const PERIOD_LABELS: Record<Period, string> = {
+  '1m':  'This Month',
+  '3m':  'Last 3 Mo',
+  '12m': 'Last 12 Mo',
+  'all': 'All Time',
+}
+
+function getPeriodStart(p: Period): string | null {
+  if (p === 'all') return null
+  const now = new Date()
+  if (p === '1m') return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+  const d = new Date(now)
+  if (p === '3m')  d.setMonth(d.getMonth() - 3)
+  if (p === '12m') d.setMonth(d.getMonth() - 12)
+  return d.toISOString().split('T')[0]
+}
 
 /** Strip the expense group prefix from account name when redundant.
  *  "Utilities:Phone Service" + group "Utilities" → "Phone Service"
@@ -105,6 +125,7 @@ export function FinanceClient({ entities, initialLines }: Props) {
   const [grouped, setGrouped]             = useState(false)
   const [syncing, setSyncing]             = useState(false)
   const [syncMsg, setSyncMsg]             = useState<string | null>(null)
+  const [period, setPeriod]               = useState<Period>('3m')
 
   // ── Date bounds ──────────────────────────────────────────────────────────────
   const { filterStart, filterEnd } = useMemo(() => {
@@ -135,6 +156,16 @@ export function FinanceClient({ entities, initialLines }: Props) {
       return true
     })
   }, [initialLines, entityFilter, groupFilter, filterStart, filterEnd])
+
+  // ── Chart lines: period + entity filtered (no group/search — charts show full picture) ──
+  const chartLines = useMemo(() => {
+    const periodStart = getPeriodStart(period)
+    return initialLines.filter(l => {
+      if (entityFilter !== 'all' && l.entity_name !== entityFilter) return false
+      if (periodStart && l.transaction_date && l.transaction_date < periodStart) return false
+      return true
+    })
+  }, [initialLines, entityFilter, period])
 
   // ── Summary (Reimbursements are intercompany transfers — excluded from totals) ──
   const totalAmount = useMemo(
@@ -259,6 +290,30 @@ export function FinanceClient({ entities, initialLines }: Props) {
       {/* Filters + data */}
       {connectedCount > 0 && (
         <>
+          {/* Period toggle for charts */}
+          {hasData && (
+            <div className="flex items-center gap-1 mb-6 bg-gray-50 rounded-xl p-1 w-fit">
+              {(Object.keys(PERIOD_LABELS) as Period[]).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    period === p
+                      ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {PERIOD_LABELS[p]}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Charts — driven by period + entity filter */}
+          {hasData && (
+            <FinanceCharts lines={chartLines} entityFilter={entityFilter} />
+          )}
+
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
             {/* Entity filter */}
