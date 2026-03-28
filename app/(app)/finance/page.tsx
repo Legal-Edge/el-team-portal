@@ -1,8 +1,9 @@
-import { redirect }        from 'next/navigation'
-import { getTeamSession }  from '@/lib/session'
-import { createClient }    from '@supabase/supabase-js'
-import { FinanceClient }   from './FinanceClient'
-import type { Metadata }   from 'next'
+import { redirect }             from 'next/navigation'
+import { getTeamSession }       from '@/lib/session'
+import { createClient }         from '@supabase/supabase-js'
+import { FinanceClient }        from './FinanceClient'
+import { FinanceRealtimeSync }  from './FinanceRealtimeSync'
+import type { Metadata }        from 'next'
 
 export const metadata: Metadata = { title: 'Finance' }
 
@@ -54,9 +55,13 @@ export default async function FinancePage() {
   const lines = allLines
 
   return (
-    <FinanceClient
-      entities={entities ?? []}
-      initialLines={lines ?? []}
-    />
+    <>
+      {/* Invisible realtime listener — refreshes server data when QB webhook lands */}
+      <FinanceRealtimeSync />
+      <FinanceClient
+        entities={entities ?? []}
+        initialLines={lines ?? []}
+      />
+    </>
   )
 }
