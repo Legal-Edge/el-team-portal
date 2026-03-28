@@ -373,27 +373,36 @@ function Table({ rows, showEntity }: { rows: TransactionLine[]; showEntity?: boo
         </thead>
         <tbody>
           {rows.map((row, i) => {
-            const isReimbursement = row.expense_group === 'Reimbursement'
+            const isR = row.expense_group === 'Reimbursement'
+            const rowCls = isR
+              ? 'border-b border-gray-50 hover:bg-gray-50 transition-colors opacity-50'
+              : (i % 2 === 0
+                  ? 'border-b border-gray-50 hover:bg-gray-50 transition-colors'
+                  : 'border-b border-gray-50 hover:bg-gray-50 transition-colors bg-gray-50/40')
+            const amtCls = isR
+              ? 'px-4 py-3 text-right font-medium whitespace-nowrap text-gray-400 line-through'
+              : 'px-4 py-3 text-right font-medium whitespace-nowrap text-gray-900'
             return (
-            <tr key={row.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${isReimbursement ? 'opacity-50' : i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+            <tr key={row.id} className={rowCls}>
               {showEntity && (
                 <td className="px-4 py-3 text-gray-700 font-medium whitespace-nowrap">{row.entity_name}</td>
               )}
               <td className="px-4 py-3 whitespace-nowrap">
-                {isReimbursement
+                {isR
                   ? <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">Reimbursement</span>
                   : <span className="text-gray-600">{row.expense_group || '\u2014'}</span>
                 }
               </td>
               <td className="px-4 py-3 text-gray-600">
-                <span title={row.fully_qualified_name || undefined}>{row.account_name || '—'}</span>
+                <span title={row.fully_qualified_name || undefined}>{row.account_name || '\u2014'}</span>
               </td>
               <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(row.transaction_date)}</td>
-              <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{(Array.isArray(row.qb_transactions) ? row.qb_transactions[0]?.vendor_name : row.qb_transactions?.vendor_name) || '—'}</td>
-              <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{row.description || '—'}</td>
-              <td className={['px-4 py-3 text-right font-medium whitespace-nowrap', isReimbursement ? 'text-gray-400 line-through' : 'text-gray-900'].join(' ')}>{fmt(row.amount)}</td>
+              <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{(Array.isArray(row.qb_transactions) ? row.qb_transactions[0]?.vendor_name : row.qb_transactions?.vendor_name) || '\u2014'}</td>
+              <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{row.description || '\u2014'}</td>
+              <td className={amtCls}>{fmt(row.amount)}</td>
             </tr>
-          )})
+            )
+          })}
         </tbody>
       </table>
     </div>
