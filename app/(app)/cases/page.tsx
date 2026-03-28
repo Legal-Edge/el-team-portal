@@ -10,6 +10,7 @@ import { ViewTabs }     from '@/components/cases/queue/ViewTabs'
 import { FilterBuilder } from '@/components/cases/queue/FilterBuilder'
 import { ColumnManager } from '@/components/cases/queue/ColumnManager'
 import { CaseRow, type CaseRecord } from '@/components/cases/queue/CaseRow'
+import { CaseCard }                  from '@/components/cases/queue/CaseCard'
 import {
   ALL_COLUMNS,
   DEFAULT_COLUMNS,
@@ -535,7 +536,7 @@ function CasesContent() {
         {saveError   && <span className="text-xs text-red-500 font-medium">{saveError}</span>}
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Table (desktop) / Cards (mobile) ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         {loading && cases.length === 0 ? (
           <div className="overflow-x-auto">
@@ -575,11 +576,26 @@ function CasesContent() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* ── Mobile card list ── */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {cases.map((c, idx) => (
+                <CaseCard
+                  key={c.id}
+                  c={c}
+                  isFlashed={flashedIds.has(c.id)}
+                  isLastViewed={lastViewedId === c.hubspot_deal_id}
+                  queueIds={cases.map(x => x.hubspot_deal_id)}
+                  queueIdx={idx}
+                  activeStage={activeStage}
+                />
+              ))}
+            </div>
+
+            {/* ── Desktop table ── */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm" style={{ minWidth: activeColumns.length * 80, tableLayout: 'fixed' }}>
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50 group">
-                    
                     {activeColumns.map(colId => {
                       const colDef  = ALL_COLUMNS.find(c => c.id === colId)
                       const sortKey = SORTABLE_COLS[colId]
@@ -637,7 +653,7 @@ function CasesContent() {
 
             {/* Load more */}
             {hasMore && (
-              <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+              <div className="px-4 md:px-6 py-4 border-t border-gray-100 flex items-center justify-between">
                 <p className="text-sm text-gray-400">
                   Showing {cases.length.toLocaleString()} of {total.toLocaleString()}
                 </p>
