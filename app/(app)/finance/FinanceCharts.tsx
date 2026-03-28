@@ -93,23 +93,58 @@ function KpiCard({
   )
 }
 
-// ─── Shared tooltip formatter (avoid inline type annotation in JSX) ──────────
-const tooltipFmt = (v: unknown) => fmtFull(Number(v))
+// ─── Shared tooltip style ─────────────────────────────────────────────────────
 const tooltipStyle = { borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 11 }
 
-// ─── Custom tooltip ───────────────────────────────────────────────────────────
+// ─── Line chart tooltip — hides $0 rows ──────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
+  const visible = payload.filter((p: any) => p.value > 0)
+  if (!visible.length) return null
   return (
-    <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-3 text-xs">
-      <p className="text-gray-500 font-medium mb-1">{label}</p>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2 justify-between">
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full inline-block" style={{ background: p.color }} />
-            <span className="text-gray-600">{p.dataKey}</span>
+    <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-3 text-xs min-w-[180px]">
+      <p className="text-gray-400 font-medium mb-2 text-[11px]">{label}</p>
+      {visible.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center justify-between gap-4 py-0.5">
+          <span className="flex items-center gap-1.5 text-gray-600">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
+            {p.name || p.dataKey}
           </span>
-          <span className="font-semibold text-gray-900 ml-4">{fmtFull(p.value)}</span>
+          <span className="font-semibold text-gray-900 tabular-nums">{fmtFull(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Donut tooltip ────────────────────────────────────────────────────────────
+function DonutTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null
+  const p = payload[0]
+  if (!p || !p.value) return null
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl shadow-sm px-3 py-2 text-xs">
+      <p className="text-gray-600 font-medium">{p.name}</p>
+      <p className="text-gray-900 font-bold mt-0.5">{fmtFull(p.value)}</p>
+    </div>
+  )
+}
+
+// ─── Bar chart tooltip — hides $0 rows, sorts by value ───────────────────────
+function BarTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  const visible = payload.filter((p: any) => p.value > 0).sort((a: any, b: any) => b.value - a.value)
+  if (!visible.length) return null
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-3 text-xs min-w-[200px] max-h-60 overflow-y-auto">
+      <p className="text-gray-400 font-medium mb-2 text-[11px]">{label}</p>
+      {visible.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center justify-between gap-4 py-0.5">
+          <span className="flex items-center gap-1.5 text-gray-600 truncate">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.fill || p.color }} />
+            <span className="truncate">{p.name || p.dataKey}</span>
+          </span>
+          <span className="font-semibold text-gray-900 tabular-nums flex-shrink-0">{fmtFull(p.value)}</span>
         </div>
       ))}
     </div>
@@ -177,23 +212,36 @@ export function FinanceCharts({ lines, entityFilter, settlements }: Props) {
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([m, d]) => ({
-        month:          monthLabel(m),
-        'Legal Edge':   Math.round(d.le),
-        'RockPoint':    Math.round(d.rpl),
-        'Total':        Math.round(d.le + d.rpl),
+        month:      monthLabel(m),
+        'Legal Edge': Math.round(d.le),
+        'RockPoint':  Math.round(d.rpl),
+        'Expenses':   Math.round(d.le + d.rpl),
       }))
   }, [expLines])
 
-  // ── Donut breakdown ───────────────────────────────────────────────────────
+  // ── Donut breakdown — normalize case, group small slices into "Other" ─────
   const donutData = useMemo(() => {
     const map = new Map<string, number>()
     for (const l of expLines) {
-      const g = l.expense_group || 'Other'
+      // Normalize: title-case the group name to deduplicate "Advertising & Marketing" vs "Advertising & marketing"
+      const raw = l.expense_group || 'Other'
+      const g   = raw.charAt(0).toUpperCase() + raw.slice(1)
       map.set(g, (map.get(g) || 0) + (l.amount || 0))
     }
-    return Array.from(map.entries())
+    const total = Array.from(map.values()).reduce((s, v) => s + v, 0)
+    const sorted = Array.from(map.entries())
       .sort(([, a], [, b]) => b - a)
       .map(([name, value]) => ({ name, value: Math.round(value) }))
+
+    // Group slices under 2% of total into "Other"
+    const THRESHOLD = total * 0.02
+    const main  = sorted.filter(d => d.value >= THRESHOLD)
+    const small = sorted.filter(d => d.value < THRESHOLD)
+    if (small.length > 0) {
+      const otherTotal = small.reduce((s, d) => s + d.value, 0)
+      main.push({ name: `Other (${small.length})`, value: Math.round(otherTotal) })
+    }
+    return main
   }, [expLines])
 
   const showBothEntities = entityFilter === 'all'
@@ -235,9 +283,9 @@ export function FinanceCharts({ lines, entityFilter, settlements }: Props) {
       .sort()
       .map(m => {
         const label = monthLabel(m)
-        const existing = expByMonth.get(label) || { month: label, 'Legal Edge': 0, 'RockPoint': 0, 'Total': 0 }
+        const existing = expByMonth.get(label) || { month: label, 'Legal Edge': 0, 'RockPoint': 0, 'Expenses': 0 }
         const revenue  = Math.round(monthlyRevMap.get(m) || 0)
-        const expenses = existing['Total'] as number
+        const expenses = existing['Expenses'] as number
         return {
           ...existing,
           'Revenue':    revenue,
@@ -391,7 +439,7 @@ export function FinanceCharts({ lines, entityFilter, settlements }: Props) {
               )}
               <Line
                 type="monotone"
-                dataKey={showBothEntities ? 'Total' : (entityFilter.toLowerCase().includes('legal edge') ? 'Legal Edge' : 'RockPoint')}
+                dataKey={showBothEntities ? 'Expenses' : (entityFilter.toLowerCase().includes('legal edge') ? 'Legal Edge' : 'RockPoint')}
                 stroke="#6B7280"
                 strokeWidth={2}
                 dot={false}
@@ -429,7 +477,7 @@ export function FinanceCharts({ lines, entityFilter, settlements }: Props) {
                       <Cell key={entry.name} fill={groupColor(entry.name, i)} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={tooltipFmt} contentStyle={tooltipStyle} />
+                  <Tooltip content={DonutTooltip} />
                 </PieChart>
               </ResponsiveContainer>
               {/* Center label */}
@@ -471,7 +519,7 @@ export function FinanceCharts({ lines, entityFilter, settlements }: Props) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={fmtShort} tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} width={56} />
-                <Tooltip formatter={tooltipFmt} contentStyle={tooltipStyle} />
+                <Tooltip content={BarTooltip} />
                 <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
                 {mktAccounts.map((acct, i) => (
                   <Bar key={acct} dataKey={acct} stackId="mkt" fill={MKT_PALETTE[i % MKT_PALETTE.length]} radius={i === mktAccounts.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
